@@ -1,0 +1,601 @@
+{
+  "privileges": [],
+  "supportsHighlight": true,
+  "supportsKeyboardFocus": true,
+  "supportsLandingPage": true,
+  "supportsEmptyDataView": true,
+  "supportsMultiVisualSelection": true,
+  "keepAllMetadataColumns": true,
+  "tooltips": {
+    "roles": [
+      "Tooltips"
+    ],
+    "supportedTypes": {
+      "default": true,
+      "canvas": true
+    },
+    "supportEnhancedTooltips": true
+  },
+  "expandCollapse": {
+    "roles": [
+      "Hierarchy"
+    ],
+    "addDataViewFlags": {
+      "defaultValue": true
+    }
+  },
+  "drilldown": {
+    "roles": [
+      "Hierarchy"
+    ]
+  },
+  "dataRoles": [
+    {
+      "name": "Hierarchy",
+      "displayName": "Entity > Period > Band",
+      "displayNameKey": "Role_Hierarchy",
+      "description": "Ordered grouping fields: entity first, then an optional period, then the ordered band.",
+      "descriptionKey": "Role_Hierarchy_Description",
+      "kind": "Grouping"
+    },
+    {
+      "name": "Series",
+      "displayName": "Series",
+      "displayNameKey": "Role_Series",
+      "description": "Optional split with at most two rendered values.",
+      "descriptionKey": "Role_Series_Description",
+      "kind": "Grouping"
+    },
+    {
+      "name": "Profiles",
+      "displayName": "Profile measures",
+      "displayNameKey": "Role_Profiles",
+      "description": "One to six numeric measures. Each measure becomes one profile arm.",
+      "descriptionKey": "Role_Profiles_Description",
+      "kind": "Measure",
+      "requiredTypes": [
+        {
+          "numeric": true
+        },
+        {
+          "integer": true
+        }
+      ]
+    },
+    {
+      "name": "ContextValue",
+      "displayName": "Context value (future map value)",
+      "displayNameKey": "Role_ContextValue",
+      "description": "Optional entity level measure reserved for a future map or context extension. This package does not render geography.",
+      "descriptionKey": "Role_ContextValue_Description",
+      "kind": "Measure",
+      "requiredTypes": [
+        {
+          "numeric": true
+        },
+        {
+          "integer": true
+        }
+      ]
+    },
+    {
+      "name": "Latitude",
+      "displayName": "Latitude (future map role)",
+      "displayNameKey": "Role_Latitude",
+      "description": "Optional latitude measure reserved for a future point extension. This package does not render geography.",
+      "descriptionKey": "Role_Latitude_Description",
+      "kind": "Measure",
+      "requiredTypes": [
+        {
+          "numeric": true
+        },
+        {
+          "integer": true
+        }
+      ]
+    },
+    {
+      "name": "Longitude",
+      "displayName": "Longitude (future map role)",
+      "displayNameKey": "Role_Longitude",
+      "description": "Optional longitude measure reserved for a future point extension. This package does not render geography.",
+      "descriptionKey": "Role_Longitude_Description",
+      "kind": "Measure",
+      "requiredTypes": [
+        {
+          "numeric": true
+        },
+        {
+          "integer": true
+        }
+      ]
+    },
+    {
+      "name": "Geometry",
+      "displayName": "Custom geometry text (future map role)",
+      "displayNameKey": "Role_Geometry",
+      "description": "Optional text measure reserved for a future custom geometry extension. This package validates the payload and never parses or renders geometry.",
+      "descriptionKey": "Role_Geometry_Description",
+      "kind": "Measure",
+      "requiredTypes": [
+        {
+          "text": true
+        }
+      ]
+    },
+    {
+      "name": "Tooltips",
+      "displayName": "Tooltips",
+      "displayNameKey": "Role_Tooltips",
+      "description": "Additional fields shown in the native tooltip.",
+      "descriptionKey": "Role_Tooltips_Description",
+      "kind": "GroupingOrMeasure"
+    }
+  ],
+  "dataViewMappings": [
+    {
+      "conditions": [
+        {
+          "Hierarchy": {
+            "max": 3
+          },
+          "Series": {
+            "max": 1
+          },
+          "Profiles": {
+            "max": 6
+          },
+          "ContextValue": {
+            "max": 1
+          },
+          "Latitude": {
+            "max": 1
+          },
+          "Longitude": {
+            "max": 1
+          },
+          "Geometry": {
+            "max": 1
+          },
+          "Tooltips": {
+            "max": 10
+          }
+        }
+      ],
+      "matrix": {
+        "rows": {
+          "for": {
+            "in": "Hierarchy"
+          },
+          "dataReductionAlgorithm": {
+            "window": {
+              "count": 4000
+            }
+          }
+        },
+        "columns": {
+          "for": {
+            "in": "Series"
+          },
+          "dataReductionAlgorithm": {
+            "top": {
+              "count": 3
+            }
+          }
+        },
+        "values": {
+          "select": [
+            {
+              "for": {
+                "in": "Profiles"
+              }
+            },
+            {
+              "bind": {
+                "to": "ContextValue"
+              }
+            },
+            {
+              "bind": {
+                "to": "Latitude"
+              }
+            },
+            {
+              "bind": {
+                "to": "Longitude"
+              }
+            },
+            {
+              "bind": {
+                "to": "Geometry"
+              }
+            },
+            {
+              "for": {
+                "in": "Tooltips"
+              }
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "objects": {
+    "data": {
+      "displayName": "Data",
+      "displayNameKey": "Format_Data_Card",
+      "properties": {
+        "normalization": {
+          "displayName": "Normalization",
+          "displayNameKey": "Format_Normalization",
+          "type": {
+            "enumeration": [
+              {
+                "value": "raw",
+                "displayName": "Raw value",
+                "displayNameKey": "Format_Normalization_Raw"
+              },
+              {
+                "value": "shareOfProfile",
+                "displayName": "Share of profile",
+                "displayNameKey": "Format_Normalization_ShareOfProfile"
+              },
+              {
+                "value": "shareWithinSeries",
+                "displayName": "Share within series",
+                "displayNameKey": "Format_Normalization_ShareWithinSeries"
+              },
+              {
+                "value": "indexToMaximum",
+                "displayName": "Index to maximum",
+                "displayNameKey": "Format_Normalization_IndexToMaximum"
+              },
+              {
+                "value": "alreadyPercent",
+                "displayName": "Already a percentage",
+                "displayNameKey": "Format_Normalization_AlreadyPercent"
+              }
+            ]
+          }
+        },
+        "percentScale": {
+          "displayName": "Bound percentage scale",
+          "displayNameKey": "Format_PercentScale",
+          "type": {
+            "enumeration": [
+              {
+                "value": "fraction",
+                "displayName": "0 to 1",
+                "displayNameKey": "Format_PercentScale_Fraction"
+              },
+              {
+                "value": "percent",
+                "displayName": "0 to 100",
+                "displayNameKey": "Format_PercentScale_Percent"
+              }
+            ]
+          }
+        },
+        "blankPolicy": {
+          "displayName": "Blank values",
+          "displayNameKey": "Format_BlankPolicy",
+          "type": {
+            "enumeration": [
+              {
+                "value": "missing",
+                "displayName": "Show as missing",
+                "displayNameKey": "Format_BlankPolicy_Missing"
+              },
+              {
+                "value": "zero",
+                "displayName": "Treat as zero",
+                "displayNameKey": "Format_BlankPolicy_Zero"
+              }
+            ]
+          }
+        },
+        "maxProfiles": {
+          "displayName": "Maximum profiles",
+          "displayNameKey": "Format_MaxProfiles",
+          "type": {
+            "integer": true
+          }
+        },
+        "maxSeries": {
+          "displayName": "Maximum series",
+          "displayNameKey": "Format_MaxSeries",
+          "type": {
+            "integer": true
+          }
+        }
+      }
+    },
+    "layout": {
+      "displayName": "Layout",
+      "displayNameKey": "Format_Layout_Card",
+      "properties": {
+        "arrangement": {
+          "displayName": "Arrangement",
+          "displayNameKey": "Format_Arrangement",
+          "type": {
+            "enumeration": [
+              {
+                "value": "auto",
+                "displayName": "Automatic",
+                "displayNameKey": "Format_Arrangement_Auto"
+              },
+              {
+                "value": "radial",
+                "displayName": "Radial arms",
+                "displayNameKey": "Format_Arrangement_Radial"
+              },
+              {
+                "value": "stacked",
+                "displayName": "Stacked panels",
+                "displayNameKey": "Format_Arrangement_Stacked"
+              }
+            ]
+          }
+        },
+        "armRotation": {
+          "displayName": "Arm rotation (degrees)",
+          "displayNameKey": "Format_ArmRotation",
+          "type": {
+            "integer": true
+          }
+        },
+        "bandGap": {
+          "displayName": "Band gap",
+          "displayNameKey": "Format_BandGap",
+          "type": {
+            "numeric": true
+          }
+        },
+        "showEntityList": {
+          "displayName": "Show entity list",
+          "displayNameKey": "Format_ShowEntityList",
+          "type": {
+            "bool": true
+          }
+        },
+        "direction": {
+          "displayName": "Text direction",
+          "displayNameKey": "Format_Direction",
+          "type": {
+            "enumeration": [
+              {
+                "value": "auto",
+                "displayName": "Automatic",
+                "displayNameKey": "Format_Direction_Auto"
+              },
+              {
+                "value": "ltr",
+                "displayName": "Left to right",
+                "displayNameKey": "Format_Direction_Ltr"
+              },
+              {
+                "value": "rtl",
+                "displayName": "Right to left",
+                "displayNameKey": "Format_Direction_Rtl"
+              }
+            ]
+          }
+        }
+      }
+    },
+    "profiles": {
+      "displayName": "Profiles",
+      "displayNameKey": "Format_Profiles_Card",
+      "properties": {
+        "barThickness": {
+          "displayName": "Band thickness",
+          "displayNameKey": "Format_BarThickness",
+          "type": {
+            "numeric": true
+          }
+        },
+        "showValueLabels": {
+          "displayName": "Show value labels",
+          "displayNameKey": "Format_ShowValueLabels",
+          "type": {
+            "bool": true
+          }
+        },
+        "showBandLabels": {
+          "displayName": "Show band labels",
+          "displayNameKey": "Format_ShowBandLabels",
+          "type": {
+            "bool": true
+          }
+        },
+        "showAxis": {
+          "displayName": "Show axis",
+          "displayNameKey": "Format_ShowAxis",
+          "type": {
+            "bool": true
+          }
+        },
+        "fontSize": {
+          "displayName": "Text size",
+          "displayNameKey": "Format_FontSize",
+          "type": {
+            "formatting": {
+              "fontSize": true
+            }
+          }
+        },
+        "labelColor": {
+          "displayName": "Label color",
+          "displayNameKey": "Format_LabelColor",
+          "type": {
+            "fill": {
+              "solid": {
+                "color": true
+              }
+            }
+          }
+        }
+      }
+    },
+    "series": {
+      "displayName": "Series",
+      "displayNameKey": "Format_Series_Card",
+      "properties": {
+        "primaryColor": {
+          "displayName": "First series color",
+          "displayNameKey": "Format_PrimaryColor",
+          "type": {
+            "fill": {
+              "solid": {
+                "color": true
+              }
+            }
+          }
+        },
+        "secondaryColor": {
+          "displayName": "Second series color",
+          "displayNameKey": "Format_SecondaryColor",
+          "type": {
+            "fill": {
+              "solid": {
+                "color": true
+              }
+            }
+          }
+        },
+        "showLegend": {
+          "displayName": "Show legend",
+          "displayNameKey": "Format_ShowLegend",
+          "type": {
+            "bool": true
+          }
+        },
+        "usePatterns": {
+          "displayName": "Differentiate with patterns",
+          "displayNameKey": "Format_UsePatterns",
+          "type": {
+            "bool": true
+          }
+        }
+      }
+    },
+    "period": {
+      "displayName": "Period",
+      "displayNameKey": "Format_Period_Card",
+      "properties": {
+        "show": {
+          "displayName": "Show period control",
+          "displayNameKey": "Format_ShowPeriod",
+          "type": {
+            "bool": true
+          }
+        },
+        "position": {
+          "displayName": "Control position",
+          "displayNameKey": "Format_PeriodPosition",
+          "type": {
+            "enumeration": [
+              {
+                "value": "top",
+                "displayName": "Top",
+                "displayNameKey": "Format_PeriodPosition_Top"
+              },
+              {
+                "value": "bottom",
+                "displayName": "Bottom",
+                "displayNameKey": "Format_PeriodPosition_Bottom"
+              }
+            ]
+          }
+        }
+      }
+    },
+    "header": {
+      "displayName": "Header",
+      "displayNameKey": "Format_Header_Card",
+      "properties": {
+        "show": {
+          "displayName": "Show header",
+          "displayNameKey": "Format_ShowHeader",
+          "type": {
+            "bool": true
+          }
+        },
+        "showEntityKey": {
+          "displayName": "Show entity key",
+          "displayNameKey": "Format_ShowEntityKey",
+          "type": {
+            "bool": true
+          }
+        },
+        "showContextValue": {
+          "displayName": "Show context value",
+          "displayNameKey": "Format_ShowContextValue",
+          "type": {
+            "bool": true
+          }
+        },
+        "fontSize": {
+          "displayName": "Text size",
+          "displayNameKey": "Format_HeaderFontSize",
+          "type": {
+            "formatting": {
+              "fontSize": true
+            }
+          }
+        }
+      }
+    },
+    "diagnostics": {
+      "displayName": "Diagnostics",
+      "displayNameKey": "Format_Diagnostics_Card",
+      "properties": {
+        "showDiagnostics": {
+          "displayName": "Show diagnostics",
+          "displayNameKey": "Format_ShowDiagnostics",
+          "type": {
+            "bool": true
+          }
+        },
+        "showCounts": {
+          "displayName": "Show received and retained counts",
+          "displayNameKey": "Format_ShowCounts",
+          "type": {
+            "bool": true
+          }
+        }
+      }
+    },
+    "accessibility": {
+      "displayName": "Accessibility",
+      "displayNameKey": "Format_Accessibility_Card",
+      "properties": {
+        "showTable": {
+          "displayName": "Profile table",
+          "displayNameKey": "Format_ShowTable",
+          "type": {
+            "enumeration": [
+              {
+                "value": "screenReader",
+                "displayName": "Screen reader only",
+                "displayNameKey": "Format_ShowTable_ScreenReader"
+              },
+              {
+                "value": "visible",
+                "displayName": "Visible",
+                "displayNameKey": "Format_ShowTable_Visible"
+              }
+            ]
+          }
+        },
+        "reducedMotion": {
+          "displayName": "Reduced motion",
+          "displayNameKey": "Format_ReducedMotion",
+          "type": {
+            "bool": true
+          }
+        }
+      }
+    }
+  }
+}

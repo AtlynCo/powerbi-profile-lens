@@ -1,0 +1,59 @@
+{
+  "name": "profile-lens-visual",
+  "description": "Atlyn Profile Lens for Power BI: a report-bound, profile-only band explorer",
+  "version": "1.0.0",
+  "private": false,
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/garrett-hamers/powerbi-profile-lens"
+  },
+  "license": "MIT",
+  "scripts": {
+    "pbiviz": "pbiviz",
+    "start": "pbiviz start",
+    "clean": "node scripts/clean.cjs",
+    "install:clean": "node scripts/clean-install.cjs",
+    "typecheck": "tsc --noEmit -p tsconfig.test.json",
+    "lint": "eslint .",
+    "check:capabilities": "node scripts/check-capabilities-conditions.mjs capabilities.json",
+    "check:metadata": "node scripts/check-metadata.cjs",
+    "check:forbidden": "node scripts/scan-forbidden-calls.cjs",
+    "checks": "npm run check:capabilities && npm run check:metadata && npm run check:forbidden",
+    "pretest": "npm run checks",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "package": "npm run clean && pbiviz package --certification-audit && node scripts/normalize-pbiviz.cjs",
+    "audit:certification": "node scripts/certification-audit.cjs",
+    "audit:reproducible": "node scripts/reproducibility-audit.cjs",
+    "audit:npm": "npm audit --audit-level=moderate",
+    "probe:build": "node scripts/build-probe-bundle.cjs",
+    "probe:browser": "npm run package && npm run probe:build && playwright test --config=playwright.config.ts",
+    "release:manifest": "node scripts/release-manifest.cjs",
+    "sample:pbip": "node scripts/build-sample-report.cjs",
+    "assets:brand": "node scripts/generate-brand-assets.cjs",
+    "validate:certification": "npm run audit:npm && npm run lint && npm run typecheck && npm test && npm run package && npm run sample:pbip && npm run audit:certification && npm run probe:browser && npm run release:manifest"
+  },
+  "dependencies": {
+    "powerbi-visuals-api": "5.11.0",
+    "powerbi-visuals-utils-formattingmodel": "7.1.0"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.61.1",
+    "esbuild": "0.28.1",
+    "eslint": "10.8.0",
+    "eslint-plugin-powerbi-visuals": "1.1.1",
+    "happy-dom": "20.11.0",
+    "jszip": "3.10.1",
+    "less": "4.8.1",
+    "powerbi-visuals-tools": "7.2.1",
+    "typescript": "5.9.3",
+    "vitest": "4.1.10",
+    "write-file-atomic": "6.0.0"
+  },
+  "engines": {
+    "node": ">=20.10.0"
+  },
+  "overrides": {
+    "uuid": "11.1.1"
+  }
+}

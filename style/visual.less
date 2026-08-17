@@ -1,0 +1,244 @@
+@font-stack: "Segoe UI", wf_segoe-ui_normal, helvetica, arial, sans-serif;
+@text-color: #252423;
+@muted-color: #605E5C;
+@border-color: #E1DFDD;
+
+.profile-lens {
+    box-sizing: border-box;
+    display: flex;
+    flex-direction: column;
+    width: 100%;
+    height: 100%;
+    overflow: hidden;
+    font-family: @font-stack;
+    font-size: 12px;
+    color: @text-color;
+    background: transparent;
+
+    *,
+    *::before,
+    *::after {
+        box-sizing: border-box;
+    }
+
+    &:focus-visible {
+        outline: 2px solid @text-color;
+        outline-offset: -2px;
+    }
+
+    [hidden] {
+        display: none !important;
+    }
+}
+
+.profile-lens-body {
+    display: flex;
+    flex: 1 1 auto;
+    min-height: 0;
+    min-width: 0;
+    order: 3;
+}
+
+.profile-lens-chart {
+    position: relative;
+    flex: 1 1 auto;
+    min-width: 0;
+    min-height: 0;
+
+    svg {
+        display: block;
+        width: 100%;
+        height: 100%;
+        max-width: 100%;
+        max-height: 100%;
+    }
+}
+
+.profile-lens-header {
+    flex: 0 0 auto;
+    padding: 2px 4px;
+    order: 1;
+
+    .profile-lens-header-title {
+        margin: 0;
+        font-weight: 600;
+        line-height: 1.2;
+    }
+
+    .profile-lens-header-subtitle {
+        margin: 0;
+        color: @muted-color;
+        font-size: 11px;
+    }
+}
+
+.profile-lens-entities {
+    flex: 0 0 148px;
+    width: 148px;
+    max-width: 148px;
+    overflow-y: auto;
+    border-right: 1px solid @border-color;
+}
+
+.profile-lens-entity-option {
+    padding: 2px 6px;
+    cursor: default;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+
+    &[aria-selected="true"] {
+        font-weight: 600;
+        text-decoration: underline;
+    }
+
+    &:focus-visible {
+        outline: 2px solid @text-color;
+        outline-offset: -2px;
+    }
+}
+
+.profile-lens-legend {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    padding: 2px 4px;
+    order: 4;
+}
+
+.profile-lens-legend-item {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+}
+
+.profile-lens-legend-swatch {
+    display: inline-block;
+    width: 10px;
+    height: 10px;
+    border: 1px solid @text-color;
+}
+
+.profile-lens-period {
+    padding: 2px 4px;
+    order: 5;
+}
+
+.profile-lens-period-slider {
+    display: inline-block;
+    padding: 1px 6px;
+    border: 1px solid @border-color;
+    border-radius: 2px;
+
+    &:focus-visible {
+        outline: 2px solid @text-color;
+        outline-offset: 1px;
+    }
+}
+
+.profile-lens-status {
+    padding: 0 4px;
+    color: @muted-color;
+    font-size: 11px;
+    order: 6;
+
+    p {
+        margin: 0;
+    }
+}
+
+.profile-lens-diagnostics {
+    margin: 2px 0 0;
+    padding-left: 14px;
+}
+
+.profile-lens-diagnostic {
+    &.profile-lens-error {
+        color: #A80000;
+    }
+
+    &.profile-lens-warning {
+        color: #8A6100;
+    }
+}
+
+.profile-lens-landing {
+    padding: 8px;
+    order: 0;
+
+    h2 {
+        margin: 0 0 4px;
+        font-size: 14px;
+    }
+
+    p {
+        margin: 0 0 4px;
+    }
+
+    .profile-lens-landing-steps li[data-complete="true"] {
+        color: @muted-color;
+        text-decoration: line-through;
+    }
+
+    .profile-lens-landing-note {
+        color: @muted-color;
+        font-size: 11px;
+    }
+}
+
+.profile-lens-table {
+    overflow: auto;
+    order: 7;
+
+    table {
+        border-collapse: collapse;
+        font-size: 11px;
+    }
+
+    th,
+    td {
+        border: 1px solid @border-color;
+        padding: 1px 4px;
+        text-align: start;
+    }
+}
+
+.profile-lens-table-sr,
+.profile-lens-status-sr {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    margin: -1px;
+    padding: 0;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    clip-path: inset(50%);
+    white-space: nowrap;
+    border: 0;
+}
+
+.profile-lens-target {
+    cursor: default;
+
+    &:focus-visible rect,
+    &:focus rect {
+        outline: 2px solid @text-color;
+        stroke: @text-color;
+        stroke-width: 2;
+    }
+}
+
+.profile-lens-error {
+    color: #A80000;
+}
+
+.profile-lens-reduced-motion * {
+    transition: none !important;
+    animation: none !important;
+}
+
+.profile-lens-high-contrast {
+    .profile-lens-legend-swatch {
+        border-width: 2px;
+    }
+}
