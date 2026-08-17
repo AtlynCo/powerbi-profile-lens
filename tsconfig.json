@@ -1,0 +1,30 @@
+{
+    "compilerOptions": {
+        "allowJs": false,
+        "target": "es2022",
+        "module": "es2022",
+        "moduleResolution": "node",
+        "sourceMap": true,
+        "outDir": "./.tmp/build/",
+        "declaration": true,
+        "strict": true,
+        "noImplicitOverride": true,
+        "noUnusedLocals": true,
+        "noUnusedParameters": true,
+        "noFallthroughCasesInSwitch": true,
+        "exactOptionalPropertyTypes": false,
+        "skipLibCheck": true,
+        "forceConsistentCasingInFileNames": true,
+        "lib": [
+            "es2022",
+            "dom",
+            "dom.iterable"
+        ]
+    },
+    "files": [
+        "./src/visual.ts"
+    ],
+    "include": [
+        "./src/global.d.ts"
+    ]
+}
