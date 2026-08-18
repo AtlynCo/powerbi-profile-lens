@@ -120,10 +120,11 @@ function Get-OwnedDialog {
                     $processCondition,
                     $typeCondition
                 )
-                $dialog = [System.Windows.Automation.AutomationElement]::RootElement.FindFirst(
+                $dialogs = @([System.Windows.Automation.AutomationElement]::RootElement.FindAll(
                     [System.Windows.Automation.TreeScope]::Children,
                     $condition
-                )
+                ))
+                $dialog = Select-UniqueCandidate -Candidates $dialogs -LogicalName "Save As dialog"
                 if ($dialog) { return $dialog }
                 Start-Sleep -Milliseconds 400
             }
@@ -229,12 +230,22 @@ function Get-OwnedRoot {
     return [System.Windows.Automation.AutomationElement]::FromHandle($process.MainWindowHandle)
 }
 
+function Select-UniqueCandidate {
+    param([array]$Candidates, [string]$LogicalName)
+    if ($Candidates.Count -eq 0) { return $null }
+    if ($Candidates.Count -ne 1) {
+        throw "Ambiguous owned UIA target for '$LogicalName'"
+    }
+    return $Candidates[0]
+}
+
 function Find-OwnedElement {
     param(
         [int]$ProcessId,
         [string]$ExpectedTitle,
         [string]$Name,
-        [string]$ControlType,
+        [string[]]$ControlTypes,
+        [AllowEmptyString()][string]$AutomationId,
         [int]$TimeoutSeconds = 10
     )
     $deadline = (Get-Date).AddSeconds($TimeoutSeconds)
@@ -244,15 +255,33 @@ function Find-OwnedElement {
             [System.Windows.Automation.AutomationElement]::NameProperty,
             $Name
         )
-        if ($ControlType) {
-            $typeCondition = New-Object System.Windows.Automation.PropertyCondition(
-                [System.Windows.Automation.AutomationElement]::ControlTypeProperty,
-                [System.Windows.Automation.ControlType]::$ControlType
-            )
-            $condition = New-Object System.Windows.Automation.AndCondition($condition, $typeCondition)
+        $processCondition = New-Object System.Windows.Automation.PropertyCondition(
+            [System.Windows.Automation.AutomationElement]::ProcessIdProperty,
+            $ProcessId
+        )
+        $condition = New-Object System.Windows.Automation.AndCondition($condition, $processCondition)
+        $process = Get-OwnedDesktop -ProcessId $ProcessId -ExpectedTitle $ExpectedTitle
+        $window = New-Object NativeDesktopGuard+Rect
+        [NativeDesktopGuard]::GetWindowRect($process.MainWindowHandle, [ref]$window) | Out-Null
+        $matches = @()
+        foreach ($element in $root.FindAll(
+            [System.Windows.Automation.TreeScope]::Descendants,
+            $condition
+        )) {
+            $type = $element.Current.ControlType.ProgrammaticName -replace "^ControlType\.", ""
+            $rectangle = $element.Current.BoundingRectangle
+            if ($ControlTypes -notcontains $type -or
+                $element.Current.AutomationId -ne $AutomationId -or
+                $rectangle.Width -le 0 -or $rectangle.Height -le 0 -or
+                $rectangle.X -lt $window.Left -or $rectangle.Y -lt $window.Top -or
+                ($rectangle.X + $rectangle.Width) -gt $window.Right -or
+                ($rectangle.Y + $rectangle.Height) -gt $window.Bottom) {
+                continue
+            }
+            $matches += $element
         }
-        $element = $root.FindFirst([System.Windows.Automation.TreeScope]::Descendants, $condition)
-        if ($element) { return $element }
+        $selected = Select-UniqueCandidate -Candidates $matches -LogicalName $Name
+        if ($selected) { return $selected }
         Start-Sleep -Milliseconds 400
     }
     return $null

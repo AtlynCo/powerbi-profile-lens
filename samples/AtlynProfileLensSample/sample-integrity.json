@@ -17,8 +17,8 @@
   },
   "generator": {
     "path": "scripts/build-sample-report.cjs",
-    "bytes": 26777,
-    "sha256": "f340fffa53db6fc6d6b488b967f9d1ea2e61978457a7d2f07361356c628c2a38"
+    "bytes": 27085,
+    "sha256": "66598035e64943289175d6e7aefb5b1ee8821ad8439c3607e99e6dcb3a003e6f"
   },
   "pbip": {
     "path": "AtlynProfileLensSample.pbip",

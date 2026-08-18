@@ -45,25 +45,17 @@ function Get-VerifiedSampleIntegrity {
     return $computed
 }
 $computedSampleIntegrity = Get-VerifiedSampleIntegrity
-$boundPaths = @(
-    "package.json", "package-lock.json", "pbiviz.json", "capabilities.json",
-    "assets/icon.png", "src", "style", "stringResources",
-    "scripts/build-sample-report.cjs", "scripts/sample-integrity.cjs",
-    "samples/AtlynProfileLensSample"
-)
-$dirty = @(& git -C $root status --porcelain --untracked-files=all -- @boundPaths)
+$sourceStateJson = & node (Join-Path $root "scripts\native-source-integrity.cjs")
 if ($LASTEXITCODE -ne 0) {
-    throw "Git cleanliness verification failed"
+    throw "Native automation source verification failed"
 }
-if ($dirty.Count -gt 0) {
-    throw "Native validation requires clean tracked and untracked package and fixture paths"
+$sourceState = $sourceStateJson | ConvertFrom-Json
+$sourceCommit = $sourceState.sourceCommit
+$resourceParityJson = & node (Join-Path $root "scripts\sample-resource-parity.cjs")
+if ($LASTEXITCODE -ne 0) {
+    throw "PBIVIZ to sample resource parity verification failed"
 }
-$sourceCommit = (& git -C $root rev-parse HEAD)
-if ($LASTEXITCODE -ne 0 -or $sourceCommit.Count -ne 1 -or
-    $sourceCommit.Trim() -notmatch "^[0-9a-f]{40}$") {
-    throw "Git source commit verification failed"
-}
-$sourceCommit = $sourceCommit.Trim()
+$resourceParity = $resourceParityJson | ConvertFrom-Json
 $pages = @(
     "1 - Entity and band",
     "2 - Entity, period, band with series",
@@ -87,16 +79,22 @@ function Start-OwnedReport {
     }
     if ($Path -eq $pbipPath) {
         $script:computedSampleIntegrity = Get-VerifiedSampleIntegrity
-        $launchDirty = @(
-            & git -C $root status --porcelain --untracked-files=all -- @boundPaths
-        )
-        if ($LASTEXITCODE -ne 0 -or $launchDirty.Count -gt 0) {
-            throw "Package or fixture paths changed at the launch boundary"
+        $launchSourceJson = & node (Join-Path $root "scripts\native-source-integrity.cjs")
+        if ($LASTEXITCODE -ne 0) {
+            throw "Automation source changed at the launch boundary"
         }
-        $launchCommit = (& git -C $root rev-parse HEAD)
-        if ($LASTEXITCODE -ne 0 -or $launchCommit.Count -ne 1 -or
-            $launchCommit.Trim() -ne $sourceCommit) {
-            throw "Source commit changed at the launch boundary"
+        $launchSource = $launchSourceJson | ConvertFrom-Json
+        if ($launchSource.sourceCommit -ne $sourceCommit -or
+            $launchSource.automation.sha256 -ne $sourceState.automation.sha256) {
+            throw "Automation source identity changed at the launch boundary"
+        }
+        $launchParityJson = & node (Join-Path $root "scripts\sample-resource-parity.cjs")
+        if ($LASTEXITCODE -ne 0) {
+            throw "PBIVIZ sample parity changed at the launch boundary"
+        }
+        if (($launchParityJson | ConvertFrom-Json | ConvertTo-Json -Depth 8 -Compress) -ne
+            ($resourceParity | ConvertTo-Json -Depth 8 -Compress)) {
+            throw "PBIVIZ sample parity identity changed at the launch boundary"
         }
     }
     $known = @($existing.Id)
@@ -104,11 +102,14 @@ function Start-OwnedReport {
     $deadline = (Get-Date).AddMinutes(5)
     while ((Get-Date) -lt $deadline) {
         Start-Sleep -Seconds 3
-        $candidate = Get-Process -Name PBIDesktop -ErrorAction SilentlyContinue |
+        $candidates = @(Get-Process -Name PBIDesktop -ErrorAction SilentlyContinue |
             Where-Object { $known -notcontains $_.Id -and $_.MainWindowHandle -ne [IntPtr]::Zero } |
-            Where-Object { [NativeDesktopGuard]::Title($_.MainWindowHandle) -like $expectedTitle } |
-            Select-Object -First 1
-        if ($candidate) {
+            Where-Object { [NativeDesktopGuard]::Title($_.MainWindowHandle) -like $expectedTitle })
+        if ($candidates.Count -gt 1) {
+            throw "Multiple newly owned Desktop windows match the expected report"
+        }
+        if ($candidates.Count -eq 1) {
+            $candidate = $candidates[0]
             Assert-OwnedForeground -ProcessId $candidate.Id -ExpectedTitle $expectedTitle | Out-Null
             return $candidate
         }
@@ -121,7 +122,7 @@ function Invoke-PagePass {
     $observations = @()
     foreach ($page in $pages) {
         $element = Find-OwnedElement -ProcessId $ProcessId -ExpectedTitle $expectedTitle `
-            -Name $page -TimeoutSeconds 12
+            -Name $page -ControlTypes TabItem -AutomationId "" -TimeoutSeconds 12
         if (-not $element) {
             $observations += [ordered]@{ page = $page; outcome = "not-observed"; reason = "page UIA target not found" }
             continue
@@ -140,17 +141,18 @@ function Invoke-PagePass {
 function Invoke-SaveAs {
     param([int]$ProcessId)
     $file = Find-OwnedElement -ProcessId $ProcessId -ExpectedTitle $expectedTitle `
-        -Name "File" -TimeoutSeconds 15
+        -Name "File" -ControlTypes @("TabItem", "Button") -AutomationId "" -TimeoutSeconds 15
     if (-not $file) { throw "File command was not exposed by the owned Desktop window" }
     Invoke-OwnedElement -ProcessId $ProcessId -ExpectedTitle $expectedTitle -Element $file
     Start-Sleep -Seconds 3
     $saveAs = Find-OwnedElement -ProcessId $ProcessId -ExpectedTitle $expectedTitle `
-        -Name "Save as" -TimeoutSeconds 15
+        -Name "Save as" -ControlTypes @("ListItem", "Button") -AutomationId "" -TimeoutSeconds 15
     if (-not $saveAs) { throw "Save as command was not exposed by the owned Desktop window" }
     Invoke-OwnedElement -ProcessId $ProcessId -ExpectedTitle $expectedTitle -Element $saveAs
     Start-Sleep -Seconds 3
     $browse = Find-OwnedElement -ProcessId $ProcessId -ExpectedTitle $expectedTitle `
-        -Name "Browse this device" -TimeoutSeconds 6
+        -Name "Browse this device" -ControlTypes @("Button", "Hyperlink", "ListItem") `
+        -AutomationId "" -TimeoutSeconds 6
     if ($browse) {
         Invoke-OwnedElement -ProcessId $ProcessId -ExpectedTitle $expectedTitle -Element $browse
         Start-Sleep -Seconds 3
@@ -160,7 +162,7 @@ function Invoke-SaveAs {
     Set-OwnedDialogValue -ProcessId $ProcessId -ExpectedDialogTitle "*Save As*" `
         -Target $filename -Value $pbixPath
     $save = Find-OwnedDialogControl -ProcessId $ProcessId -ExpectedDialogTitle "*Save As*" `
-        -Name "Save" -ControlType Button -RequireInvokePattern
+        -Name "Save" -ControlType Button -AutomationId "1" -RequireInvokePattern
     Invoke-OwnedDialogControl -ProcessId $ProcessId -ExpectedDialogTitle "*Save As*" -Target $save
     $deadline = (Get-Date).AddMinutes(5)
     $lastLength = -1
@@ -193,6 +195,7 @@ if (Test-Path $pbixPath) { Remove-Item $pbixPath -Force }
 $record = [ordered]@{
     schemaVersion = 1
     sourceCommit = $sourceCommit
+    automation = $sourceState.automation
     startedAt = (Get-Date).ToUniversalTime().ToString("o")
     desktop = (Get-Item $desktopExe).VersionInfo.ProductVersion
     pbip = ($pbipRelative -replace "\\", "/")
@@ -204,7 +207,20 @@ $record = [ordered]@{
         generatorSha256 = $computedSampleIntegrity.generator.sha256
         pbipSha256 = $computedSampleIntegrity.pbip.sha256
         embeddedVisualResourceSha256 = $computedSampleIntegrity.embeddedVisualResource.sha256
+        resourceParity = $resourceParity
     }
+    scenarioResults = [ordered]@{
+        fieldWells = @{ outcome = "unproven" }
+        profilesAndNormalization = @{ outcome = "unproven" }
+        contextModesAndJoins = @{ outcome = "unproven" }
+        selectionAndContextMenus = @{ outcome = "unproven" }
+        tooltipsAndKeyboard = @{ outcome = "unproven" }
+        lifecycleAndStaticSurfaces = @{ outcome = "unproven" }
+        pbixOfflineReopen = @{ outcome = "unproven" }
+    }
+    boundaries = @(
+        "A completed runner pass is not validated evidence until every required scenario passes."
+    )
     passes = @()
     unavailable = @(
         "touch input: no touch capability was established",
@@ -240,15 +256,43 @@ try {
     }
     $record.pbixStable = $record.pbixBeforeReopen.sha256 -eq $record.pbixAfterReopen.sha256
     if (-not $record.pbixStable) { throw "PBIX bytes changed across reopen without an intentional save" }
-    $record.outcome = "completed"
+    $record.outcome = "native-run-completed"
 } catch {
     $record.outcome = "blocked"
     $record.error = $_.Exception.Message
-    $record.remainingOwnedDesktopProcessCount = @(
-        Get-Process -Name PBIDesktop -ErrorAction SilentlyContinue
-    ).Count
     throw
 } finally {
     $record.completedAt = (Get-Date).ToUniversalTime().ToString("o")
-    $record | ConvertTo-Json -Depth 12 | Set-Content (Join-Path $evidencePath "native-run.json")
+    $preSanitizeSourceJson = & node (Join-Path $root "scripts\native-source-integrity.cjs")
+    if ($LASTEXITCODE -ne 0) {
+        throw "Automation source changed before evidence sanitization"
+    }
+    $preSanitizeSource = $preSanitizeSourceJson | ConvertFrom-Json
+    if ($preSanitizeSource.sourceCommit -ne $sourceCommit -or
+        $preSanitizeSource.automation.sha256 -ne $sourceState.automation.sha256) {
+        throw "Automation source identity changed before evidence sanitization"
+    }
+    $sanitizedJson = ($record | ConvertTo-Json -Depth 12 -Compress) |
+        & node (Join-Path $root "scripts\native-evidence-sanitize.cjs")
+    if ($LASTEXITCODE -ne 0) {
+        throw "Evidence sanitization failed; no evidence was written"
+    }
+    $outputPath = Join-Path $evidencePath "native-run.json"
+    Set-Content -Path $outputPath -Value $sanitizedJson
+    & node (Join-Path $root "scripts\native-evidence-sanitize.cjs") --check $outputPath
+    if ($LASTEXITCODE -ne 0) {
+        Remove-Item $outputPath -Force
+        throw "Persisted evidence failed privacy verification"
+    }
+    $postSanitizeSourceJson = & node (Join-Path $root "scripts\native-source-integrity.cjs")
+    if ($LASTEXITCODE -ne 0) {
+        Remove-Item $outputPath -Force
+        throw "Automation source changed after evidence sanitization"
+    }
+    $postSanitizeSource = $postSanitizeSourceJson | ConvertFrom-Json
+    if ($postSanitizeSource.sourceCommit -ne $sourceCommit -or
+        $postSanitizeSource.automation.sha256 -ne $sourceState.automation.sha256) {
+        Remove-Item $outputPath -Force
+        throw "Automation source identity changed after evidence sanitization"
+    }
 }

@@ -10,8 +10,13 @@ const crypto = require("node:crypto");
 const fs = require("node:fs");
 const path = require("node:path");
 const { execFileSync } = require("node:child_process");
+const writeFileAtomic = require("write-file-atomic");
 const { portablePath } = require("./portable-path.cjs");
 const { computeSampleIntegrity } = require("./sample-integrity.cjs");
+const {
+    assertBoundSourceMatchesCommit,
+    computeAutomationIntegrity
+} = require("./native-source-integrity.cjs");
 
 const root = path.resolve(__dirname, "..");
 const packageDirectory = path.join(root, "dist");
@@ -98,6 +103,14 @@ const computedSampleIntegrity = computeSampleIntegrity({
     generatorPath: path.join(root, "scripts", "build-sample-report.cjs"),
     guid: manifest.visual.guid
 });
+const sampleResourceParity = JSON.parse(execFileSync(
+    process.execPath,
+    [path.join(root, "scripts", "sample-resource-parity.cjs")],
+    { cwd: root, encoding: "utf8" }
+));
+const automationIntegrity = computeAutomationIntegrity(root);
+const cleanReleaseSourceCommit = require("./native-source-integrity.cjs")
+    .assertCleanBoundSource(root);
 if (JSON.stringify(recordedSampleIntegrity) !== JSON.stringify(computedSampleIntegrity)) {
     throw new Error('Sample integrity is stale; run "npm run sample:pbip" after package generation.');
 }
@@ -131,68 +144,36 @@ try {
 }
 
 const packageSha256 = crypto.createHash("sha256").update(packageBuffer).digest("hex");
+if (sourceCommit !== cleanReleaseSourceCommit) {
+    throw new Error("Release source commit changed during manifest generation.");
+}
+if (sampleResourceParity.package.sha256 !== packageSha256 ||
+    crypto.createHash("sha256").update(fs.readFileSync(packagePath)).digest("hex") !== packageSha256) {
+    throw new Error("PBIVIZ changed while sample resource parity was being verified.");
+}
 const nativeValidated = nativeEvidence?.outcome === "validated";
+const pbixResourceParity = nativeValidated && pbixMetadata
+    ? JSON.parse(execFileSync(
+        process.execPath,
+        [path.join(root, "scripts", "sample-resource-parity.cjs"), "--pbix",
+            path.join(root, pbixRelativePath)],
+        { cwd: root, encoding: "utf8" }
+    ))
+    : null;
 if (nativeValidated) {
     const mismatches = [];
-    const packageSourcePaths = [
-        "package.json",
-        "package-lock.json",
-        "pbiviz.json",
-        "capabilities.json",
-        "assets/icon.png",
-        "src",
-        "style",
-        "stringResources"
-    ];
-    const fixtureSourcePaths = [
-        "scripts/build-sample-report.cjs",
-        "scripts/sample-integrity.cjs",
-        "samples/AtlynProfileLensSample"
-    ];
     try {
-        const resolvedEvidenceCommit = execFileSync(
-            "git",
-            ["rev-parse", `${nativeEvidence.sourceCommit}^{commit}`],
-            { cwd: root, encoding: "utf8" }
-        ).trim();
-        if (resolvedEvidenceCommit !== nativeEvidence.sourceCommit) {
-            mismatches.push("source commit identity");
-        } else {
-            execFileSync(
-                "git",
-                [
-                    "diff",
-                    "--quiet",
-                    nativeEvidence.sourceCommit,
-                    "--",
-                    ...packageSourcePaths,
-                    ...fixtureSourcePaths
-                ],
-                { cwd: root }
-            );
-            const dirtyBoundPaths = execFileSync(
-                "git",
-                [
-                    "status",
-                    "--porcelain",
-                    "--untracked-files=all",
-                    "--",
-                    ...packageSourcePaths,
-                    ...fixtureSourcePaths
-                ],
-                { cwd: root, encoding: "utf8" }
-            ).trim();
-            if (dirtyBoundPaths) {
-                mismatches.push("dirty package or fixture paths");
-            }
-        }
+        assertBoundSourceMatchesCommit(root, nativeEvidence.sourceCommit);
     } catch {
-        mismatches.push("package source tree");
+        mismatches.push("package, fixture, or automation source tree");
     }
     if (nativeEvidence.visual?.guid !== manifest.visual.guid) mismatches.push("visual GUID");
     if (nativeEvidence.visual?.version !== manifest.visual.version) mismatches.push("visual version");
     if (nativeEvidence.visual?.apiVersion !== manifest.apiVersion) mismatches.push("API version");
     if (nativeEvidence.pbiviz?.sha256 !== packageSha256) mismatches.push("PBIVIZ SHA-256");
+    if (nativeEvidence.automation?.sha256 !== automationIntegrity.sha256) {
+        mismatches.push("native automation tree");
+    }
     for (const [label, actual, expected] of [
         ["sample project tree", nativeEvidence.sample?.projectTreeSha256,
             computedSampleIntegrity.projectTree.sha256],
@@ -209,6 +190,10 @@ if (nativeValidated) {
     ]) {
         if (actual !== expected) mismatches.push(label);
     }
+    if (JSON.stringify(nativeEvidence.sample?.resourceParity) !==
+        JSON.stringify(sampleResourceParity)) {
+        mismatches.push("PBIVIZ to sample resource parity");
+    }
     if (!pbixMetadata) mismatches.push("PBIX file");
     if (nativeEvidence.pbix?.sha256 !== pbixMetadata?.sha256) mismatches.push("PBIX SHA-256");
     if (nativeEvidence.pbix?.bytes !== pbixMetadata?.bytes) mismatches.push("PBIX byte length");
@@ -217,6 +202,9 @@ if (nativeValidated) {
     }
     if (nativeEvidence.pbix?.stableAcrossReopen !== true) {
         mismatches.push("PBIX reopen byte stability");
+    }
+    if (JSON.stringify(nativeEvidence.pbix?.parity) !== JSON.stringify(pbixResourceParity)) {
+        mismatches.push("PBIX embedded resource parity");
     }
     if (mismatches.length > 0) {
         throw new Error(
@@ -250,6 +238,7 @@ const releaseManifest = {
                 manifest: fileMetadata(sampleIntegrityPath),
                 ...computedSampleIntegrity
             },
+            resourceParity: sampleResourceParity,
             pbix: pbixMetadata,
             pbixStatus: pbixMetadata && nativeValidated
                 ? "A genuine Desktop-produced PBIX is present and tied to the native evidence record."
@@ -293,6 +282,7 @@ const releaseManifest = {
             outcome: "not-run",
             evidence: null
         },
+    nativeAutomation: automationIntegrity,
     contract: {
         dataViewMappings: 1,
         mappingKind: "matrix",
@@ -305,7 +295,43 @@ const releaseManifest = {
     proofBoundary: "Automated unit, pack-pipeline and packaged-browser probes prove strict bounded parsing, exact offline world/state/county joins, deterministic source hashes and generated packs, complete declared territory coverage, point/grid/hex/bound-geometry providers, SVG/Canvas semantic and host-identity parity, physical hit testing, bounded Canvas surfaces, responsive layout through 80x80, disabled physical focus, high contrast, RTL, reduced motion and runtime network abstinence. Native Desktop/Service field wells, segmentation, bookmarks, DirectQuery/Direct Lake, export, pinning, native tooltip rendering and matrix expand/collapse remain unproven unless the nativeValidation record explicitly reports a validated observation. expandCollapse and drilldown are intentionally undeclared. This manifest never treats PBIP structure or a blocked Desktop launch as PBIX validation, Microsoft certification, or Partner Center submission."
 };
 
-fs.writeFileSync(
+const finalSourceCommit = require("./native-source-integrity.cjs").assertCleanBoundSource(root);
+const finalAutomationIntegrity = computeAutomationIntegrity(root);
+const finalSampleIntegrity = computeSampleIntegrity({
+    root,
+    sampleRoot: path.join(root, sampleRoot),
+    generatorPath: path.join(root, "scripts", "build-sample-report.cjs"),
+    guid: manifest.visual.guid
+});
+const finalSampleResourceParity = JSON.parse(execFileSync(
+    process.execPath,
+    [path.join(root, "scripts", "sample-resource-parity.cjs")],
+    { cwd: root, encoding: "utf8" }
+));
+const finalPackageSha256 = crypto
+    .createHash("sha256")
+    .update(fs.readFileSync(packagePath))
+    .digest("hex");
+const finalPbixMetadata = fileMetadata(pbixRelativePath);
+const finalPbixResourceParity = nativeValidated && finalPbixMetadata
+    ? JSON.parse(execFileSync(
+        process.execPath,
+        [path.join(root, "scripts", "sample-resource-parity.cjs"), "--pbix",
+            path.join(root, pbixRelativePath)],
+        { cwd: root, encoding: "utf8" }
+    ))
+    : null;
+if (finalSourceCommit !== sourceCommit ||
+    JSON.stringify(finalAutomationIntegrity) !== JSON.stringify(automationIntegrity) ||
+    JSON.stringify(finalSampleIntegrity) !== JSON.stringify(computedSampleIntegrity) ||
+    JSON.stringify(finalSampleResourceParity) !== JSON.stringify(sampleResourceParity) ||
+    JSON.stringify(finalPbixMetadata) !== JSON.stringify(pbixMetadata) ||
+    JSON.stringify(finalPbixResourceParity) !== JSON.stringify(pbixResourceParity) ||
+    finalPackageSha256 !== packageSha256) {
+    throw new Error("Release inputs changed before manifest publication.");
+}
+
+writeFileAtomic.sync(
     path.join(packageDirectory, "release-manifest.json"),
     `${JSON.stringify(releaseManifest, null, 2)}\n`
 );
