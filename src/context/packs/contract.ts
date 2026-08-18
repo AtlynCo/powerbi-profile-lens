@@ -28,6 +28,7 @@ export interface ContextPackManifest {
     readonly sourceArchiveSha256: string;
     readonly artifactSha256: string;
     readonly fallbackKeys: readonly string[];
+    readonly alternateIsoKeys: readonly string[];
 }
 
 export interface ContextPackProperties {
@@ -38,6 +39,7 @@ export interface ContextPackProperties {
     readonly stateCode?: string;
     readonly region: string;
     readonly fallback: boolean;
+    readonly codeSource: "ISO_A3" | "ISO_A3_EH" | "ADM0_A3" | "GEOID";
     readonly centroid: readonly [number, number];
     readonly bounds: readonly [number, number, number, number];
     readonly neighbors: readonly string[];

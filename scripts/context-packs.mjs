@@ -140,17 +140,73 @@ function sourceText(value) {
     return String(value).replace(/\0/g, "").trim();
 }
 
-function retainedProperties(source, properties) {
-    if (source.kind === "world") {
-        const iso = sourceText(properties.ISO_A3);
+function validIsoAlpha3(value) {
+    return /^[A-Z]{3}$/.test(value);
+}
+
+function worldKeyAssignments(features) {
+    const reservedPrimary = new Map();
+    for (const entry of features) {
+        const properties = entry.properties ?? {};
+        const primary = sourceText(properties.ISO_A3);
+        if (!validIsoAlpha3(primary)) continue;
+        if (reservedPrimary.has(primary)) {
+            throw new Error(
+                `Natural Earth primary ISO_A3 collision: ${primary} for `
+                + `${reservedPrimary.get(primary)} and ${sourceText(properties.NAME)}`
+            );
+        }
+        reservedPrimary.set(primary, sourceText(properties.NAME));
+    }
+    const alternateCounts = new Map();
+    for (const entry of features) {
+        const properties = entry.properties ?? {};
+        const primary = sourceText(properties.ISO_A3);
+        const alternate = sourceText(properties.ISO_A3_EH);
+        if (
+            !validIsoAlpha3(primary)
+            && validIsoAlpha3(alternate)
+            && !reservedPrimary.has(alternate)
+        ) {
+            alternateCounts.set(alternate, (alternateCounts.get(alternate) ?? 0) + 1);
+        }
+    }
+    return new Map(features.map((entry) => {
+        const properties = entry.properties ?? {};
+        const primary = sourceText(properties.ISO_A3);
+        const alternate = sourceText(properties.ISO_A3_EH);
         const adm0 = sourceText(properties.ADM0_A3);
+        const sourceId = sourceText(properties.NE_ID);
+        if (validIsoAlpha3(primary)) {
+            return [sourceId, { canonicalKey: primary, codeSource: "ISO_A3" }];
+        }
+        if (
+            validIsoAlpha3(alternate)
+            && !reservedPrimary.has(alternate)
+            && alternateCounts.get(alternate) === 1
+        ) {
+            return [sourceId, { canonicalKey: alternate, codeSource: "ISO_A3_EH" }];
+        }
+        if (!validIsoAlpha3(adm0)) {
+            throw new Error(`Natural Earth ${sourceId} has no valid canonical source identifier.`);
+        }
+        return [sourceId, { canonicalKey: `NE:${adm0}`, codeSource: "ADM0_A3" }];
+    }));
+}
+
+function retainedProperties(source, properties, worldAssignment) {
+    if (source.kind === "world") {
+        if (!worldAssignment) {
+            throw new Error("Natural Earth canonical key assignment is missing.");
+        }
         return {
-            canonicalKey: iso === "-99" ? `NE:${adm0}` : iso,
+            canonicalKey: worldAssignment.canonicalKey,
+            codeSource: worldAssignment.codeSource,
             sourceId: `NE:${sourceText(properties.NE_ID)}`,
             name: sourceText(properties.NAME),
             status: sourceText(properties.TYPE),
             region: "world",
-            fallback: iso === "-99"
+            fallback: worldAssignment.codeSource === "ADM0_A3"
         };
     }
     const key = sourceText(properties.GEOID);
@@ -160,6 +216,7 @@ function retainedProperties(source, properties) {
         sourceId: source.kind === "county" ? `CENSUS:COUNTY:${key}` : `CENSUS:STATE:${key}`,
         name: sourceText(properties.NAME),
         status: sourceText(properties.STUSPS),
+        codeSource: "GEOID",
         stateCode,
         region: regionForState(stateCode),
         fallback: false
@@ -207,6 +264,10 @@ function manifestFor(source, features, payloadHash) {
         .filter((entry) => entry.properties.fallback)
         .map((entry) => entry.properties.canonicalKey)
         .sort(compareKeys);
+    const alternateIsoKeys = features
+        .filter((entry) => entry.properties.codeSource === "ISO_A3_EH")
+        .map((entry) => entry.properties.canonicalKey)
+        .sort(compareKeys);
     return {
         schemaVersion: 1,
         id: source.id,
@@ -231,7 +292,8 @@ function manifestFor(source, features, payloadHash) {
         policyId: source.kind === "world" ? "natural-earth-de-facto-v1" : "us-territory-insets-v1",
         sourceArchiveSha256: source.sha256,
         artifactSha256: payloadHash,
-        fallbackKeys
+        fallbackKeys,
+        alternateIsoKeys
     };
 }
 
@@ -245,11 +307,19 @@ async function buildSource(source) {
             `${source.id} feature count changed: ${collection.features.length} != ${source.expectedFeatures}`
         );
     }
+    const worldAssignments = source.kind === "world"
+        ? worldKeyAssignments(collection.features)
+        : null;
     const sourceFeatures = collection.features.map((entry) => {
         if (!entry.geometry) {
             throw new Error(`${source.id} contains null geometry.`);
         }
-        const properties = retainedProperties(source, entry.properties ?? {});
+        const rawProperties = entry.properties ?? {};
+        const properties = retainedProperties(
+            source,
+            rawProperties,
+            worldAssignments?.get(sourceText(rawProperties.NE_ID))
+        );
         return {
             type: "Feature",
             properties,
@@ -359,6 +429,7 @@ async function validatePack(source, filePath) {
     }
     const keys = new Set();
     const fallbackKeys = [];
+    const alternateIsoKeys = [];
     for (const entry of collection.features) {
         const properties = entry.properties;
         const key = properties.canonicalKey;
@@ -367,6 +438,7 @@ async function validatePack(source, filePath) {
         }
         keys.add(key);
         if (properties.fallback) fallbackKeys.push(key);
+        if (properties.codeSource === "ISO_A3_EH") alternateIsoKeys.push(key);
         if (!entry.geometry) {
             throw new Error(`${source.id}:${key} has null geometry.`);
         }
@@ -392,8 +464,12 @@ async function validatePack(source, filePath) {
         }
     }
     fallbackKeys.sort(compareKeys);
+    alternateIsoKeys.sort(compareKeys);
     if (JSON.stringify(fallbackKeys) !== JSON.stringify(parsed.manifest.fallbackKeys)) {
         throw new Error(`${source.id} fallback-key manifest does not match generated source policy.`);
+    }
+    if (JSON.stringify(alternateIsoKeys) !== JSON.stringify(parsed.manifest.alternateIsoKeys)) {
+        throw new Error(`${source.id} alternate-ISO manifest does not match generated source policy.`);
     }
     if (source.kind === "state") {
         const actual = [...keys].sort(compareKeys);

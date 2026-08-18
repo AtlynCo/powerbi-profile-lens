@@ -102,14 +102,26 @@ describe("built-in context pack joins", () => {
         const provider = new StaticContextPackProvider();
         const entities = [
             entity(0, "USA", "stable-us"),
-            entity(1, "NE:KOS", "stable-kosovo")
+            entity(1, "NE:KOS", "stable-kosovo"),
+            entity(2, "FRA", "stable-france"),
+            entity(3, "NOR", "stable-norway")
         ];
         const result = provider.provide(
             "builtInPack",
             input(entities, "world-countries-110m", "canonical")
         );
-        expect(result.features.map((entry) => entry.key)).toEqual(["stable-us", "stable-kosovo"]);
-        expect(result.features.map((entry) => entry.label)).toEqual(["United States of America", "Kosovo"]);
+        expect(result.features.map((entry) => entry.key)).toEqual([
+            "stable-us",
+            "stable-kosovo",
+            "stable-france",
+            "stable-norway"
+        ]);
+        expect(result.features.map((entry) => entry.label)).toEqual([
+            "United States of America",
+            "Kosovo",
+            "France",
+            "Norway"
+        ]);
         expect(result.features[0].selection.hostIdentity).toBe(entities[0].identity);
         expect(result.features[0].tooltipValues).toEqual([
             { displayName: "Context value", value: "10" }
@@ -117,6 +129,19 @@ describe("built-in context pack joins", () => {
         expect(result.metadata).toMatchObject({
             vintage: "Natural Earth 5.1.1",
             policyId: "natural-earth-de-facto-v1"
+        });
+        const obsoleteFallbacks = provider.provide(
+            "builtInPack",
+            input(
+                [entity(0, "NE:FRA"), entity(1, "NE:NOR")],
+                "world-countries-110m",
+                "canonical"
+            )
+        );
+        expect(obsoleteFallbacks.features).toEqual([]);
+        expect(obsoleteFallbacks.diagnostics[0]).toMatchObject({
+            code: "unmatchedPackKey",
+            rejected: 2
         });
     });
 

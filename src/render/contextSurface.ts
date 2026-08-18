@@ -6,7 +6,12 @@ import type {
     ContextRendererKind,
     ContextScene,
 } from "../context/contract";
-import { decodeFeatureColor, encodeFeatureColor, hitTestScene } from "../context/hitTest";
+import {
+    decodeFeatureColor,
+    encodeFeatureColor,
+    hitTestFeature,
+    hitTestScene
+} from "../context/hitTest";
 import { projectPoint } from "../context/projection";
 
 const SVG_NS = "http://www.w3.org/2000/svg";
@@ -63,6 +68,7 @@ export function renderContextSurface(
     renderAttribution(elements, request.scene);
     renderSemanticOptions(elements, request);
     if (kind === "svg") {
+        setCanvasHitMetrics(elements.root, null);
         renderSvg(elements, request, style);
         clearCanvas(elements.canvas);
         return {
@@ -77,22 +83,35 @@ export function renderContextSurface(
         };
     }
     const picking = renderCanvas(elements, request, style, devicePixelRatio);
+    const metrics: CanvasHitMetrics = {
+        sceneFeatures: request.scene.features.length,
+        pickingReads: 0,
+        candidateValidations: 0,
+        fullSceneScans: 0,
+        targetMapLookups: 0,
+        pickingScaleX: picking.scaleX,
+        pickingScaleY: picking.scaleY
+    };
+    setCanvasHitMetrics(elements.root, metrics);
     renderOverlay(elements.svg, request, style);
     return {
         kind,
         hitTest: (x, y) => {
-            const geometric = hitTestScene(
-                request.scene,
+            metrics.pickingReads++;
+            const picked = hitPicking(picking, x, y);
+            if (!picked) {
+                return null;
+            }
+            metrics.candidateValidations++;
+            return hitTestFeature(
+                picked,
                 request.transform,
                 x,
                 y,
                 style.pointSize
-            );
-            if (!geometric) {
-                return null;
-            }
-            const picked = hitPicking(request.scene, picking, x, y);
-            return picked?.featureKey === geometric.featureKey ? picked : geometric;
+            )
+                ? { featureIndex: picked.index, featureKey: picked.key }
+                : null;
         }
     };
 }
@@ -159,7 +178,7 @@ interface PickingState {
     readonly context: CanvasRenderingContext2D | null;
     readonly width: number;
     readonly height: number;
-    readonly scene: ContextScene;
+    readonly featuresByIndex: ReadonlyMap<number, ContextFeature>;
     readonly scaleX: number;
     readonly scaleY: number;
 }
@@ -317,7 +336,7 @@ function renderCanvas(
         context: picking,
         width: pickingCanvas.width,
         height: pickingCanvas.height,
-        scene: request.scene,
+        featuresByIndex: new Map(request.scene.features.map((feature) => [feature.index, feature])),
         scaleX: pickingScaleX,
         scaleY: pickingScaleY
     };
@@ -379,7 +398,7 @@ function pathData(feature: ContextFeature, request: ContextRenderRequest): strin
     return commands.join(" ");
 }
 
-function hitPicking(scene: ContextScene, picking: PickingState, x: number, y: number): ContextHit | null {
+function hitPicking(picking: PickingState, x: number, y: number): ContextFeature | null {
     const pixelX = Math.floor(x * picking.scaleX);
     const pixelY = Math.floor(y * picking.scaleY);
     if (
@@ -396,8 +415,29 @@ function hitPicking(scene: ContextScene, picking: PickingState, x: number, y: nu
     if (featureIndex === null) {
         return null;
     }
-    const feature = scene.features.find((entry) => entry.index === featureIndex);
-    return feature ? { featureIndex, featureKey: feature.key } : null;
+    return picking.featuresByIndex.get(featureIndex) ?? null;
+}
+
+interface CanvasHitMetrics {
+    readonly sceneFeatures: number;
+    pickingReads: number;
+    candidateValidations: number;
+    readonly fullSceneScans: 0;
+    targetMapLookups: number;
+    readonly pickingScaleX: number;
+    readonly pickingScaleY: number;
+}
+
+interface InstrumentedContextRoot extends HTMLElement {
+    __profileLensCanvasHitMetrics?: CanvasHitMetrics | null;
+}
+
+function setCanvasHitMetrics(root: HTMLElement, metrics: CanvasHitMetrics | null): void {
+    Object.defineProperty(root as InstrumentedContextRoot, "__profileLensCanvasHitMetrics", {
+        configurable: true,
+        value: metrics,
+        writable: false
+    });
 }
 
 export function canvasAllocation(

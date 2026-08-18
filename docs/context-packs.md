@@ -30,9 +30,24 @@ World `canonical` mode is case-sensitive. `isoAlpha3CaseFold` is an explicit
 alternative that accepts exactly three ASCII letters and uppercases them. It
 does not trim and does not accept Natural Earth fallback keys.
 
-The exact fallback-key set is generated from records whose source `ISO_A3` is
-`-99`, stored in each world pack manifest, and verified against the generated
-features. It is not maintained as an assumed hand-written count.
+World key assignment prefers a valid unique `ISO_A3`. When that field is
+invalid, the build accepts a valid `ISO_A3_EH` only when it does not collide
+with a primary ISO assignment or another alternate candidate. Only entities
+without an accepted ISO code receive `NE:<ADM0_A3>`. The build audits all three
+fields and rejects final collisions.
+
+For Natural Earth 5.1.1, `FRA` and `NOR` come from `ISO_A3_EH` and join as
+ordinary ISO keys. The generated fallback sets are:
+
+- 110m: `NE:CYN`, `NE:KOS`, `NE:SOL`;
+- 50m: `NE:ATC`, `NE:CYN`, `NE:IOA`, `NE:KAS`, `NE:KOS`, `NE:SOL`.
+
+At 50m, `ISO_A3_EH=AUS` on Ashmore and Cartier Islands and Indian Ocean
+Territories is not accepted because it collides with Australia's primary
+`ISO_A3=AUS`; those source entities therefore retain distinct prefixed Natural
+Earth identifiers. Exact fallback and alternate-ISO sets are generated into
+each manifest and verified against decoded features, not asserted from an
+assumed record count.
 
 ## Boundary and territory policy
 
@@ -81,7 +96,8 @@ The build:
 1. verifies archive byte length and SHA-256 before extraction;
 2. parses the SHP/DBF pair;
 3. allowlists only cartographic fields;
-4. assigns exact canonical keys and generated fallback keys;
+4. audits `ISO_A3`, `ISO_A3_EH`, and `ADM0_A3`, then assigns exact canonical
+   keys and generated collision-free fallback keys;
 5. sorts features by locale-independent UTF-16 key order;
 6. calculates bounds, centroids, shared-arc adjacency, and territory region;
 7. constructs, presimplifies, deterministically simplifies, and quantizes

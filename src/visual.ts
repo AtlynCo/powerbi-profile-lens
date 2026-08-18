@@ -68,6 +68,10 @@ import { spatialNeighbor } from "./interaction/spatialNavigation";
 import { DetailStrategyRegistry } from "./detail/registry";
 import { createDefaultDetailStrategies } from "./detail/strategies";
 import { createDefaultContextRenderers } from "./context/renderers";
+import {
+    RUNTIME_LICENSE_NOTICES,
+    RUNTIME_LICENSE_NOTICES_SHA256
+} from "./runtimeLicenses";
 
 import IVisual = powerbi.extensibility.visual.IVisual;
 import IVisualHost = powerbi.extensibility.visual.IVisualHost;
@@ -132,6 +136,14 @@ export class Visual implements IVisual {
         this.root.setAttribute("lang", this.host.locale ?? "en-US");
         this.root.setAttribute("aria-label", this.localization.get("Visual_Name"));
         options.element.appendChild(this.root);
+        const runtimeLicenses = appendChild(
+            this.root,
+            "div",
+            "profile-lens-runtime-license-notices"
+        );
+        runtimeLicenses.setAttribute("hidden", "hidden");
+        runtimeLicenses.setAttribute("data-notice-sha256", RUNTIME_LICENSE_NOTICES_SHA256);
+        runtimeLicenses.textContent = RUNTIME_LICENSE_NOTICES;
 
         this.landingElement = appendChild(this.root, "div", "profile-lens-landing");
         this.headerElement = appendChild(this.root, "header", "profile-lens-header");
@@ -615,14 +627,15 @@ export class Visual implements IVisual {
             },
             window.devicePixelRatio || 1
         );
+        const targetsByIndex = new Map(
+            scene.features.map((feature) => [feature.index, this.contextTarget(feature)])
+        );
         return {
             element: root,
             resolve: (x, y) => {
                 const hit = this.renderedContext?.hitTest(x, y);
-                const feature = hit
-                    ? scene.features.find((entry) => entry.index === hit.featureIndex)
-                    : null;
-                return feature ? this.contextTarget(feature) : null;
+                recordCanvasTargetLookup(root);
+                return hit ? targetsByIndex.get(hit.featureIndex) ?? null : null;
             },
             navigate: (currentKey, direction) => {
                 const feature = spatialNeighbor(
@@ -1057,6 +1070,15 @@ function resolvePackKeyMode(
         return selected;
     }
     return pack === "worldCountries" ? "canonical" : pack === "usStates" ? "geoid2" : "geoid5";
+}
+
+function recordCanvasTargetLookup(root: HTMLElement): void {
+    const instrumented = root as HTMLElement & {
+        __profileLensCanvasHitMetrics?: { targetMapLookups: number } | null;
+    };
+    if (instrumented.__profileLensCanvasHitMetrics) {
+        instrumented.__profileLensCanvasHitMetrics.targetMapLookups++;
+    }
 }
 
 function appendChild(parent: HTMLElement, tag: string, className: string): HTMLElement {

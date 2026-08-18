@@ -30,6 +30,16 @@ if (packages[0] !== expectedName) {
 
 const packagePath = path.join(packageDirectory, expectedName);
 const packageBuffer = fs.readFileSync(packagePath);
+const runtimeLicenseSource = fs.readFileSync(
+    path.join(root, "src", "runtimeLicenses.ts"),
+    "utf8"
+);
+const runtimeLicenseText = runtimeLicenseSource.match(
+    /export const RUNTIME_LICENSE_NOTICES = `([\s\S]*?)`;/
+)?.[1];
+if (!runtimeLicenseText) {
+    throw new Error("Release manifest requires canonical runtime license notices.");
+}
 
 function fileMetadata(relativePath) {
     const filePath = path.join(root, relativePath);
@@ -123,6 +133,17 @@ const releaseManifest = {
     assets: {
         visualIcon: fileMetadata(manifest.assets.icon),
         partnerCenterLogo300x300: fileMetadata(path.join("assets", "partner-center-logo-300x300.png"))
+    },
+    licenses: {
+        thirdPartyNotices: fileMetadata("THIRD_PARTY_NOTICES.md"),
+        packagedRuntimeMarkers: [
+            "RUNTIME-LICENSE-NOTICES-BEGIN",
+            "RUNTIME-LICENSE-NOTICES-END"
+        ],
+        runtimeNoticeSha256: crypto
+            .createHash("sha256")
+            .update(runtimeLicenseText.replace(/\r\n/g, "\n"))
+            .digest("hex")
     },
     contextPacks,
     contract: {

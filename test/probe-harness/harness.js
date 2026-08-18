@@ -281,6 +281,10 @@
         }
         container.style.width = options.width + "px";
         container.style.height = options.height + "px";
+        Object.defineProperty(window, "devicePixelRatio", {
+            configurable: true,
+            value: options.devicePixelRatio || 1
+        });
 
         var host = buildHost(options);
         var instance = plugin.create({ element: container, host: host });

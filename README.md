@@ -27,7 +27,9 @@ Built-in packs are optional cartographic resources only:
 - 2025 Census 5m states/equivalents, including DC, PR, AS, GU, MP, and VI;
 - 2025 Census 5m counties/equivalents, including all island-area equivalents.
 
-World keys are exact uppercase ISO alpha-3 or documented generated `NE:` fallbacks. State keys are
+World keys are exact uppercase ISO alpha-3 or documented generated `NE:` fallbacks. Valid,
+collision-free `ISO_A3_EH` values supply ordinary ISO keys when `ISO_A3` is invalid, including
+`FRA` and `NOR`; `NE:` is reserved for entities without an accepted ISO key. State keys are
 exact two-digit GEOID text; county keys are exact five-digit GEOID text. No mode trims, pads,
 coerces numbers, or fuzzy-matches names. See [built-in context packs](docs/context-packs.md).
 Layouts are `split`, `focusLens`, `locatorInset`, and `profileOnly`, with deterministic responsive

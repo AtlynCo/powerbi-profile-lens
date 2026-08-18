@@ -10,19 +10,21 @@ export function hitTestScene(
 ): ContextHit | null {
     for (let index = scene.features.length - 1; index >= 0; index--) {
         const feature = scene.features[index];
-        if (containsFeature(feature, transform, { x, y }, pointRadius)) {
+        if (hitTestFeature(feature, transform, x, y, pointRadius)) {
             return { featureIndex: feature.index, featureKey: feature.key };
         }
     }
     return null;
 }
 
-function containsFeature(
+export function hitTestFeature(
     feature: ContextFeature,
     transform: SceneTransform,
-    point: ScenePoint,
-    pointRadius: number
+    x: number,
+    y: number,
+    pointRadius = 7
 ): boolean {
+    const point = { x, y };
     const geometry = feature.geometry;
     if (geometry.points) {
         return geometry.points.some((candidate) => {
