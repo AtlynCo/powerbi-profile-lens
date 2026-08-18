@@ -106,6 +106,27 @@
                   "Value": "'none'"
                 }
               }
+            },
+            "pack": {
+              "expr": {
+                "Literal": {
+                  "Value": "'worldCountries'"
+                }
+              }
+            },
+            "worldDetail": {
+              "expr": {
+                "Literal": {
+                  "Value": "'110m'"
+                }
+              }
+            },
+            "packKeyMode": {
+              "expr": {
+                "Literal": {
+                  "Value": "'auto'"
+                }
+              }
             }
           }
         }

@@ -15,8 +15,10 @@ export const DEFAULT_STRINGS = {
     Landing_Step_Band: "3. Add the ordered band field as the last hierarchy field.",
     Landing_Step_Profile: "4. Add one to six numeric measures to Profile measures.",
     Landing_Step_Optional: "5. Optionally add Series, Tooltips, or context fields.",
-    Landing_Note_ProfileOnly: "Context is optional. The visual makes no external requests and includes no geography packs.",
-    Landing_Note_DataSource: "All values come from the fields you bind. No data is bundled with the visual.",
+    Landing_Note_ProfileOnly: "Context is optional. Built-in packs are offline cartographic resources; the visual makes no external requests.",
+    Landing_Note_DataSource: "All analytical values come from fields you bind. Packs contain geometry, exact keys, names, source status, centroids, adjacency, and attribution only.",
+    Landing_Note_PackKeys: "Built-in keys are exact text: world USA or NE:KOS; state 06; county 06037. Names, numeric padding, trimming, and fuzzy matching are not supported.",
+    Landing_Note_PackPolicy: "World boundaries follow Natural Earth 5.1.1 de facto source policy. Census 2025 DC and territories are included through explicit cartographic insets.",
     Status_Rendering: "Rendering",
     Status_Ready: "Showing {0} bands across {1} profiles for {2}.",
     Status_Empty: "No data to display yet.",
@@ -89,6 +91,11 @@ export const DEFAULT_STRINGS = {
     Diagnostic_GeometryVertexLimit: "Rejected {0} geometry values that exceed a vertex limit.",
     Diagnostic_ContextProviderUnavailable: "The selected Context provider has no compatible bound input.",
     Diagnostic_ContextScenePartial: "Context is partial because {0} features were rejected.",
+    Diagnostic_MalformedPackKey: "Rejected malformed pack keys. Use exact text such as USA, NE:KOS, 06, or 06037.",
+    Diagnostic_UnsupportedPackKey: "Rejected keys unsupported by the selected pack key mode.",
+    Diagnostic_UnmatchedPackKey: "No exact feature matched these keys in the selected pack.",
+    Diagnostic_DuplicatePackKey: "Rejected duplicate normalized pack keys to avoid ambiguous selection identities.",
+    Diagnostic_PackArtifactInvalid: "The selected built-in context pack is unavailable or invalid.",
     Format_Data_Card: "Data",
     Format_Layout_Card: "Layout",
     Format_Context_Card: "Context",
@@ -99,7 +106,10 @@ export const DEFAULT_STRINGS = {
     Format_Period_Card: "Period",
     Format_Header_Card: "Header",
     Format_Diagnostics_Card: "Diagnostics",
-    Format_Accessibility_Card: "Accessibility"
+    Format_Accessibility_Card: "Accessibility",
+    Format_ContextPack: "Built-in pack",
+    Format_WorldDetail: "World detail",
+    Format_PackKeyMode: "Pack key mode"
 } as const;
 
 export type ResourceKey = keyof typeof DEFAULT_STRINGS;

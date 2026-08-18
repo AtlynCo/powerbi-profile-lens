@@ -431,6 +431,85 @@
                 "value": "hex",
                 "displayName": "Generated hex layout",
                 "displayNameKey": "Format_ContextMode_Hex"
+              },
+              {
+                "value": "builtInPack",
+                "displayName": "Built-in offline pack",
+                "displayNameKey": "Format_ContextMode_BuiltInPack"
+              }
+            ]
+          }
+        },
+        "pack": {
+          "displayName": "Built-in pack",
+          "displayNameKey": "Format_ContextPack",
+          "type": {
+            "enumeration": [
+              {
+                "value": "worldCountries",
+                "displayName": "World countries",
+                "displayNameKey": "Format_ContextPack_World"
+              },
+              {
+                "value": "usStates",
+                "displayName": "US states and equivalents",
+                "displayNameKey": "Format_ContextPack_States"
+              },
+              {
+                "value": "usCounties",
+                "displayName": "US counties and equivalents",
+                "displayNameKey": "Format_ContextPack_Counties"
+              }
+            ]
+          }
+        },
+        "worldDetail": {
+          "displayName": "World detail",
+          "displayNameKey": "Format_WorldDetail",
+          "type": {
+            "enumeration": [
+              {
+                "value": "110m",
+                "displayName": "110m (default)",
+                "displayNameKey": "Format_WorldDetail_110m"
+              },
+              {
+                "value": "50m",
+                "displayName": "50m (higher detail)",
+                "displayNameKey": "Format_WorldDetail_50m"
+              }
+            ]
+          }
+        },
+        "packKeyMode": {
+          "displayName": "Pack key mode",
+          "displayNameKey": "Format_PackKeyMode",
+          "type": {
+            "enumeration": [
+              {
+                "value": "auto",
+                "displayName": "Exact default for selected pack",
+                "displayNameKey": "Format_PackKeyMode_Auto"
+              },
+              {
+                "value": "canonical",
+                "displayName": "World ISO alpha-3 or NE: fallback",
+                "displayNameKey": "Format_PackKeyMode_Canonical"
+              },
+              {
+                "value": "isoAlpha3CaseFold",
+                "displayName": "World ISO alpha-3, case-insensitive",
+                "displayNameKey": "Format_PackKeyMode_IsoCaseFold"
+              },
+              {
+                "value": "geoid2",
+                "displayName": "Two-digit state GEOID text",
+                "displayNameKey": "Format_PackKeyMode_Geoid2"
+              },
+              {
+                "value": "geoid5",
+                "displayName": "Five-digit county GEOID text",
+                "displayNameKey": "Format_PackKeyMode_Geoid5"
               }
             ]
           }

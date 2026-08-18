@@ -1,6 +1,6 @@
 import type { Diagnostic, EntityRef } from "../model/contract";
 
-export type ContextMode = "none" | "points" | "boundGeometry" | "grid" | "hex";
+export type ContextMode = "none" | "points" | "boundGeometry" | "grid" | "hex" | "builtInPack";
 export type ContextRendererKind = "svg" | "canvas";
 export type ContextGeometryKind = "point" | "multiPoint" | "polygon" | "multiPolygon" | "grid" | "hex";
 
@@ -35,6 +35,8 @@ export interface ContextFeature {
     readonly selection: ContextSelectionIdentity;
     readonly contextValue: number | null;
     readonly tooltipValues: readonly { readonly displayName: string; readonly value: string }[];
+    /** Stable entity keys of topologically adjacent features, when a provider supplies them. */
+    readonly navigationKeys?: readonly string[];
 }
 
 export interface ContextSceneMetrics {
@@ -50,6 +52,12 @@ export interface ContextScene {
     readonly metrics: ContextSceneMetrics;
     readonly diagnostics: readonly Diagnostic[];
     readonly partial: boolean;
+    readonly metadata?: {
+        readonly displayName: string;
+        readonly vintage: string;
+        readonly attribution: string;
+        readonly policyId: string;
+    };
 }
 
 export interface ContextProviderInput {
@@ -70,6 +78,10 @@ export interface ContextProviderInput {
     readonly authorLimits?: {
         readonly maxGeometryCharacters: number;
         readonly maxSceneVertices: number;
+    };
+    readonly pack?: {
+        readonly id: string;
+        readonly keyMode: string;
     };
 }
 

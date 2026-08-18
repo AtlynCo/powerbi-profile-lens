@@ -1,6 +1,8 @@
 import { expect, test, Page } from "@playwright/test";
+import { createHash } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
+import { feature } from "topojson-client";
 
 const root = resolve(__dirname, "..");
 const probeDirectory = resolve(root, ".tmp", "probe");
@@ -9,6 +11,37 @@ const stylePath = resolve(probeDirectory, "visual.css");
 const metaPath = resolve(probeDirectory, "bundle-meta.json");
 const harnessPath = resolve(__dirname, "probe-harness", "harness.js");
 const resourcesPath = resolve(root, "stringResources", "en-US", "resources.resjson");
+const runtimeLicenseSource = readFileSync(resolve(root, "src", "runtimeLicenses.ts"), "utf8");
+const runtimeLicenseMatch = runtimeLicenseSource.match(
+    /export const RUNTIME_LICENSE_NOTICES = `([\s\S]*?)`;/
+);
+if (!runtimeLicenseMatch) {
+    throw new Error("Canonical runtime license notice block is missing.");
+}
+const RUNTIME_LICENSE_NOTICES = runtimeLicenseMatch[1];
+const RUNTIME_LICENSE_SHA256 = createHash("sha256")
+    .update(RUNTIME_LICENSE_NOTICES.replace(/\r\n/g, "\n"))
+    .digest("hex");
+const generatedPacks = resolve(root, "src", "context", "packs", "generated");
+
+function packKeys(filename: string): string[] {
+    const artifact = JSON.parse(readFileSync(resolve(generatedPacks, filename), "utf8")) as {
+        topology: {
+            objects: { features: unknown };
+        };
+    };
+    const collection = feature(
+        artifact.topology as never,
+        artifact.topology.objects.features as never
+    ) as unknown as {
+        features: Array<{ properties: { canonicalKey: string } }>;
+    };
+    return collection.features.map((entry) => entry.properties.canonicalKey);
+}
+
+const COUNTY_KEYS = packKeys("us-counties-2025-5m.pack.json");
+const STATE_KEYS = packKeys("us-states-2025-5m.pack.json");
+const WORLD_50_KEYS = packKeys("world-countries-50m.pack.json");
 
 const SIZES = [
     { width: 1280, height: 620 },
@@ -80,6 +113,14 @@ test.describe("packaged visual in a real browser", () => {
         expect(events).toEqual({ started: 1, finished: 1, failed: 0, reason: null });
 
         await expect(page.locator("#visual-root .profile-lens")).toHaveCount(1);
+        const licenseNotices = page.locator(".profile-lens-runtime-license-notices");
+        await expect(licenseNotices).toHaveAttribute("hidden", "hidden");
+        await expect(licenseNotices).toHaveAttribute(
+            "data-notice-sha256",
+            RUNTIME_LICENSE_SHA256
+        );
+        expect((await licenseNotices.textContent())?.replace(/\r\n/g, "\n"))
+            .toBe(RUNTIME_LICENSE_NOTICES.replace(/\r\n/g, "\n"));
         await expect(page.locator(".profile-lens-target")).toHaveCount(5 * 3 * 2);
         await expect(page.locator(".profile-lens-table table")).toHaveCount(1);
     });
@@ -327,13 +368,22 @@ test.describe("packaged visual in a real browser", () => {
 
     test("makes no external network request and no recurring work after settling", async ({ page }) => {
         externalRequests.length = 0;
-        await mount(page);
+        await mount(page, {
+            contextMode: "builtInPack",
+            contextPack: "worldCountries",
+            entities: ["USA", "CAN", "MEX"],
+            periods: [],
+            bands: ["Band 1"],
+            series: [],
+            profiles: ["Metric A"]
+        });
         const mutations = await page.evaluate(async () => {
             const container = document.getElementById("visual-root") as HTMLElement;
             let count = 0;
             const observer = new MutationObserver((records) => {
                 count += records.length;
             });
+
             observer.observe(container, { childList: true, subtree: true, attributes: true });
             await new Promise((done) => setTimeout(done, 1200));
             observer.disconnect();
@@ -341,6 +391,93 @@ test.describe("packaged visual in a real browser", () => {
         });
         expect(mutations).toBe(0);
         expect(externalRequests).toEqual([]);
+    });
+
+    test("renders exact world and complete state-equivalent pack semantics", async ({ page }) => {
+        await mount(page, {
+            contextMode: "builtInPack",
+            contextPack: "worldCountries",
+            entities: ["USA", "NE:KOS", " usa"],
+            periods: [],
+            bands: ["Band 1"],
+            series: [],
+            profiles: ["Metric A"]
+        });
+        await expect(page.locator(".profile-lens-context")).toHaveAttribute("aria-setsize", "2");
+        await expect(page.locator(".profile-lens-context-attribution"))
+            .toContainText("Made with Natural Earth");
+        await expect(page.locator(".profile-lens-context-semantic [role='option']").first())
+            .toHaveAttribute("aria-label", /United States of America, cartographic key USA/);
+        await expect(page.locator('[data-code="malformedPackKey"]')).toContainText(" usa");
+
+        await mount(page, {
+            contextMode: "builtInPack",
+            contextPack: "usStates",
+            entities: STATE_KEYS,
+            periods: [],
+            bands: ["Band 1"],
+            series: [],
+            profiles: ["Metric A"]
+        });
+        await expect(page.locator(".profile-lens-context")).toHaveAttribute("aria-setsize", "56");
+        await expect(page.locator(".profile-lens-context-attribution"))
+            .toContainText("U.S. Census Bureau");
+        const pathsAreFinite = await page.locator(".profile-lens-context-svg path").evaluateAll(
+            (paths) => paths.every((path) => {
+                const data = path.getAttribute("d") ?? "";
+                return data.length > 0 && !/NaN|Infinity/.test(data);
+            })
+        );
+        expect(pathsAreFinite).toBe(true);
+    });
+
+    test("keeps optional world 50m within timing, parity, and small-tile gates", async ({ page }) => {
+        const exercise = async (threshold: number): Promise<{
+            renderer: "svg" | "canvas";
+            names: string[];
+            elapsed: number;
+        }> => {
+            const started = Date.now();
+            await mount(page, {
+                contextMode: "builtInPack",
+                contextPack: "worldCountries",
+                worldDetail: "50m",
+                svgFeatureThreshold: threshold,
+                entities: WORLD_50_KEYS,
+                periods: [],
+                bands: ["Band 1"],
+                series: [],
+                profiles: ["Metric A"]
+            });
+            const elapsed = Date.now() - started;
+            const renderer = await page.locator(".profile-lens-context-canvas").evaluate(
+                (canvas) => (canvas as HTMLCanvasElement).width > 1 ? "canvas" : "svg"
+            );
+            const names = await page.locator(
+                ".profile-lens-context-semantic [role='option']"
+            ).evaluateAll((options) => options.map((entry) => entry.getAttribute("aria-label") ?? ""));
+            await page.evaluate(() => (window as unknown as {
+                resizeProfileLens: (width: number, height: number) => boolean;
+            }).resizeProfileLens(80, 80));
+            const bounded = await page.locator(".profile-lens-context").evaluate((node) => {
+                const root = document.getElementById("visual-root")!.getBoundingClientRect();
+                const bounds = node.getBoundingClientRect();
+                return bounds.left >= root.left - 1
+                    && bounds.top >= root.top - 1
+                    && bounds.right <= root.right + 1
+                    && bounds.bottom <= root.bottom + 1;
+            });
+            expect(bounded).toBe(true);
+            return { renderer, names, elapsed };
+        };
+
+        const svg = await exercise(500);
+        const canvas = await exercise(1);
+        expect(svg.renderer).toBe("svg");
+        expect(canvas.renderer).toBe("canvas");
+        expect(canvas.names).toEqual(svg.names);
+        expect(svg.elapsed).toBeLessThan(750);
+        expect(canvas.elapsed).toBeLessThan(750);
     });
 
     test("keeps SVG and Canvas context semantics and host identities identical", async ({ page }) => {
@@ -421,11 +558,13 @@ test.describe("packaged visual in a real browser", () => {
     });
 
     test("bounds Canvas and redirects disabled physical context focus", async ({ page }) => {
+        const started = Date.now();
         await mount(page, {
-            contextMode: "grid",
+            contextMode: "builtInPack",
+            contextPack: "usCounties",
             svgFeatureThreshold: 1,
             allowInteractions: false,
-            entities: Array.from({ length: 600 }, (_unused, index) => `Entity ${index + 1}`),
+            entities: COUNTY_KEYS,
             periods: [],
             bands: ["Band 1"],
             series: [],
@@ -433,6 +572,7 @@ test.describe("packaged visual in a real browser", () => {
             width: 1280,
             height: 620
         });
+        expect(Date.now() - started).toBeLessThan(750);
         const canvas = page.locator(".profile-lens-context-canvas");
         const allocation = await canvas.evaluate((node) => ({
             width: (node as HTMLCanvasElement).width,
@@ -459,6 +599,76 @@ test.describe("packaged visual in a real browser", () => {
         expect(calls.tooltipShow).toBe(0);
         expect(calls.contextMenu).toBe(0);
         expect(calls.filter).toBe(0);
+        await expect(page.locator(".profile-lens-context-semantic [role='option']")).toHaveCount(100);
+    });
+
+    test("bounds full-county Canvas picking to one candidate at DPR and scaled backing", async ({ page }) => {
+        const cases = [
+            { width: 1280, height: 620, devicePixelRatio: 1, scaled: false },
+            { width: 1280, height: 620, devicePixelRatio: 2, scaled: false },
+            { width: 10000, height: 2000, devicePixelRatio: 2, scaled: true }
+        ];
+        const observed: Array<Record<string, number | boolean>> = [];
+        for (const value of cases) {
+            await mount(page, {
+                contextMode: "builtInPack",
+                contextPack: "usCounties",
+                entities: COUNTY_KEYS,
+                periods: [],
+                bands: ["Band 1"],
+                series: [],
+                profiles: ["Metric A"],
+                width: value.width,
+                height: value.height,
+                devicePixelRatio: value.devicePixelRatio
+            });
+            const result = await page.locator(".profile-lens-context").evaluate((node) => {
+                type Metrics = {
+                    sceneFeatures: number;
+                    pickingReads: number;
+                    candidateValidations: number;
+                    fullSceneScans: number;
+                    targetMapLookups: number;
+                    pickingScaleX: number;
+                    pickingScaleY: number;
+                };
+                const root = node as HTMLElement & { __profileLensCanvasHitMetrics: Metrics };
+                const before = { ...root.__profileLensCanvasHitMetrics };
+                const bounds = root.getBoundingClientRect();
+                const started = performance.now();
+                const moves = 50;
+                for (let index = 0; index < moves; index += 1) {
+                    root.dispatchEvent(new PointerEvent("pointermove", {
+                        bubbles: true,
+                        clientX: bounds.left + 1 + ((index * 97) % Math.max(bounds.width - 2, 1)),
+                        clientY: bounds.top + 1 + ((index * 53) % Math.max(bounds.height - 2, 1)),
+                        pointerType: "mouse"
+                    }));
+                }
+                const elapsed = performance.now() - started;
+                const after = root.__profileLensCanvasHitMetrics;
+                return {
+                    elapsed,
+                    moves,
+                    sceneFeatures: after.sceneFeatures,
+                    pickingReads: after.pickingReads - before.pickingReads,
+                    candidateValidations:
+                        after.candidateValidations - before.candidateValidations,
+                    fullSceneScans: after.fullSceneScans,
+                    targetMapLookups: after.targetMapLookups - before.targetMapLookups,
+                    scaled: after.pickingScaleX < 1 || after.pickingScaleY < 1
+                };
+            });
+            expect(result.sceneFeatures).toBe(3235);
+            expect(result.pickingReads).toBe(result.moves);
+            expect(result.candidateValidations).toBeLessThanOrEqual(result.moves);
+            expect(result.fullSceneScans).toBe(0);
+            expect(result.targetMapLookups).toBe(result.pickingReads);
+            expect(result.scaled).toBe(value.scaled);
+            expect(result.elapsed).toBeLessThan(250);
+            observed.push({ ...value, ...result });
+        }
+        console.log(`Full-county picking metrics: ${JSON.stringify(observed)}`);
     });
 
     test("bounds the semantic entity list while preserving host order", async ({ page }) => {

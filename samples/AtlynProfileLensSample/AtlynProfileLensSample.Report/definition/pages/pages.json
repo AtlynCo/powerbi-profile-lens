@@ -5,7 +5,10 @@
     "pagePeriodSeries",
     "pageGeneratedLayouts",
     "pageBoundPoints",
-    "pageBoundPolygons"
+    "pageBoundPolygons",
+    "pageWorldPack",
+    "pageStatePack",
+    "pageCountyPack"
   ],
   "activePageName": "pageProfileOnly"
 }

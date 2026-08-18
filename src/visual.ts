@@ -51,6 +51,7 @@ import {
     NoneContextProvider,
     OddRHexContextProvider,
     RectangularGridContextProvider,
+    StaticContextPackProvider,
     Wgs84PointContextProvider
 } from "./context/providers";
 import { fitScene } from "./context/projection";
@@ -67,6 +68,10 @@ import { spatialNeighbor } from "./interaction/spatialNavigation";
 import { DetailStrategyRegistry } from "./detail/registry";
 import { createDefaultDetailStrategies } from "./detail/strategies";
 import { createDefaultContextRenderers } from "./context/renderers";
+import {
+    RUNTIME_LICENSE_NOTICES,
+    RUNTIME_LICENSE_NOTICES_SHA256
+} from "./runtimeLicenses";
 
 import IVisual = powerbi.extensibility.visual.IVisual;
 import IVisualHost = powerbi.extensibility.visual.IVisualHost;
@@ -131,6 +136,14 @@ export class Visual implements IVisual {
         this.root.setAttribute("lang", this.host.locale ?? "en-US");
         this.root.setAttribute("aria-label", this.localization.get("Visual_Name"));
         options.element.appendChild(this.root);
+        const runtimeLicenses = appendChild(
+            this.root,
+            "div",
+            "profile-lens-runtime-license-notices"
+        );
+        runtimeLicenses.setAttribute("hidden", "hidden");
+        runtimeLicenses.setAttribute("data-notice-sha256", RUNTIME_LICENSE_NOTICES_SHA256);
+        runtimeLicenses.textContent = RUNTIME_LICENSE_NOTICES;
 
         this.landingElement = appendChild(this.root, "div", "profile-lens-landing");
         this.headerElement = appendChild(this.root, "header", "profile-lens-header");
@@ -163,6 +176,7 @@ export class Visual implements IVisual {
         this.contextProviders.register(new BoundGeometryContextProvider());
         this.contextProviders.register(new RectangularGridContextProvider());
         this.contextProviders.register(new OddRHexContextProvider());
+        this.contextProviders.register(new StaticContextPackProvider());
         for (const strategy of createDefaultDetailStrategies()) {
             this.detailStrategies.register(strategy);
         }
@@ -536,7 +550,16 @@ export class Visual implements IVisual {
             authorLimits: {
                 maxGeometryCharacters: this.settings.maxGeometryCharacters,
                 maxSceneVertices: this.settings.maxSceneVertices
-            }
+            },
+            pack: this.settings.contextMode === "builtInPack"
+                ? {
+                    id: resolvePackId(this.settings.contextPack, this.settings.worldDetail),
+                    keyMode: resolvePackKeyMode(
+                        this.settings.contextPack,
+                        this.settings.packKeyMode
+                    )
+                }
+                : undefined
         };
         const provider = this.contextProviders.resolve(this.settings.contextMode, input);
         if (provider) {
@@ -604,14 +627,15 @@ export class Visual implements IVisual {
             },
             window.devicePixelRatio || 1
         );
+        const targetsByIndex = new Map(
+            scene.features.map((feature) => [feature.index, this.contextTarget(feature)])
+        );
         return {
             element: root,
             resolve: (x, y) => {
                 const hit = this.renderedContext?.hitTest(x, y);
-                const feature = hit
-                    ? scene.features.find((entry) => entry.index === hit.featureIndex)
-                    : null;
-                return feature ? this.contextTarget(feature) : null;
+                recordCanvasTargetLookup(root);
+                return hit ? targetsByIndex.get(hit.featureIndex) ?? null : null;
             },
             navigate: (currentKey, direction) => {
                 const feature = spatialNeighbor(
@@ -1026,6 +1050,35 @@ function rememberedFocusKey(model: ProfileDataModel): string | null {
 
 function emptyModelShim(): ProfileDataModel {
     return parseMatrix(undefined);
+}
+
+function resolvePackId(
+    pack: "worldCountries" | "usStates" | "usCounties",
+    worldDetail: "110m" | "50m"
+): string {
+    if (pack === "worldCountries") {
+        return `world-countries-${worldDetail}`;
+    }
+    return pack === "usStates" ? "us-states-2025-5m" : "us-counties-2025-5m";
+}
+
+function resolvePackKeyMode(
+    pack: "worldCountries" | "usStates" | "usCounties",
+    selected: "auto" | "canonical" | "isoAlpha3CaseFold" | "geoid2" | "geoid5"
+): string {
+    if (selected !== "auto") {
+        return selected;
+    }
+    return pack === "worldCountries" ? "canonical" : pack === "usStates" ? "geoid2" : "geoid5";
+}
+
+function recordCanvasTargetLookup(root: HTMLElement): void {
+    const instrumented = root as HTMLElement & {
+        __profileLensCanvasHitMetrics?: { targetMapLookups: number } | null;
+    };
+    if (instrumented.__profileLensCanvasHitMetrics) {
+        instrumented.__profileLensCanvasHitMetrics.targetMapLookups++;
+    }
 }
 
 function appendChild(parent: HTMLElement, tag: string, className: string): HTMLElement {

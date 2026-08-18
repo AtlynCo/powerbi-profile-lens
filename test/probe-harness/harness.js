@@ -118,6 +118,9 @@
                 objects: {
                     context: {
                         mode: config.contextMode || "none",
+                        pack: config.contextPack || "worldCountries",
+                        worldDetail: config.worldDetail || "110m",
+                        packKeyMode: config.packKeyMode || "auto",
                         svgFeatureThreshold: config.svgFeatureThreshold || 500,
                         svgVertexThreshold: config.svgVertexThreshold || 20000
                     },
@@ -278,6 +281,10 @@
         }
         container.style.width = options.width + "px";
         container.style.height = options.height + "px";
+        Object.defineProperty(window, "devicePixelRatio", {
+            configurable: true,
+            value: options.devicePixelRatio || 1
+        });
 
         var host = buildHost(options);
         var instance = plugin.create({ element: container, host: host });
