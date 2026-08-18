@@ -18,6 +18,7 @@ const {
     computeAutomationIntegrity
 } = require("./native-source-integrity.cjs");
 const { REQUIRED_SCENARIOS } = require("./finalize-native-evidence.cjs");
+const { deriveScenarioOutcomes } = require("./native-observations.cjs");
 
 const root = path.resolve(__dirname, "..");
 const packageDirectory = path.join(root, "dist");
@@ -163,8 +164,14 @@ const pbixResourceParity = nativeValidated && pbixMetadata
     : null;
 if (nativeValidated) {
     const mismatches = [];
+    const derivedNativeScenarios = deriveScenarioOutcomes(nativeEvidence.observations, {
+        sourceCommit: nativeEvidence.sourceCommit,
+        snapshotSha256: nativeEvidence.snapshot?.manifest?.sha256
+    });
     for (const scenario of REQUIRED_SCENARIOS) {
-        if (nativeEvidence.nativeScenarios?.[scenario]?.outcome !== "passed") {
+        if (derivedNativeScenarios[scenario]?.outcome !== "passed" ||
+            JSON.stringify(nativeEvidence.nativeScenarios?.[scenario]) !==
+                JSON.stringify(derivedNativeScenarios[scenario])) {
             mismatches.push(`native scenario ${scenario}`);
         }
     }
@@ -211,6 +218,17 @@ if (nativeValidated) {
     }
     if (JSON.stringify(nativeEvidence.pbix?.parity) !== JSON.stringify(pbixResourceParity)) {
         mismatches.push("PBIX embedded resource parity");
+    }
+    if (pbixResourceParity?.activeParity !== true ||
+        nativeEvidence.pbix?.parity?.activeParity !== true) {
+        mismatches.push("PBIX active resource parity");
+    }
+    const pbixObservation = (nativeEvidence.observations ?? []).find(
+        (observation) => observation.id === "pbix-offline-reopen"
+    );
+    if (pbixObservation?.before?.sha256 !== pbixResourceParity?.pbix?.sha256 ||
+        pbixObservation?.after?.sha256 !== pbixResourceParity?.pbix?.sha256) {
+        mismatches.push("PBIX observation hash binding");
     }
     if (mismatches.length > 0) {
         throw new Error(

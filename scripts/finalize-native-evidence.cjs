@@ -7,6 +7,8 @@ const {
 } = require("./native-source-integrity.cjs");
 const { assertEvidenceSafe } = require("./native-evidence-sanitize.cjs");
 const { verifyPbixVisualParity } = require("./sample-resource-parity.cjs");
+const { deriveScenarioOutcomes } = require("./native-observations.cjs");
+const { verifySnapshot } = require("./native-snapshot.cjs");
 
 const REQUIRED_SCENARIOS = [
     "fieldWells",
@@ -41,8 +43,23 @@ async function finalizeNativeEvidence(root) {
     if (run.outcome !== "native-run-completed") {
         throw new Error("The native runner did not complete.");
     }
+    const snapshot = verifySnapshot(
+        root,
+        run.snapshot?.token,
+        run.snapshot?.manifest?.sha256
+    );
+    if (run.snapshot?.lock?.mode !== "os-file-share-and-directory-deny-acl" ||
+        run.snapshot?.lock?.writesDeletesAndAdditionsDenied !== true ||
+        run.snapshot?.lock?.lockedFiles !== snapshot.manifest.files ||
+        !(run.snapshot?.lock?.guardedDirectories > 0)) {
+        throw new Error("Snapshot lock evidence is incomplete.");
+    }
+    const nativeScenarios = deriveScenarioOutcomes(run.observations, {
+        sourceCommit: run.sourceCommit,
+        snapshotSha256: snapshot.manifest.sha256
+    });
     for (const scenario of REQUIRED_SCENARIOS) {
-        if (run.scenarioResults?.[scenario]?.outcome !== "passed") {
+        if (nativeScenarios[scenario]?.outcome !== "passed") {
             throw new Error(`Required native scenario is not proven: ${scenario}`);
         }
     }
@@ -56,11 +73,20 @@ async function finalizeNativeEvidence(root) {
         pbixPath,
         guid: visualManifest.visual.guid
     });
+    if (pbixParity.activeParity !== true) {
+        throw new Error(
+            "PBIX contains the payload, but the active report resource pointer was not resolved."
+        );
+    }
+    const pbixObservation = (run.observations ?? []).find(
+        (observation) => observation.id === "pbix-offline-reopen"
+    );
     if (run.pbixBeforeReopen?.sha256 !== pbixParity.pbix.sha256 ||
         run.pbixAfterReopen?.sha256 !== pbixParity.pbix.sha256 ||
+        pbixObservation?.before?.sha256 !== pbixParity.pbix.sha256 ||
+        pbixObservation?.after?.sha256 !== pbixParity.pbix.sha256 ||
         run.pbixBeforeReopen?.bytes !== pbixParity.pbix.bytes ||
-        run.pbixAfterReopen?.bytes !== pbixParity.pbix.bytes ||
-        run.pbixStable !== true) {
+        run.pbixAfterReopen?.bytes !== pbixParity.pbix.bytes) {
         throw new Error("PBIX reopen hashes do not match the final PBIX.");
     }
     const packageBytes = fs.readFileSync(packagePath);
@@ -83,6 +109,8 @@ async function finalizeNativeEvidence(root) {
             sha256: sha256(packageBytes)
         },
         sample: run.sample,
+        snapshot: run.snapshot,
+        observations: run.observations,
         pbix: {
             path: `dist/release/${path.basename(pbixPath)}`,
             bytes: pbixParity.pbix.bytes,
@@ -91,7 +119,7 @@ async function finalizeNativeEvidence(root) {
             embeddedVisualParity: true,
             parity: pbixParity
         },
-        nativeScenarios: run.scenarioResults,
+        nativeScenarios,
         boundaries: run.boundaries ?? []
     };
     assertEvidenceSafe(evidence, [process.env.USERNAME, process.env.USER]);

@@ -6,6 +6,7 @@ param(
 
 $ErrorActionPreference = "Stop"
 . (Join-Path $PSScriptRoot "desktop-guard.ps1")
+. (Join-Path $PSScriptRoot "snapshot-guard.ps1")
 
 $desktopExe = "C:\Program Files\Microsoft Power BI Desktop\bin\PBIDesktop.exe"
 $root = (Resolve-Path (Join-Path $PSScriptRoot "..\..")).Path
@@ -56,6 +57,57 @@ if ($LASTEXITCODE -ne 0) {
     throw "PBIVIZ to sample resource parity verification failed"
 }
 $resourceParity = $resourceParityJson | ConvertFrom-Json
+$snapshotJson = & node (Join-Path $root "scripts\native-snapshot.cjs")
+if ($LASTEXITCODE -ne 0) {
+    throw "Verified native snapshot creation failed"
+}
+$snapshot = $snapshotJson | ConvertFrom-Json
+$snapshotRoot = Join-Path $root $snapshot.logicalPath.Replace("/", "\")
+$snapshotPbipPath = Join-Path $snapshotRoot $snapshot.pbip
+if ($snapshot.fixtureProjectTreeSha256 -ne $computedSampleIntegrity.projectTree.sha256) {
+    throw "Native snapshot fixture differs from the pre-copy verified PBIP project"
+}
+$script:observations = @()
+$script:observationSequence = 0
+
+function Add-SealedObservation {
+    param(
+        [string]$Id,
+        [string]$Scenario,
+        [string]$ActionKind,
+        [string]$LogicalName,
+        [string]$ControlType,
+        [AllowEmptyString()][string]$AutomationId,
+        $Before,
+        $After,
+        $ExpectedPredicate
+    )
+    $script:observationSequence++
+    $unsigned = [ordered]@{
+        schemaVersion = 1
+        id = $Id
+        scenario = $Scenario
+        sequence = $script:observationSequence
+        timestamp = (Get-Date).ToUniversalTime().ToString("o")
+        sourceCommit = $sourceCommit
+        snapshotSha256 = $snapshot.manifest.sha256
+        action = [ordered]@{
+            kind = $ActionKind
+            control = [ordered]@{
+                logicalName = $LogicalName
+                controlType = $ControlType
+                automationId = $AutomationId
+            }
+        }
+        before = $Before
+        after = $After
+        expectedPredicate = $ExpectedPredicate
+    }
+    $sealedJson = ($unsigned | ConvertTo-Json -Depth 8 -Compress) |
+        & node (Join-Path $root "scripts\native-observations.cjs") --seal
+    if ($LASTEXITCODE -ne 0) { throw "Observation sealing failed" }
+    $script:observations += $sealedJson | ConvertFrom-Json
+}
 $pages = @(
     "1 - Entity and band",
     "2 - Entity, period, band with series",
@@ -77,7 +129,7 @@ function Start-OwnedReport {
     if ($existing.Count -gt 0) {
         throw "Desktop ownership blocker: an existing Power BI Desktop process is present"
     }
-    if ($Path -eq $pbipPath) {
+    if ($Path -eq $snapshotPbipPath) {
         $script:computedSampleIntegrity = Get-VerifiedSampleIntegrity
         $launchSourceJson = & node (Join-Path $root "scripts\native-source-integrity.cjs")
         if ($LASTEXITCODE -ne 0) {
@@ -95,6 +147,19 @@ function Start-OwnedReport {
         if (($launchParityJson | ConvertFrom-Json | ConvertTo-Json -Depth 8 -Compress) -ne
             ($resourceParity | ConvertTo-Json -Depth 8 -Compress)) {
             throw "PBIVIZ sample parity identity changed at the launch boundary"
+        }
+        $launchSnapshotJson = & node (Join-Path $root "scripts\native-snapshot.cjs") `
+            --verify $snapshot.token $snapshot.manifest.sha256
+        if ($LASTEXITCODE -ne 0) {
+            throw "Native snapshot changed at the launch boundary"
+        }
+        if (($launchSnapshotJson | ConvertFrom-Json).manifest.sha256 -ne
+            $snapshot.manifest.sha256) {
+            throw "Native snapshot identity changed at the launch boundary"
+        }
+        if (($launchSnapshotJson | ConvertFrom-Json).fixtureProjectTreeSha256 -ne
+            $computedSampleIntegrity.projectTree.sha256) {
+            throw "Native snapshot fixture changed at the launch boundary"
         }
     }
     $known = @($existing.Id)
@@ -189,6 +254,9 @@ function Close-OwnedReport {
     }
 }
 
+$snapshotGuard = Open-SnapshotReadLocks -SnapshotRoot $snapshotRoot
+try {
+$snapshotLockEvidence = $snapshotGuard.evidence
 New-Item -ItemType Directory -Force -Path (Split-Path $pbixPath), $evidencePath | Out-Null
 if (Test-Path $pbixPath) { Remove-Item $pbixPath -Force }
 
@@ -200,6 +268,12 @@ $record = [ordered]@{
     desktop = (Get-Item $desktopExe).VersionInfo.ProductVersion
     pbip = ($pbipRelative -replace "\\", "/")
     pbix = ($pbixRelative -replace "\\", "/")
+    snapshot = [ordered]@{
+        token = $snapshot.token
+        logicalPath = $snapshot.logicalPath
+        manifest = $snapshot.manifest
+        lock = $snapshotLockEvidence
+    }
     sample = [ordered]@{
         projectTreeSha256 = $computedSampleIntegrity.projectTree.sha256
         reportDefinitionTreeSha256 = $computedSampleIntegrity.reportDefinitionTree.sha256
@@ -209,18 +283,7 @@ $record = [ordered]@{
         embeddedVisualResourceSha256 = $computedSampleIntegrity.embeddedVisualResource.sha256
         resourceParity = $resourceParity
     }
-    scenarioResults = [ordered]@{
-        fieldWells = @{ outcome = "unproven" }
-        profilesAndNormalization = @{ outcome = "unproven" }
-        contextModesAndJoins = @{ outcome = "unproven" }
-        selectionAndContextMenus = @{ outcome = "unproven" }
-        tooltipsAndKeyboard = @{ outcome = "unproven" }
-        lifecycleAndStaticSurfaces = @{ outcome = "unproven" }
-        pbixOfflineReopen = @{ outcome = "unproven" }
-    }
-    boundaries = @(
-        "A completed runner pass is not validated evidence until every required scenario passes."
-    )
+    observations = $script:observations
     passes = @()
     unavailable = @(
         "touch input: no touch capability was established",
@@ -230,7 +293,7 @@ $record = [ordered]@{
 }
 
 try {
-    $process = Start-OwnedReport -Path $pbipPath
+    $process = Start-OwnedReport -Path $snapshotPbipPath
     $record.passes += [ordered]@{
         kind = "pbip"
         report = $reportName
@@ -256,13 +319,25 @@ try {
     }
     $record.pbixStable = $record.pbixBeforeReopen.sha256 -eq $record.pbixAfterReopen.sha256
     if (-not $record.pbixStable) { throw "PBIX bytes changed across reopen without an intentional save" }
+    Add-SealedObservation -Id "pbix-offline-reopen" -Scenario "pbixOfflineReopen" `
+        -ActionKind "reopen-verify" -LogicalName "owned-report" -ControlType "Window" `
+        -AutomationId "" -Before @{ sha256 = $record.pbixBeforeReopen.sha256 } `
+        -After @{ sha256 = $record.pbixAfterReopen.sha256 } `
+        -ExpectedPredicate @{ kind = "unchanged" }
     $record.outcome = "native-run-completed"
+    $record.observations = $script:observations
 } catch {
     $record.outcome = "blocked"
     $record.error = $_.Exception.Message
     throw
 } finally {
     $record.completedAt = (Get-Date).ToUniversalTime().ToString("o")
+    $record.observations = $script:observations
+    $finalSnapshotJson = & node (Join-Path $root "scripts\native-snapshot.cjs") `
+        --verify $snapshot.token $snapshot.manifest.sha256
+    if ($LASTEXITCODE -ne 0) {
+        throw "Native snapshot changed before evidence persistence"
+    }
     $preSanitizeSourceJson = & node (Join-Path $root "scripts\native-source-integrity.cjs")
     if ($LASTEXITCODE -ne 0) {
         throw "Automation source changed before evidence sanitization"
@@ -295,4 +370,7 @@ try {
         Remove-Item $outputPath -Force
         throw "Automation source identity changed after evidence sanitization"
     }
+}
+} finally {
+    Close-SnapshotReadLocks -Guard $snapshotGuard
 }

@@ -36,6 +36,44 @@ const { verifySampleResourceParity } = require("../scripts/sample-resource-parit
         guid: string;
     }): Promise<{ parity: boolean; payload: { sha256: string }; embedded: Array<{ sha256: string }> }>;
 };
+const {
+    requireCanonicalPbixResource,
+    verifyPbixVisualParity
+} = require("../scripts/sample-resource-parity.cjs") as {
+    requireCanonicalPbixResource(names: string[], guid: string): string;
+    verifyPbixVisualParity(options: {
+        packagePath: string;
+        pbixPath: string;
+        guid: string;
+    }): Promise<{
+        presenceParity: boolean;
+        activeParity: boolean;
+        activePointer: { status: string };
+    }>;
+};
+const {
+    SCENARIO_REQUIREMENTS,
+    deriveScenarioOutcomes,
+    sealObservation
+} = require("../scripts/native-observations.cjs") as {
+    SCENARIO_REQUIREMENTS: Record<string, string[]>;
+    deriveScenarioOutcomes(
+        observations: unknown[],
+        binding: { sourceCommit: string; snapshotSha256: string }
+    ): Record<string, { outcome: string }>;
+    sealObservation(observation: Record<string, unknown>): Record<string, unknown>;
+};
+const { manifest: snapshotManifest, verifySnapshot } = require("../scripts/native-snapshot.cjs") as {
+    manifest(directory: string): { sha256: string };
+    verifySnapshot(root: string, token: string, expected: string): { manifest: { sha256: string } };
+};
+const JSZip = require("jszip") as {
+    loadAsync(bytes: Buffer): Promise<{ files: Record<string, { async(kind: string): Promise<Buffer> }> }>;
+    new(): {
+        file(name: string, value: string | Buffer): unknown;
+        generateAsync(options: { type: string }): Promise<Buffer>;
+    };
+};
 
 describe("native validation evidence safety", () => {
     it("uses no race-prone global input or broad UIA capture", () => {
@@ -59,7 +97,8 @@ describe("native validation evidence safety", () => {
         expect(combined).toContain("native-source-integrity.cjs");
         expect(combined).toContain("native-evidence-sanitize.cjs");
         expect(combined).toContain("sample-resource-parity.cjs");
-        expect(combined).toContain("scenarioResults");
+        expect(combined).toContain("native-observations.cjs");
+        expect(combined).toContain("observations");
     });
 
     it("contains no user, home, account, or unrelated window capture", () => {
@@ -205,6 +244,199 @@ describe("native validation evidence safety", () => {
                 sampleRoot: temp,
                 guid: "atlynProfileLens"
             })).rejects.toThrow(/differs/i);
+        } finally {
+            fs.rmSync(temp, { recursive: true, force: true });
+        }
+    });
+
+    it("derives scenario outcomes from sealed observations and ignores edited outcomes", () => {
+        const binding = {
+            sourceCommit: "a".repeat(40),
+            snapshotSha256: "b".repeat(64)
+        };
+        const observations = [sealObservation({
+            schemaVersion: 1,
+            id: "pbix-offline-reopen",
+            scenario: "pbixOfflineReopen",
+            sequence: 1,
+            timestamp: new Date(1000).toISOString(),
+            ...binding,
+            action: {
+                kind: "reopen-verify",
+                control: {
+                    logicalName: "owned-report",
+                    controlType: "Window",
+                    automationId: ""
+                }
+            },
+            before: { sha256: "1".repeat(64) },
+            after: { sha256: "1".repeat(64) },
+            expectedPredicate: { kind: "unchanged" }
+        })];
+        const derived = deriveScenarioOutcomes(observations, binding);
+        expect(derived.pbixOfflineReopen?.outcome).toBe("passed");
+        expect(derived.fieldWells?.outcome).toBe("unproven");
+
+        const editableOutcomes = Object.fromEntries(
+            Object.keys(SCENARIO_REQUIREMENTS).map((scenario) => [scenario, { outcome: "passed" }])
+        );
+        expect(editableOutcomes).not.toEqual(derived);
+        expect(deriveScenarioOutcomes(observations, binding)).toEqual(derived);
+
+        const tampered = structuredClone(observations);
+        (tampered[0] as { after: { sha256: string } }).after.sha256 = "2".repeat(64);
+        const rejected = deriveScenarioOutcomes(tampered, binding);
+        expect(rejected.pbixOfflineReopen?.outcome).toBe("failed");
+
+        const fabricatedFieldWell = sealObservation({
+            schemaVersion: 1,
+            id: "field-hierarchy-first",
+            scenario: "fieldWells",
+            sequence: 1,
+            timestamp: new Date(1000).toISOString(),
+            ...binding,
+            action: {
+                kind: "drag",
+                control: {
+                    logicalName: "hierarchy-field-well",
+                    controlType: "ListItem",
+                    automationId: ""
+                }
+            },
+            before: { value: "empty" },
+            after: { value: "accepted" },
+            expectedPredicate: { kind: "equals", value: "accepted" }
+        });
+        const fabricated = deriveScenarioOutcomes([fabricatedFieldWell], binding);
+        expect(fabricated.fieldWells?.outcome).not.toBe("passed");
+    });
+
+    it("keeps a launch snapshot independent and detects mutation", () => {
+        const temp = fs.mkdtempSync(path.join(os.tmpdir(), "profile-lens-snapshot-"));
+        const source = path.join(temp, "source");
+        const snapshot = path.join(temp, "snapshot");
+        fs.mkdirSync(source);
+        fs.writeFileSync(path.join(source, "AtlynProfileLensSample.pbip"), "fixture");
+        fs.cpSync(source, snapshot, { recursive: true });
+        const initial = snapshotManifest(snapshot).sha256;
+        fs.writeFileSync(path.join(source, "AtlynProfileLensSample.pbip"), "changed source");
+        expect(snapshotManifest(snapshot).sha256).toBe(initial);
+        fs.writeFileSync(path.join(snapshot, "AtlynProfileLensSample.pbip"), "changed snapshot");
+        expect(snapshotManifest(snapshot).sha256).not.toBe(initial);
+        const tokenRoot = path.join(temp, "dist", "release", "native-snapshot");
+        fs.mkdirSync(tokenRoot, { recursive: true });
+        const token = snapshotManifest(source).sha256;
+        fs.cpSync(source, path.join(tokenRoot, token), { recursive: true });
+        expect(() => verifySnapshot(temp, token, "0".repeat(64))).toThrow(/token and expected/i);
+        fs.rmSync(temp, { recursive: true, force: true });
+    });
+
+    it("uses OS file sharing to block snapshot writes", () => {
+        const temp = fs.mkdtempSync(path.join(os.tmpdir(), "profile-lens-lock-"));
+        const file = path.join(temp, "locked.pbip");
+        fs.writeFileSync(file, "locked");
+        const escaped = temp.replaceAll("'", "''");
+        const command = ". 'scripts\\native-validation\\snapshot-guard.ps1'; "
+            + `$guard = Open-SnapshotReadLocks -SnapshotRoot '${escaped}'; `
+            + "try { "
+            + `try { [IO.File]::Open('${escaped}\\locked.pbip','Open','Write','None').Dispose(); 'writable' } `
+            + "catch { 'write-blocked' }; "
+            + `try { [IO.File]::WriteAllText('${escaped}\\added.txt','x'); 'addition-allowed' } `
+            + "catch { 'addition-blocked' } "
+            + "} finally { Close-SnapshotReadLocks -Guard $guard }";
+        try {
+            const output = execFileSync("pwsh", ["-NoProfile", "-Command", command], {
+                cwd: root
+            }).toString();
+            expect(output).toContain("write-blocked");
+            expect(output).toContain("addition-blocked");
+        } finally {
+            fs.rmSync(temp, { recursive: true, force: true });
+        }
+    });
+
+    it("requires one exact canonical PBIX resource and an active metadata pointer", async () => {
+        const guid = "atlynProfileLens";
+        const canonical = `Report/CustomVisuals/${guid}/resources/${guid}.pbiviz.json`;
+        expect(requireCanonicalPbixResource([canonical], guid)).toBe(canonical);
+        expect(() => requireCanonicalPbixResource([canonical, canonical], guid)).toThrow(/duplicate/i);
+        expect(() => requireCanonicalPbixResource([
+            `Report/FooCustomVisuals/${guid}/resources/${guid}.pbiviz.json`
+        ], guid)).toThrow(/noncanonical|decoy/i);
+        expect(() => requireCanonicalPbixResource([
+            `report/CustomVisuals/${guid}/resources/${guid}.pbiviz.json`
+        ], guid)).toThrow(/noncanonical|decoy/i);
+        expect(() => requireCanonicalPbixResource([
+            canonical,
+            `Decoy/CustomVisuals/${guid}/resources/${guid}.pbiviz.json`
+        ], guid)).toThrow(/noncanonical|decoy/i);
+
+        const packagePath = path.join(root, "dist", "atlynProfileLens.1.2.0.0.pbiviz");
+        const packageZip = await JSZip.loadAsync(fs.readFileSync(packagePath));
+        const payload = await packageZip.files[`resources/${guid}.pbiviz.json`]?.async("nodebuffer");
+        expect(payload).toBeDefined();
+        const temp = fs.mkdtempSync(path.join(os.tmpdir(), "profile-lens-pbix-"));
+        async function writePbix(name: string, layout?: string): Promise<string> {
+            const Zip = require("jszip") as new () => {
+                file(entry: string, value: string | Buffer): unknown;
+                generateAsync(options: { type: string }): Promise<Buffer>;
+            };
+            const zip = new Zip();
+            zip.file(canonical, payload as Buffer);
+            if (layout !== undefined) zip.file("Report/Layout", layout);
+            const target = path.join(temp, name);
+            fs.writeFileSync(target, await zip.generateAsync({ type: "nodebuffer" }));
+            return target;
+        }
+        try {
+            const activeLayout = JSON.stringify({
+                resourcePackages: [{
+                    name: guid,
+                    type: "CustomVisual",
+                    items: [{
+                        name: `${guid}.pbiviz.json`,
+                        path: `${guid}.pbiviz.json`,
+                        type: "CustomVisualMetadata"
+                    }]
+                }],
+                sections: [{
+                    visualContainers: [{
+                        config: JSON.stringify({ singleVisual: { visualType: guid } })
+                    }]
+                }]
+            });
+            const resolved = await verifyPbixVisualParity({
+                packagePath,
+                pbixPath: await writePbix("resolved.pbix", activeLayout),
+                guid
+            });
+            expect(resolved.presenceParity).toBe(true);
+            expect(resolved.activeParity).toBe(true);
+            expect(resolved.activePointer.status).toBe("resolved");
+
+            const missing = await verifyPbixVisualParity({
+                packagePath,
+                pbixPath: await writePbix("missing.pbix"),
+                guid
+            });
+            expect(missing.presenceParity).toBe(true);
+            expect(missing.activeParity).toBe(false);
+            expect(missing.activePointer.status).toBe("unavailable");
+
+            const wrong = await verifyPbixVisualParity({
+                packagePath,
+                pbixPath: await writePbix("wrong.pbix", JSON.stringify({
+                    resourcePackages: [{
+                        name: guid,
+                        type: "CustomVisual",
+                        items: [{ name: "wrong", path: "wrong", type: "CustomVisualMetadata" }]
+                    }],
+                    sections: []
+                })),
+                guid
+            });
+            expect(wrong.activeParity).toBe(false);
+            expect(wrong.activePointer.status).toBe("wrong-or-missing");
         } finally {
             fs.rmSync(temp, { recursive: true, force: true });
         }
