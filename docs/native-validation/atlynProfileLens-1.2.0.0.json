@@ -1,0 +1,98 @@
+{
+  "schemaVersion": 1,
+  "outcome": "blocked",
+  "sourceCommit": "15721d6b90b4793728d01c30b0ac582a9dffd3ef",
+  "visual": {
+    "guid": "atlynProfileLens",
+    "version": "1.2.0.0",
+    "apiVersion": "5.11.0"
+  },
+  "desktopVersion": "2.156.951.0 (26.07)+c9381f8e5efc99c8de04425f1572e841914690d8",
+  "startedAt": "2026-08-18T14:28:06.4148991Z",
+  "completedAt": "2026-08-18T14:34:45.0000000Z",
+  "pbiviz": {
+    "path": "dist/atlynProfileLens.1.2.0.0.pbiviz",
+    "bytes": 472353,
+    "sha256": "83f85fcf44c5e1b49ea22f657bd980f7c408370d1267cd91291de81b2e30db56"
+  },
+  "pbip": {
+    "path": "samples/AtlynProfileLensSample/AtlynProfileLensSample.pbip",
+    "openedByDesktop": true,
+    "fixtureIdentityAtLaunch": "not-recorded",
+    "currentPreparedFixture": {
+      "sourceCommit": "f63b2aa50d040694914c445278983114f3726ac8",
+      "projectTreeSha256": "b287ce8bbd5c5192940c78ca653373abe9f2a99c02788c2efae4bae564818e3f",
+      "reportDefinitionTreeSha256": "c7b5e4f05b4e86b2d7e3854ef7590ac0ce3570f37b46152c59a5fdae53e6b710",
+      "modelDefinitionTreeSha256": "407a94d172ea8ef05797a2856a96dc49d9aa76046b5ade4210d5417e4518db9c",
+      "generatorSha256": "66598035e64943289175d6e7aefb5b1ee8821ad8439c3607e99e6dcb3a003e6f",
+      "pbipSha256": "b8bd879c17924ff02f4a81e864b86f9fbb8668025e25747e34198f3fe024c4b9",
+      "embeddedVisualResourceSha256": "19bbf6ffbdfe10c67707dff348879570a7b0e9234fd00973a22bedc2e92c91f7",
+      "automation": {
+        "paths": [
+          "scripts/native-validation",
+          "scripts/native-evidence-sanitize.cjs",
+          "scripts/native-observations.cjs",
+          "scripts/native-snapshot.cjs",
+          "scripts/native-source-integrity.cjs",
+          "scripts/finalize-native-evidence.cjs",
+          "scripts/sample-integrity.cjs",
+          "scripts/sample-resource-parity.cjs"
+        ],
+        "files": 10,
+        "sha256": "c5e70105434da8955dd3f829fc7a194c81b39724be538f06f703e79bba0a4ed0"
+      },
+      "resourceParity": {
+        "packageSha256": "83f85fcf44c5e1b49ea22f657bd980f7c408370d1267cd91291de81b2e30db56",
+        "payloadSha256": "19bbf6ffbdfe10c67707dff348879570a7b0e9234fd00973a22bedc2e92c91f7",
+        "embeddedCopies": 1,
+        "byteIdentical": true
+      }
+    }
+  },
+  "pbix": null,
+  "blocker": {
+    "stage": "foreground-ownership-proof",
+    "message": "The execution context reported foreground handle 0 while the newly owned Power BI Desktop process was responsive with title AtlynProfileLensSample. The approved guard therefore refused all keyboard, pointer, UI Automation, Save As, and close/reopen interactions.",
+    "ownedProcessEvidence": {
+      "product": "Power BI Desktop",
+      "report": "AtlynProfileLensSample",
+      "responding": true
+    },
+    "diagnosticFallbacks": [
+      "The first bounded probe established that this Desktop build omits the Power BI Desktop suffix from its window title.",
+      "The second bounded probe established foreground handle 0 and did not send input."
+    ]
+  },
+  "automatedBaseline": {
+    "cleanInstall": "passed",
+    "unitTests": 183,
+    "packagedBrowserTests": 21,
+    "contextPacks": 4,
+    "npmAuditVulnerabilities": 0,
+    "packReproducibilityTimezones": [
+      "Etc/GMT+12",
+      "Etc/GMT-14"
+    ]
+  },
+  "nativeScenarios": {
+    "fieldWells": "unproven",
+    "profilesAndNormalization": "unproven",
+    "contextModesAndJoins": "unproven",
+    "selectionAndContextMenus": "unproven",
+    "tooltipsAndKeyboard": "unproven",
+    "lifecycleAndStaticSurfaces": "unproven",
+    "saveAsPbix": "not-performed",
+    "pbixOfflineReopen": "not-performed",
+    "pbixHashStability": "not-performed",
+    "pbixEmbeddedVisualParity": "not-performed"
+  },
+  "boundaries": [
+    "No native scenario is marked passed.",
+    "Scenario outcomes are derived from fixed-schema observations. Uninstrumented field-well, profile, context, selection, tooltip, keyboard, and lifecycle scenarios are hard-coded as untrusted and cannot pass.",
+    "Future runs launch a content-addressed PBIP snapshot protected by file-share locks and directory deny ACLs; the blocked historical run predates that snapshot evidence and makes no snapshot claim.",
+    "The exact generated fixture tree opened in the blocked launch was not contemporaneously hashed, so the current 12-page fixture is not claimed as the launched bytes.",
+    "PBIP structural generation and a responsive Desktop window are not PBIX validation.",
+    "Touch, Power BI Service publication, dashboard pinning, and Partner Center submission were not attempted.",
+    "This is not Microsoft certification, approval, or submission evidence."
+  ]
+}

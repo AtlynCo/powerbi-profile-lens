@@ -1,6 +1,6 @@
 {
   "$schema": "https://developer.microsoft.com/json-schemas/fabric/item/report/definition/visualContainer/2.7.0/schema.json",
-  "name": "visualEntityBand",
+  "name": "visualProgressiveAuthoring",
   "position": {
     "x": 40,
     "y": 40,
@@ -14,59 +14,10 @@
     "query": {
       "queryState": {
         "Hierarchy": {
-          "projections": [
-            {
-              "field": {
-                "Column": {
-                  "Expression": {
-                    "SourceRef": {
-                      "Entity": "ProfileFacts"
-                    }
-                  },
-                  "Property": "Entity"
-                }
-              },
-              "queryRef": "ProfileFacts.Entity",
-              "nativeQueryRef": "Entity"
-            },
-            {
-              "field": {
-                "Column": {
-                  "Expression": {
-                    "SourceRef": {
-                      "Entity": "ProfileFacts"
-                    }
-                  },
-                  "Property": "Band"
-                }
-              },
-              "queryRef": "ProfileFacts.Band",
-              "nativeQueryRef": "Band"
-            }
-          ]
+          "projections": []
         },
         "Profiles": {
-          "projections": [
-            {
-              "field": {
-                "Aggregation": {
-                  "Expression": {
-                    "Column": {
-                      "Expression": {
-                        "SourceRef": {
-                          "Entity": "ProfileFacts"
-                        }
-                      },
-                      "Property": "Metric A"
-                    }
-                  },
-                  "Function": 0
-                }
-              },
-              "queryRef": "Sum(ProfileFacts.Metric A)",
-              "nativeQueryRef": "Sum of Metric A"
-            }
-          ]
+          "projections": []
         }
       }
     },
@@ -97,7 +48,7 @@
             "contextLayout": {
               "expr": {
                 "Literal": {
-                  "Value": "'split'"
+                  "Value": "'profileOnly'"
                 }
               }
             }

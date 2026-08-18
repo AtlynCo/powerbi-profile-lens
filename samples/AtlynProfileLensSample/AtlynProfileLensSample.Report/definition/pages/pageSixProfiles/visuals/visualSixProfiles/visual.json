@@ -1,12 +1,12 @@
 {
   "$schema": "https://developer.microsoft.com/json-schemas/fabric/item/report/definition/visualContainer/2.7.0/schema.json",
-  "name": "visualBoundPolygons",
+  "name": "visualSixProfiles",
   "position": {
     "x": 40,
     "y": 40,
     "z": 0,
     "height": 800,
-    "width": 1520,
+    "width": 740,
     "tabOrder": 0
   },
   "visual": {
@@ -28,6 +28,20 @@
               },
               "queryRef": "ProfileFacts.Entity",
               "nativeQueryRef": "Entity"
+            },
+            {
+              "field": {
+                "Column": {
+                  "Expression": {
+                    "SourceRef": {
+                      "Entity": "ProfileFacts"
+                    }
+                  },
+                  "Property": "Period"
+                }
+              },
+              "queryRef": "ProfileFacts.Period",
+              "nativeQueryRef": "Period"
             },
             {
               "field": {
@@ -84,6 +98,100 @@
               },
               "queryRef": "Sum(ProfileFacts.Metric B)",
               "nativeQueryRef": "Sum of Metric B"
+            },
+            {
+              "field": {
+                "Aggregation": {
+                  "Expression": {
+                    "Column": {
+                      "Expression": {
+                        "SourceRef": {
+                          "Entity": "ProfileFacts"
+                        }
+                      },
+                      "Property": "Metric C"
+                    }
+                  },
+                  "Function": 0
+                }
+              },
+              "queryRef": "Sum(ProfileFacts.Metric C)",
+              "nativeQueryRef": "Sum of Metric C"
+            },
+            {
+              "field": {
+                "Aggregation": {
+                  "Expression": {
+                    "Column": {
+                      "Expression": {
+                        "SourceRef": {
+                          "Entity": "ProfileFacts"
+                        }
+                      },
+                      "Property": "Metric D"
+                    }
+                  },
+                  "Function": 0
+                }
+              },
+              "queryRef": "Sum(ProfileFacts.Metric D)",
+              "nativeQueryRef": "Sum of Metric D"
+            },
+            {
+              "field": {
+                "Aggregation": {
+                  "Expression": {
+                    "Column": {
+                      "Expression": {
+                        "SourceRef": {
+                          "Entity": "ProfileFacts"
+                        }
+                      },
+                      "Property": "Metric E"
+                    }
+                  },
+                  "Function": 0
+                }
+              },
+              "queryRef": "Sum(ProfileFacts.Metric E)",
+              "nativeQueryRef": "Sum of Metric E"
+            },
+            {
+              "field": {
+                "Aggregation": {
+                  "Expression": {
+                    "Column": {
+                      "Expression": {
+                        "SourceRef": {
+                          "Entity": "ProfileFacts"
+                        }
+                      },
+                      "Property": "Metric F"
+                    }
+                  },
+                  "Function": 0
+                }
+              },
+              "queryRef": "Sum(ProfileFacts.Metric F)",
+              "nativeQueryRef": "Sum of Metric F"
+            }
+          ]
+        },
+        "Series": {
+          "projections": [
+            {
+              "field": {
+                "Column": {
+                  "Expression": {
+                    "SourceRef": {
+                      "Entity": "ProfileFacts"
+                    }
+                  },
+                  "Property": "Series"
+                }
+              },
+              "queryRef": "ProfileFacts.Series",
+              "nativeQueryRef": "Series"
             }
           ]
         },
@@ -102,24 +210,6 @@
               },
               "queryRef": "ProfileFacts.Context value",
               "nativeQueryRef": "Context value"
-            }
-          ]
-        },
-        "Geometry": {
-          "projections": [
-            {
-              "field": {
-                "Measure": {
-                  "Expression": {
-                    "SourceRef": {
-                      "Entity": "ProfileFacts"
-                    }
-                  },
-                  "Property": "Selected geometry"
-                }
-              },
-              "queryRef": "ProfileFacts.Selected geometry",
-              "nativeQueryRef": "Selected geometry"
             }
           ]
         }
@@ -152,7 +242,7 @@
             "contextLayout": {
               "expr": {
                 "Literal": {
-                  "Value": "'focusLens'"
+                  "Value": "'split'"
                 }
               }
             }
@@ -165,7 +255,7 @@
             "mode": {
               "expr": {
                 "Literal": {
-                  "Value": "'boundGeometry'"
+                  "Value": "'grid'"
                 }
               }
             },

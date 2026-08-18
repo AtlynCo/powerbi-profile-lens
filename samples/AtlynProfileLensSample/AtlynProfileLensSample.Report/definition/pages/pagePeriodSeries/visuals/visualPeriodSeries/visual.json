@@ -117,6 +117,63 @@
               },
               "queryRef": "Sum(ProfileFacts.Metric C)",
               "nativeQueryRef": "Sum of Metric C"
+            },
+            {
+              "field": {
+                "Aggregation": {
+                  "Expression": {
+                    "Column": {
+                      "Expression": {
+                        "SourceRef": {
+                          "Entity": "ProfileFacts"
+                        }
+                      },
+                      "Property": "Metric D"
+                    }
+                  },
+                  "Function": 0
+                }
+              },
+              "queryRef": "Sum(ProfileFacts.Metric D)",
+              "nativeQueryRef": "Sum of Metric D"
+            },
+            {
+              "field": {
+                "Aggregation": {
+                  "Expression": {
+                    "Column": {
+                      "Expression": {
+                        "SourceRef": {
+                          "Entity": "ProfileFacts"
+                        }
+                      },
+                      "Property": "Metric E"
+                    }
+                  },
+                  "Function": 0
+                }
+              },
+              "queryRef": "Sum(ProfileFacts.Metric E)",
+              "nativeQueryRef": "Sum of Metric E"
+            },
+            {
+              "field": {
+                "Aggregation": {
+                  "Expression": {
+                    "Column": {
+                      "Expression": {
+                        "SourceRef": {
+                          "Entity": "ProfileFacts"
+                        }
+                      },
+                      "Property": "Metric F"
+                    }
+                  },
+                  "Function": 0
+                }
+              },
+              "queryRef": "Sum(ProfileFacts.Metric F)",
+              "nativeQueryRef": "Sum of Metric F"
             }
           ]
         },
@@ -148,6 +205,13 @@
               "expr": {
                 "Literal": {
                   "Value": "'shareOfProfile'"
+                }
+              }
+            },
+            "percentScale": {
+              "expr": {
+                "Literal": {
+                  "Value": "'fraction'"
                 }
               }
             }
@@ -208,6 +272,19 @@
               "expr": {
                 "Literal": {
                   "Value": "true"
+                }
+              }
+            }
+          }
+        }
+      ],
+      "interaction": [
+        {
+          "properties": {
+            "mode": {
+              "expr": {
+                "Literal": {
+                  "Value": "'reportSelection'"
                 }
               }
             }
