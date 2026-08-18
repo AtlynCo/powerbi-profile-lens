@@ -16,7 +16,10 @@ optional entity context. All values and labels come from the report semantic mod
 | `hex` | Deterministic nongeographic hexagons generated from entities |
 
 GeoJSON `GeometryCollection`, unknown CRS, unrecognized geometry, and coordinates outside WGS84
-ranges are rejected. The visual contains no geography packs or domain-specific interpretation.
+ranges are rejected. A GeoJSON `crs` name, when present, must exactly match `CRS84`, `EPSG:4326`,
+`EPSG::4326`, `urn:ogc:def:crs:OGC:1.3:CRS84`, or `urn:ogc:def:crs:EPSG::4326`
+(case-insensitive, with no added prefix, suffix, or whitespace). The visual contains no geography
+packs or domain-specific interpretation.
 Layouts are `split`, `focusLens`, `locatorInset`, and `profileOnly`, with deterministic responsive
 fallbacks at small sizes.
 

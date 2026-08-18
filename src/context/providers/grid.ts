@@ -7,10 +7,11 @@ import type {
     ScenePoint
 } from "../contract";
 import { featureFor, scene } from "./common";
+import { compareStableKeys } from "../../model/stableKey";
 
 function stableRanks(input: ContextProviderInput): ReadonlyMap<number, number> {
     const sorted = [...input.entities].sort((a, b) =>
-        a.key.localeCompare(b.key) || a.index - b.index);
+        compareStableKeys(a.key, b.key) || a.index - b.index);
     return new Map(sorted.map((entity, rank) => [entity.index, rank]));
 }
 
@@ -81,4 +82,3 @@ export class OddRHexContextProvider extends DeterministicTessellationProvider {
         return oddRHex(rank, count);
     }
 }
-

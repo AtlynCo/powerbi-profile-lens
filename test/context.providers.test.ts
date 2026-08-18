@@ -82,6 +82,41 @@ describe("pure context providers", () => {
         expect(sceneB.features.map(feature => feature.key)).toEqual(second.map(value => value.key));
         expect(sceneA.metrics.ringCount).toBe(3);
     });
+
+    it.each([
+        new RectangularGridContextProvider(),
+        new OddRHexContextProvider()
+    ])("$id placement never consults locale collation", provider => {
+        const keys = ["z", "\u00e4", "\u00c5", "a", "\ud83d\ude00", "a\u0308"];
+        const entities = keys.map((key, index) => entity(index, key));
+        const baseline = provider.provide(provider.modes[0], input(entities));
+        const baselineCenters = new Map(
+            baseline.features.map(feature => [feature.key, feature.geometry.center])
+        );
+        const originalLocaleCompare = String.prototype.localeCompare;
+        const originalCollator = Intl.Collator;
+        try {
+            String.prototype.localeCompare = function (): number {
+                throw new Error("locale collation must not be used for stable keys");
+            };
+            Object.defineProperty(Intl, "Collator", {
+                configurable: true,
+                value: function (): never {
+                    throw new Error("Intl.Collator must not be used for stable keys");
+                }
+            });
+            const withoutLocale = provider.provide(provider.modes[0], input([...entities].reverse()));
+            expect(new Map(
+                withoutLocale.features.map(feature => [feature.key, feature.geometry.center])
+            )).toEqual(baselineCenters);
+        } finally {
+            String.prototype.localeCompare = originalLocaleCompare;
+            Object.defineProperty(Intl, "Collator", {
+                configurable: true,
+                value: originalCollator
+            });
+        }
+    });
 });
 
 describe("strict bound geometry", () => {
@@ -95,10 +130,49 @@ describe("strict bound geometry", () => {
     });
 
     it.each([
+        "CRS84",
+        "crs84",
+        "EPSG:4326",
+        "epsg::4326",
+        "urn:ogc:def:crs:OGC:1.3:CRS84",
+        "URN:OGC:DEF:CRS:EPSG::4326"
+    ])("accepts the documented exact WGS84 CRS form %s", name => {
+        const text = JSON.stringify({
+            type: "Point",
+            crs: { type: "name", properties: { name } },
+            coordinates: [1, 2]
+        });
+        expect(parseStrictGeometry(text).kind).toBe("point");
+    });
+
+    it.each([
+        "evil:EPSG:4326",
+        "prefixCRS84",
+        "EPSG:4326:suffix",
+        " EPSG:4326",
+        "EPSG:4326 ",
+        "urn:ogc:def:crs:EPSG:6.6:4326",
+        "urn:ogc:def:crs:OGC:1.3:CRS84:evil",
+        ["http", "://www.opengis.net/def/crs/EPSG/0/4326"].join(""),
+        ["https", "://www.opengis.net/def/crs/OGC/1.3/CRS84"].join(""),
+        "EPSG:3857",
+        ""
+    ])("rejects the unknown or non-exact CRS form %s", name => {
+        const text = JSON.stringify({
+            type: "Point",
+            crs: { type: "name", properties: { name } },
+            coordinates: [1, 2]
+        });
+        expect(() => parseStrictGeometry(text)).toThrow(/unknown or non-WGS84 CRS/);
+    });
+
+    it.each([
         ["FeatureCollection", `{"type":"FeatureCollection","features":[]}`],
         ["GeometryCollection", `{"type":"GeometryCollection","geometries":[]}`],
         ["GeoJSON line", `{"type":"LineString","coordinates":[[0,0],[1,1]]}`],
         ["unsafe key", `{"type":"Feature","properties":{"__proto__":true},"geometry":{"type":"Point","coordinates":[1,2]}}`],
+        ["constructor key", `{"type":"Feature","properties":{"constructor":true},"geometry":{"type":"Point","coordinates":[1,2]}}`],
+        ["prototype key", `{"type":"Feature","properties":{"prototype":true},"geometry":{"type":"Point","coordinates":[1,2]}}`],
         ["unknown CRS", `{"type":"Point","crs":{"type":"name","properties":{"name":"EPSG:3857"}},"coordinates":[1,2]}`],
         ["three dimensions", `{"type":"Point","coordinates":[1,2,3]}`],
         ["nonfinite", `{"type":"Point","coordinates":[1e400,2]}`],
@@ -145,6 +219,28 @@ describe("strict bound geometry", () => {
             .toMatchObject({ received: 3, retained: 1, rejected: 2 });
         expect(scene.diagnostics.map(value => value.detail ?? "").join()).not.toContain("\u0001");
         expect(safeRawExcerpt(`${"x".repeat(200)}\u0002`)).toHaveLength(160);
+    });
+
+    it("surfaces unknown CRS as a visible provider rejection diagnostic", () => {
+        const raw = JSON.stringify({
+            type: "Point",
+            crs: {
+                type: "name",
+                properties: { name: "evil:EPSG:4326" }
+            },
+            coordinates: [1, 2]
+        });
+        const result = new BoundGeometryContextProvider().provide(
+            "boundGeometry",
+            input([entity(0)], [geometry(0, raw)])
+        );
+        expect(result.features).toEqual([]);
+        expect(result.diagnostics.find(value => value.code === "geometryParseRejected"))
+            .toMatchObject({
+                severity: "warning",
+                rejected: 1,
+                detail: expect.stringContaining("unknown or non-WGS84 CRS")
+            });
     });
 
     it("enforces per-value and cumulative character budgets", () => {

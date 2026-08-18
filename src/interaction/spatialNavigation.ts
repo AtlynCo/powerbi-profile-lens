@@ -1,5 +1,6 @@
 import type { ContextFeature, SceneTransform } from "../context/contract";
 import { projectedCenter } from "../context/projection";
+import { compareStableKeys } from "../model/stableKey";
 
 export type SpatialDirection = "ArrowLeft" | "ArrowRight" | "ArrowUp" | "ArrowDown";
 
@@ -40,6 +41,6 @@ export function spatialNeighbor(
         })
         .filter((candidate) => candidate.directional)
         .sort((left, right) =>
-            left.score - right.score || left.feature.key.localeCompare(right.feature.key));
+            left.score - right.score || compareStableKeys(left.feature.key, right.feature.key));
     return candidates[0]?.feature ?? current;
 }

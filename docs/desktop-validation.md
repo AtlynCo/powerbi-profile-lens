@@ -19,10 +19,12 @@ candidate; record the package name and SHA-256 from `dist/release-manifest.json`
 3. Bind strict GeoJSON Geometry and Feature plus strict WKT Point, MultiPoint, Polygon, MultiPolygon.
 4. Confirm malformed input, unknown CRS, `GeometryCollection`, unsupported types, invalid rings, and
    out-of-range coordinates are rejected, not repaired or projected.
-5. Exercise exact safety bounds: 32,000 UTF-16 characters/value, 2,000,000 characters/update, depth 12,
+5. Confirm only the documented exact WGS84 CRS names are accepted; exercise arbitrary prefixes,
+   suffixes, surrounding whitespace, unsupported URNs, and URL forms as visible rejections.
+6. Exercise exact safety bounds: 32,000 UTF-16 characters/value, 2,000,000 characters/update, depth 12,
    256 rings/feature, 4,096 vertices/feature, 100,000 vertices/scene, 16,384 WKT tokens, and 1,000
    entities/features. Confirm visible diagnostics at each exceeded bound.
-6. Use browser/proxy monitoring to confirm no upload, file access, network request, tile lookup, or
+7. Use browser/proxy monitoring to confirm no upload, file access, network request, tile lookup, or
    geocoding.
 
 ## Layout and rendering

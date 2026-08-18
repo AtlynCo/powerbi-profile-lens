@@ -91,6 +91,13 @@ function polygonCenter(polygons: MultiPolygonCoordinates): ScenePoint {
 }
 
 const unsafeKeys = new Set(["__proto__", "constructor", "prototype"]);
+const WGS84_CRS_NAMES = new Set([
+    "crs84",
+    "epsg:4326",
+    "epsg::4326",
+    "urn:ogc:def:crs:ogc:1.3:crs84",
+    "urn:ogc:def:crs:epsg::4326"
+]);
 
 function inspectJson(value: unknown, depth: number): void {
     if (depth > LIMITS.maxGeometryNesting) {
@@ -120,7 +127,7 @@ function isWgs84Crs(value: unknown): boolean {
         return false;
     }
     const name = (properties as Record<string, unknown>).name;
-    return typeof name === "string" && /(?:EPSG(?::|::)4326|CRS84)$/i.test(name);
+    return typeof name === "string" && WGS84_CRS_NAMES.has(name.toLowerCase());
 }
 
 function geoJsonGeometry(value: Record<string, unknown>): ContextGeometry {

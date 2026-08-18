@@ -16,6 +16,15 @@ values, coordinate pairs, and geometry text. Context preprocessing then:
 No preprocessing reads files, uploads data, calls a network service, evaluates source text, applies a
 projection, guesses a CRS, or loads a geography pack.
 
+If legacy GeoJSON includes a `crs` object, its `name` is matched against a closed, exact,
+case-insensitive allowlist: `CRS84`, `EPSG:4326`, `EPSG::4326`,
+`urn:ogc:def:crs:OGC:1.3:CRS84`, and `urn:ogc:def:crs:EPSG::4326`. Prefixes, suffixes,
+whitespace variants, and URL forms are rejected.
+
+Generated grid/hex ranks and spatial-navigation tie-breakers compare opaque stable keys by JavaScript
+UTF-16 code-unit order. They never use locale collation, so host locale and `Intl` configuration
+cannot change placement or focus behavior.
+
 ## Provider extension contract
 
 `ContextProvider` is the only provider boundary:
