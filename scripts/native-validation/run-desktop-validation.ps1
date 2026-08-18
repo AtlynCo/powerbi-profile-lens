@@ -92,7 +92,9 @@ function Invoke-SaveAs {
     }
     Assert-OwnedDialogForeground -ProcessId $ProcessId -ExpectedDialogTitle "*Save As*"
     [System.Windows.Forms.SendKeys]::SendWait("^a")
+    Assert-OwnedDialogForeground -ProcessId $ProcessId -ExpectedDialogTitle "*Save As*"
     [System.Windows.Forms.SendKeys]::SendWait($pbixPath)
+    Assert-OwnedDialogForeground -ProcessId $ProcessId -ExpectedDialogTitle "*Save As*"
     [System.Windows.Forms.SendKeys]::SendWait("{ENTER}")
     $deadline = (Get-Date).AddMinutes(5)
     $lastLength = -1

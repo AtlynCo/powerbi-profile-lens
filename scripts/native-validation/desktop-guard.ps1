@@ -81,23 +81,24 @@ function Assert-OwnedForeground {
             return $process
         }
 
-        function Assert-OwnedDialogForeground {
-            param([int]$ProcessId, [string]$ExpectedDialogTitle, [int]$Attempts = 8)
-            for ($attempt = 0; $attempt -lt $Attempts; $attempt++) {
-                Get-Process -Id $ProcessId -ErrorAction Stop | Out-Null
-                $foreground = [NativeDesktopGuard]::GetForegroundWindow()
-                [uint32]$foregroundProcessId = 0
-                [NativeDesktopGuard]::GetWindowThreadProcessId($foreground, [ref]$foregroundProcessId) | Out-Null
-                $title = [NativeDesktopGuard]::Title($foreground)
-                if ($foregroundProcessId -eq $ProcessId -and $title -like $ExpectedDialogTitle) {
-                    return
-                }
-                Start-Sleep -Milliseconds 500
-            }
-            throw "Refusing input: foreground dialog is not '$ExpectedDialogTitle' owned by PID $ProcessId"
-        }
     }
     throw "Refusing input: the owned '$ExpectedTitle' window could not be proven foreground"
+}
+
+function Assert-OwnedDialogForeground {
+    param([int]$ProcessId, [string]$ExpectedDialogTitle, [int]$Attempts = 8)
+    for ($attempt = 0; $attempt -lt $Attempts; $attempt++) {
+        Get-Process -Id $ProcessId -ErrorAction Stop | Out-Null
+        $foreground = [NativeDesktopGuard]::GetForegroundWindow()
+        [uint32]$foregroundProcessId = 0
+        [NativeDesktopGuard]::GetWindowThreadProcessId($foreground, [ref]$foregroundProcessId) | Out-Null
+        $title = [NativeDesktopGuard]::Title($foreground)
+        if ($foregroundProcessId -eq $ProcessId -and $title -like $ExpectedDialogTitle) {
+            return
+        }
+        Start-Sleep -Milliseconds 500
+    }
+    throw "Refusing input: foreground dialog is not '$ExpectedDialogTitle' owned by PID $ProcessId"
 }
 
 function Get-OwnedRoot {
@@ -176,9 +177,13 @@ function Capture-OwnedWindow {
     $bitmap = New-Object System.Drawing.Bitmap $width, $height
     $graphics = [System.Drawing.Graphics]::FromImage($bitmap)
     $deviceContext = $graphics.GetHdc()
-    [NativeDesktopGuard]::PrintWindow($process.MainWindowHandle, $deviceContext, 2) | Out-Null
+    $captured = [NativeDesktopGuard]::PrintWindow($process.MainWindowHandle, $deviceContext, 2)
     $graphics.ReleaseHdc($deviceContext)
     $graphics.Dispose()
+    if (-not $captured) {
+        $bitmap.Dispose()
+        throw "PrintWindow failed for the exact owned Desktop window"
+    }
     New-Item -ItemType Directory -Force -Path (Split-Path $Path) | Out-Null
     $bitmap.Save($Path, [System.Drawing.Imaging.ImageFormat]::Png)
     $bitmap.Dispose()

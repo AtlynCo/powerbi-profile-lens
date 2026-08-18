@@ -116,6 +116,58 @@ try {
     sourceCommit = "unknown";
 }
 
+const packageSha256 = crypto.createHash("sha256").update(packageBuffer).digest("hex");
+const nativeValidated = nativeEvidence?.outcome === "validated";
+if (nativeValidated) {
+    const mismatches = [];
+    const packageSourcePaths = [
+        "package.json",
+        "package-lock.json",
+        "pbiviz.json",
+        "capabilities.json",
+        "assets/icon.png",
+        "src",
+        "style",
+        "stringResources"
+    ];
+    try {
+        const resolvedEvidenceCommit = execFileSync(
+            "git",
+            ["rev-parse", `${nativeEvidence.sourceCommit}^{commit}`],
+            { cwd: root, encoding: "utf8" }
+        ).trim();
+        if (resolvedEvidenceCommit !== nativeEvidence.sourceCommit) {
+            mismatches.push("source commit identity");
+        } else {
+            execFileSync(
+                "git",
+                ["diff", "--quiet", nativeEvidence.sourceCommit, "--", ...packageSourcePaths],
+                { cwd: root }
+            );
+        }
+    } catch {
+        mismatches.push("package source tree");
+    }
+    if (nativeEvidence.visual?.guid !== manifest.visual.guid) mismatches.push("visual GUID");
+    if (nativeEvidence.visual?.version !== manifest.visual.version) mismatches.push("visual version");
+    if (nativeEvidence.visual?.apiVersion !== manifest.apiVersion) mismatches.push("API version");
+    if (nativeEvidence.pbiviz?.sha256 !== packageSha256) mismatches.push("PBIVIZ SHA-256");
+    if (!pbixMetadata) mismatches.push("PBIX file");
+    if (nativeEvidence.pbix?.sha256 !== pbixMetadata?.sha256) mismatches.push("PBIX SHA-256");
+    if (nativeEvidence.pbix?.bytes !== pbixMetadata?.bytes) mismatches.push("PBIX byte length");
+    if (nativeEvidence.pbix?.embeddedVisualParity !== true) {
+        mismatches.push("PBIX embedded visual parity");
+    }
+    if (nativeEvidence.pbix?.stableAcrossReopen !== true) {
+        mismatches.push("PBIX reopen byte stability");
+    }
+    if (mismatches.length > 0) {
+        throw new Error(
+            `Validated native evidence does not match this release: ${mismatches.join(", ")}.`
+        );
+    }
+}
+
 const releaseManifest = {
     schemaVersion: 1,
     sourceCommit,
@@ -138,7 +190,7 @@ const releaseManifest = {
             format: "PBIP",
             files: sampleFiles.filter(Boolean).length,
             pbix: pbixMetadata,
-            pbixStatus: pbixMetadata && nativeEvidence?.outcome === "validated"
+            pbixStatus: pbixMetadata && nativeValidated
                 ? "A genuine Desktop-produced PBIX is present and tied to the native evidence record."
                 : "Blocked for submission: no validated native PBIX is claimed. Create it from this PBIP in Power BI Desktop, close and reopen it, prove embedded visual parity and stable bytes, and complete native validation before submission."
         }
@@ -146,7 +198,7 @@ const releaseManifest = {
     package: {
         filename: expectedName,
         bytes: packageBuffer.length,
-        sha256: crypto.createHash("sha256").update(packageBuffer).digest("hex")
+        sha256: packageSha256
     },
     assets: {
         visualIcon: fileMetadata(manifest.assets.icon),
