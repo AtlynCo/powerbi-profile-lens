@@ -20,7 +20,7 @@
     "openedByDesktop": true,
     "fixtureIdentityAtLaunch": "not-recorded",
     "currentPreparedFixture": {
-      "sourceCommit": "3c159ccb75ad653226dec79b40c0a8d2bcc08c73",
+      "sourceCommit": "bc01a4ec72246dbbd7986e7cd527e90060731c79",
       "projectTreeSha256": "b287ce8bbd5c5192940c78ca653373abe9f2a99c02788c2efae4bae564818e3f",
       "reportDefinitionTreeSha256": "c7b5e4f05b4e86b2d7e3854ef7590ac0ce3570f37b46152c59a5fdae53e6b710",
       "modelDefinitionTreeSha256": "407a94d172ea8ef05797a2856a96dc49d9aa76046b5ade4210d5417e4518db9c",
@@ -41,7 +41,7 @@
           "scripts/sample-resource-parity.cjs"
         ],
         "files": 13,
-        "sha256": "c3c2028a8b1389d7fe0a7d0f101406aac26d74af691121ce376d28ec89cd77bc"
+        "sha256": "5f4ce945c7950cb1175b968ef8e4f3e494beacb47dd49b2c2bbe77733e093c2f"
       },
       "resourceParity": {
         "packageSha256": "83f85fcf44c5e1b49ea22f657bd980f7c408370d1267cd91291de81b2e30db56",
