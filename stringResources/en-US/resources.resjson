@@ -72,7 +72,6 @@
   "Format_InteractionMode": "Entity activation",
   "Format_InteractionMode_Local": "Local focus only",
   "Format_InteractionMode_Selection": "Report selection",
-  "Format_InteractionMode_Filter": "Report filter",
   "Format_Profiles_Card": "Profiles",
   "Format_BarThickness": "Band thickness",
   "Format_ShowValueLabels": "Show value labels",

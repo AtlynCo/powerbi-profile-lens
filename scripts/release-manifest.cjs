@@ -106,6 +106,8 @@ const releaseManifest = {
     contract: {
         dataViewMappings: 1,
         mappingKind: "matrix",
+        interactionModes: ["localOnly", "reportSelection"],
+        outwardFilter: false,
         roles: (JSON.parse(fs.readFileSync(path.join(root, "capabilities.json"), "utf8")).dataRoles ?? [])
             .map((role) => role.name)
     },

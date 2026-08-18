@@ -33,6 +33,7 @@ const RULES = [
     { name: "document.cookie", pattern: /document\.cookie\b/ },
     { name: "importScripts", pattern: /\bimportScripts\s*\(/ },
     { name: "setInterval", pattern: /\bsetInterval\s*\(/ },
+    { name: "outward filter API", pattern: /\bapplyJsonFilter\b/ },
     { name: "http(s) URL literal", pattern: /["'`]https?:\/\/(?!www\.w3\.org)/ }
 ];
 
@@ -90,6 +91,9 @@ async function scanPackagedBundle() {
     for (const rule of RULES.slice(0, 7)) {
         if (rule.pattern.test(js)) {
             problems.push(`packaged bundle uses ${rule.name}`);
+        }
+        if (/\bapplyJsonFilter\b/.test(js)) {
+            problems.push("packaged bundle uses outward filter API");
         }
     }
 }

@@ -140,7 +140,6 @@ describe("capabilities contract", () => {
             "context",
             "data",
             "diagnostics",
-            "general",
             "header",
             "interaction",
             "layout",
@@ -149,5 +148,14 @@ describe("capabilities contract", () => {
             "profiles",
             "series"
         ]);
+    });
+
+    it("does not advertise outward filter support", () => {
+        expect(capabilities.objects.general).toBeUndefined();
+        const interaction = capabilities.objects.interaction.properties.mode as {
+            type: { enumeration: Array<{ value: string }> };
+        };
+        expect(interaction.type.enumeration.map((entry) => entry.value))
+            .toEqual(["localOnly", "reportSelection"]);
     });
 });

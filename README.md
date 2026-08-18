@@ -84,11 +84,11 @@ The internal `matrixExpand` interface reports unavailable. Capabilities intentio
 
 Context features use entity-level matrix identities; profile marks retain bucket-level identities.
 The default entity activation mode focuses locally and selects through the host. Authors can choose
-local-only or explicit report-filter behavior; the latter writes only `general.filter` and restores
-focus from `jsonFilters`. Right-click invokes either the data-point or empty-space native context menu
-once, and native tooltips follow the pointer. Slicers, cross-filters, highlights, RLS, and host
-selection state remain authoritative. When the host disables interactions, no selection, filter,
-tooltip, focus mutation, or context-menu call is made.
+local-only behavior instead. Right-click invokes either the data-point or empty-space native context
+menu once, and native tooltips follow the pointer. External slicers, cross-filters, highlights, RLS,
+and host selection state remain authoritative read-only inputs. The visual never writes an outward
+filter. When the host disables interactions, no selection, tooltip, focus mutation, or context-menu
+call is made.
 
 Keyboard focus is roving and restored by stable key. Arrow keys navigate, Enter/Space select, and
 Escape returns focus to the visual. SVG and Canvas provide semantic parity through the same accessible
@@ -97,8 +97,7 @@ information is not conveyed by color alone.
 
 Arrow navigation changes local focus only; it never selects or filters by itself. Pointer click or
 Enter/Space is activation: local-only mode performs no host mutation, report-selection mode selects
-the entity identity, and report-filter mode applies the explicit entity filter even when the entity
-was already focused.
+the entity identity. Outward report filtering is not a v1 feature.
 
 ## Provider extension contract
 

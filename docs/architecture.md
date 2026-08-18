@@ -68,21 +68,13 @@ behavior.
 Context features resolve to entity-level matrix identities and profile marks retain bucket-level
 identities. The shared controller owns selection, multi-selection, tooltip, context-menu, keyboard
 focus, and disabled-interaction behavior. Report selection is the default entity action. Local-only
-mode makes no host mutation; explicit report-filter mode writes only `general.filter` and consumes
-`jsonFilters` as authoritative bookmark/filter state. Highlights, RLS, and external selections remain
-host inputs.
+mode makes no host mutation. Highlights, RLS, external filters, and external selections remain
+read-only host inputs. The visual declares no filter capability and never calls `applyJsonFilter`.
 
 Navigation and activation are separate state transitions. Spatial arrow keys update local entity
 focus, the header, and `aria-activedescendant` without mutating host selection or filters. Pointer
 click and Enter/Space activate the focused entity according to the configured interaction mode.
-Fresh `jsonFilters` are authoritative; cached rerenders never reinterpret an absent filter payload.
-Entering report-filter mode reconciles against the last authoritative snapshot, and leaving it
-removes the visual-owned filter.
-
-Filter writes carry monotonic local generations until host echoes settle them. Delayed echoes for
-older activations cannot relinquish ownership of the newest write. The visual retains a pre-write
-authoritative baseline, removes exactly one echoed visual-owned filter on exit, and preserves
-unrelated or coexisting external filters, including identical target/value filters.
+The only v1 modes are local focus and host report selection; neither writes an outward filter.
 
 The semantic status and profile table remain available at every responsive size. Feature descriptions,
 focus order, selected state, tooltip text, high-contrast cues, RTL, and reduced-motion behavior are
