@@ -1,6 +1,6 @@
 param(
     [string]$Pbip = "samples\AtlynProfileLensSample\AtlynProfileLensSample.pbip",
-    [string]$Pbix = "dist\release\AtlynProfileLensSample-1.2.0.0.pbix",
+    [string]$Pbix,
     [string]$EvidenceDirectory = "dist\release\native-evidence"
 )
 
@@ -25,6 +25,10 @@ try {
 
 $desktopExe = "C:\Program Files\Microsoft Power BI Desktop\bin\PBIDesktop.exe"
 $root = (Resolve-Path (Join-Path $PSScriptRoot "..\..")).Path
+$visualManifest = Get-Content (Join-Path $root "pbiviz.json") -Raw | ConvertFrom-Json
+if (-not $Pbix) {
+    $Pbix = "dist\release\AtlynProfileLensSample-$($visualManifest.visual.version).pbix"
+}
 $earlyFinalizableEvidence = Join-Path $root "dist\release\native-evidence\native-run.json"
 if (Test-Path $earlyFinalizableEvidence) {
     Remove-Item $earlyFinalizableEvidence -Force
@@ -36,7 +40,7 @@ $pbipPath = (Resolve-Path (Join-Path $root $Pbip)).Path
 $pbixPath = [System.IO.Path]::GetFullPath((Join-Path $root $Pbix))
 $evidencePath = [System.IO.Path]::GetFullPath((Join-Path $root $EvidenceDirectory))
 $expectedPbipRelative = "samples\AtlynProfileLensSample\AtlynProfileLensSample.pbip"
-$expectedPbixRelative = "dist\release\AtlynProfileLensSample-1.2.0.0.pbix"
+$expectedPbixRelative = "dist\release\AtlynProfileLensSample-$($visualManifest.visual.version).pbix"
 $pbipRelative = [System.IO.Path]::GetRelativePath($root, $pbipPath)
 $pbixRelative = [System.IO.Path]::GetRelativePath($root, $pbixPath)
 $evidenceRelative = [System.IO.Path]::GetRelativePath($root, $evidencePath)

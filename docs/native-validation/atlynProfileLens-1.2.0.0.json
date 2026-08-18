@@ -18,38 +18,7 @@
   "pbip": {
     "path": "samples/AtlynProfileLensSample/AtlynProfileLensSample.pbip",
     "openedByDesktop": true,
-    "fixtureIdentityAtLaunch": "not-recorded",
-    "currentPreparedFixture": {
-      "sourceCommit": "519aee9f5bcf1c64ebdb87f31b5601d85b0b0906",
-      "projectTreeSha256": "b287ce8bbd5c5192940c78ca653373abe9f2a99c02788c2efae4bae564818e3f",
-      "reportDefinitionTreeSha256": "c7b5e4f05b4e86b2d7e3854ef7590ac0ce3570f37b46152c59a5fdae53e6b710",
-      "modelDefinitionTreeSha256": "407a94d172ea8ef05797a2856a96dc49d9aa76046b5ade4210d5417e4518db9c",
-      "generatorSha256": "66598035e64943289175d6e7aefb5b1ee8821ad8439c3607e99e6dcb3a003e6f",
-      "pbipSha256": "b8bd879c17924ff02f4a81e864b86f9fbb8668025e25747e34198f3fe024c4b9",
-      "embeddedVisualResourceSha256": "19bbf6ffbdfe10c67707dff348879570a7b0e9234fd00973a22bedc2e92c91f7",
-      "automation": {
-        "paths": [
-          "scripts/native-validation",
-          "scripts/native-evidence-sanitize.cjs",
-          "scripts/native-observations.cjs",
-          "scripts/native-pbix-snapshot.cjs",
-          "scripts/pbix-publication-lock.cjs",
-          "scripts/native-snapshot.cjs",
-          "scripts/native-source-integrity.cjs",
-          "scripts/finalize-native-evidence.cjs",
-          "scripts/sample-integrity.cjs",
-          "scripts/sample-resource-parity.cjs"
-        ],
-        "files": 13,
-        "sha256": "3a5346e40d89e2c71f627f41573c6cbe41fefca6715fc2b267fcebd260189a4b"
-      },
-      "resourceParity": {
-        "packageSha256": "83f85fcf44c5e1b49ea22f657bd980f7c408370d1267cd91291de81b2e30db56",
-        "payloadSha256": "19bbf6ffbdfe10c67707dff348879570a7b0e9234fd00973a22bedc2e92c91f7",
-        "embeddedCopies": 1,
-        "byteIdentical": true
-      }
-    }
+    "fixtureIdentityAtLaunch": "not-recorded"
   },
   "pbix": null,
   "blocker": {
@@ -90,11 +59,7 @@
   },
   "boundaries": [
     "No native scenario is marked passed.",
-    "Scenario outcomes are derived from fixed-schema observations. Uninstrumented field-well, profile, context, selection, tooltip, keyboard, and lifecycle scenarios are hard-coded as untrusted and cannot pass.",
-    "Future controlled runs launch a content-addressed PBIP snapshot, hold read handles on every expected file, and compare exact file manifests at each phase. Additions and removals are detected by phase checks.",
-    "The snapshot controls protect against accidental or ordinary mutation during the exclusive harness run. They do not claim immutability against a malicious process running as the same user or a transient attack restored between phase checks.",
-    "No filesystem ACL is modified and no persistent recovery key or journal is created. Release PBIX bytes remain read-locked through evidence and manifest publication.",
-    "The exact generated fixture tree opened in the blocked launch was not contemporaneously hashed, so the current 12-page fixture is not claimed as the launched bytes.",
+    "The fixture tree opened in the blocked launch was not contemporaneously hashed, so no later fixture tree is claimed as the launched bytes.",
     "PBIP structural generation and a responsive Desktop window are not PBIX validation.",
     "Touch, Power BI Service publication, dashboard pinning, and Partner Center submission were not attempted.",
     "This is not Microsoft certification, approval, or submission evidence."

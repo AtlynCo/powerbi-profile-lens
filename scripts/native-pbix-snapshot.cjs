@@ -53,7 +53,7 @@ function verifyPbixSnapshot(root, token) {
     return { token, basename, logicalPath, snapshot };
 }
 
-module.exports = { createPbixSnapshot, metadata, verifyPbixSnapshot };
+module.exports = { createPbixSnapshot, expectedPbixName, metadata, verifyPbixSnapshot };
 
 if (require.main === module) {
     const root = path.resolve(__dirname, "..");

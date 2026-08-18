@@ -15,6 +15,7 @@ const currentPackagePath = path.join(
     "dist",
     `${visualManifest.visual.name}.${visualManifest.visual.version}.pbiviz`
 );
+const currentPbixName = `AtlynProfileLensSample-${visualManifest.visual.version}.pbix`;
 const require = createRequire(import.meta.url);
 const { computeSampleIntegrity } = require("../scripts/sample-integrity.cjs") as {
     computeSampleIntegrity(options: {
@@ -92,6 +93,7 @@ const { acquirePbixPublicationLock } = require("../scripts/pbix-publication-lock
 };
 const {
     createPbixSnapshot,
+    expectedPbixName,
     verifyPbixSnapshot
 } = require("../scripts/native-pbix-snapshot.cjs") as {
     createPbixSnapshot(root: string, source: string): {
@@ -100,6 +102,7 @@ const {
         original: { sha256: string };
         snapshot: { sha256: string };
     };
+    expectedPbixName(root: string): string;
     verifyPbixSnapshot(root: string, token: string): { snapshot: { sha256: string } };
 };
 const JSZip = require("jszip") as {
@@ -252,6 +255,35 @@ describe("native validation evidence safety", () => {
         } finally {
             fs.rmSync(temp, { recursive: true, force: true });
         }
+    });
+
+    it("keeps the lock wrapper schema-identical to the 1.3 manifest worker", () => {
+        if (!fs.existsSync(currentPackagePath)) return;
+        const dirty = execFileSync("git", [
+            "status",
+            "--porcelain",
+            "--untracked-files=all",
+            "--",
+            "scripts",
+            "docs/native-validation",
+            "samples/AtlynProfileLensSample"
+        ], { cwd: root }).toString().trim();
+        if (dirty) return;
+        execFileSync(process.execPath, [path.join(root, "scripts", "release-manifest-worker.cjs")], {
+            cwd: root
+        });
+        const outputPath = path.join(root, "dist", "release-manifest.json");
+        const worker = JSON.parse(fs.readFileSync(outputPath, "utf8")) as {
+            contract: { viewportNavigation?: unknown };
+            proofBoundary: string;
+        };
+        execFileSync(process.execPath, [path.join(root, "scripts", "release-manifest.cjs")], {
+            cwd: root
+        });
+        const wrapped = JSON.parse(fs.readFileSync(outputPath, "utf8")) as typeof worker;
+        expect(wrapped).toEqual(worker);
+        expect(wrapped.contract.viewportNavigation).toBeDefined();
+        expect(wrapped.proofBoundary).toContain("primary-drag and wheel gestures");
     });
 
     it("proves final PBIVIZ payload parity and rejects embedded drift", async () => {
@@ -454,12 +486,12 @@ describe("native validation evidence safety", () => {
     it("content-addresses and read-locks the PBIX reopen snapshot", () => {
         const temp = fs.mkdtempSync(path.join(os.tmpdir(), "profile-lens-pbix-lock-"));
         fs.copyFileSync(path.join(root, "pbiviz.json"), path.join(temp, "pbiviz.json"));
-        const source = path.join(temp, "AtlynProfileLensSample-1.2.0.0.pbix");
+        const source = path.join(temp, currentPbixName);
         fs.writeFileSync(source, "stable pbix");
         expect(() => createPbixSnapshot(temp, path.join(temp, "wrong.pbix")))
             .toThrow(/basename/i);
         const snapshot = createPbixSnapshot(temp, source);
-        expect(path.basename(snapshot.logicalPath)).toBe("AtlynProfileLensSample-1.2.0.0.pbix");
+        expect(path.basename(snapshot.logicalPath)).toBe(currentPbixName);
         fs.writeFileSync(source, "replacement");
         expect(verifyPbixSnapshot(temp, snapshot.token).snapshot.sha256)
             .toBe(snapshot.snapshot.sha256);
@@ -483,9 +515,27 @@ describe("native validation evidence safety", () => {
         }
     });
 
+    it("derives active PBIX paths from an arbitrary manifest version", () => {
+        const temp = fs.mkdtempSync(path.join(os.tmpdir(), "profile-lens-version-"));
+        fs.writeFileSync(path.join(temp, "pbiviz.json"), JSON.stringify({
+            visual: { version: "9.8.7.6" }
+        }));
+        const expected = "AtlynProfileLensSample-9.8.7.6.pbix";
+        const source = path.join(temp, expected);
+        fs.writeFileSync(source, "arbitrary version");
+        try {
+            expect(expectedPbixName(temp)).toBe(expected);
+            const snapshot = createPbixSnapshot(temp, source);
+            expect(snapshot.basename).toBe(expected);
+            expect(snapshot.logicalPath).toContain(`/${expected}`);
+        } finally {
+            fs.rmSync(temp, { recursive: true, force: true });
+        }
+    });
+
     it("holds the exact release PBIX through publication", async () => {
         const temp = fs.mkdtempSync(path.join(os.tmpdir(), "profile-lens-publication-"));
-        const pbix = path.join(temp, "AtlynProfileLensSample-1.2.0.0.pbix");
+        const pbix = path.join(temp, currentPbixName);
         fs.writeFileSync(pbix, "release bytes");
         const lock = await acquirePbixPublicationLock(root, pbix);
         try {
@@ -502,7 +552,7 @@ describe("native validation evidence safety", () => {
 
     it("detects premature PBIX lock-helper exit without hanging release", async () => {
         const temp = fs.mkdtempSync(path.join(os.tmpdir(), "profile-lens-lock-exit-"));
-        const pbix = path.join(temp, "AtlynProfileLensSample-1.2.0.0.pbix");
+        const pbix = path.join(temp, currentPbixName);
         fs.writeFileSync(pbix, "release bytes");
         const lock = await acquirePbixPublicationLock(root, pbix);
         const output = path.join(temp, "atomic-output.json");
