@@ -92,6 +92,7 @@ public static class OwnedProcessJob {
     public sealed class Launch {
         public IntPtr Job;
         public int ProcessId;
+        public long StartTimeUtcTicks;
     }
     [DllImport("kernel32.dll", CharSet=CharSet.Unicode, SetLastError=true)]
     static extern bool CreateProcess(string app, StringBuilder command, IntPtr pa, IntPtr ta,
@@ -113,6 +114,9 @@ public static class OwnedProcessJob {
     static extern uint ResumeThread(IntPtr thread);
     [DllImport("kernel32.dll", SetLastError=true)]
     static extern bool TerminateProcess(IntPtr process, uint code);
+    [DllImport("kernel32.dll", SetLastError=true)]
+    static extern bool GetProcessTimes(IntPtr process, out long creation, out long exit,
+        out long kernel, out long user);
     [DllImport("kernel32.dll", SetLastError=true)]
     public static extern bool CloseHandle(IntPtr handle);
 
@@ -136,6 +140,11 @@ public static class OwnedProcessJob {
             CloseHandle(job); throw new InvalidOperationException("CreateProcess failed");
         }
         try {
+            long creation, exit, kernel, user;
+            if (!GetProcessTimes(pi.hProcess, out creation, out exit, out kernel, out user)) {
+                TerminateProcess(pi.hProcess, 1);
+                throw new InvalidOperationException("GetProcessTimes failed");
+            }
             if (!AssignProcessToJobObject(job, pi.hProcess)) {
                 TerminateProcess(pi.hProcess, 1);
                 throw new InvalidOperationException("AssignProcessToJobObject failed");
@@ -144,7 +153,11 @@ public static class OwnedProcessJob {
                 TerminateJobObject(job, 1);
                 throw new InvalidOperationException("ResumeThread failed");
             }
-            return new Launch { Job = job, ProcessId = pi.dwProcessId };
+            return new Launch {
+                Job = job,
+                ProcessId = pi.dwProcessId,
+                StartTimeUtcTicks = DateTime.FromFileTimeUtc(creation).Ticks
+            };
         } catch {
             CloseHandle(job); throw;
         } finally {
@@ -451,11 +464,10 @@ function Get-AllowlistedControlProbe {
 function Start-OwnedProcessJob {
     param([string]$Executable, [string]$Argument, [string]$WorkingDirectory)
     $launch = [OwnedProcessJob]::Start($Executable, $Argument, $WorkingDirectory)
-    $process = Get-Process -Id $launch.ProcessId -ErrorAction Stop
     return [ordered]@{
         handle = $launch.Job
-        rootProcessId = $process.Id
-        rootStartTimeUtcTicks = $process.StartTime.ToUniversalTime().Ticks
+        rootProcessId = $launch.ProcessId
+        rootStartTimeUtcTicks = $launch.StartTimeUtcTicks
         closed = $false
     }
 }

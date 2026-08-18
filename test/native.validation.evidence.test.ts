@@ -554,6 +554,22 @@ describe("native validation evidence safety", () => {
                 guid
             })).rejects.toThrow(/local and central records disagree/i);
 
+            const invalidNames = fs.readFileSync(await writePbix("invalid-names.pbix", activeLayout));
+            const invalidLocal = invalidNames.indexOf(Buffer.from([0x50, 0x4b, 0x03, 0x04]));
+            let invalidEocd = invalidNames.length - 22;
+            while (invalidEocd >= 0 &&
+                invalidNames.readUInt32LE(invalidEocd) !== 0x06054b50) invalidEocd--;
+            const invalidCentral = invalidNames.readUInt32LE(invalidEocd + 16);
+            invalidNames[invalidLocal + 30] = 0x80;
+            invalidNames[invalidCentral + 46] = 0x81;
+            const invalidNamesPath = path.join(temp, "invalid-names-view.pbix");
+            fs.writeFileSync(invalidNamesPath, invalidNames);
+            await expect(verifyPbixVisualParity({
+                packagePath,
+                pbixPath: invalidNamesPath,
+                guid
+            })).rejects.toThrow(/UTF-8|Non-ASCII/i);
+
             const validBytes = fs.readFileSync(await writePbix("unmatched-source.pbix", activeLayout));
             const prefix = Buffer.alloc(30);
             prefix.writeUInt32LE(0x04034b50, 0);

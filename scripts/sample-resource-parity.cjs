@@ -2,6 +2,7 @@ const crypto = require("node:crypto");
 const fs = require("node:fs");
 const path = require("node:path");
 const JSZip = require("jszip");
+const strictUtf8 = new TextDecoder("utf-8", { fatal: true });
 
 function sha256(bytes) {
     return crypto.createHash("sha256").update(bytes).digest("hex");
@@ -16,6 +17,18 @@ function parseExtraFields(extra) {
         if (id === 0x0001) throw new Error("ZIP64 entries are not supported.");
         if (id === 0x7075) throw new Error("ZIP Unicode path overrides are not supported.");
         offset += 4 + length;
+    }
+
+}
+
+function decodeZipName(bytes, flags) {
+    if ([...bytes].some((value) => value > 0x7f) && (flags & 0x0800) === 0) {
+        throw new Error("Non-ASCII ZIP names must declare UTF-8.");
+    }
+    try {
+        return strictUtf8.decode(bytes);
+    } catch {
+        throw new Error("ZIP filename is not valid UTF-8.");
     }
 }
 
@@ -68,7 +81,8 @@ function parseCanonicalZipRecords(bytes) {
         const uncompressedSize = bytes.readUInt32LE(offset + 24);
         const localOffset = bytes.readUInt32LE(offset + 42);
         const diskNumberStart = bytes.readUInt16LE(offset + 34);
-        const name = bytes.subarray(offset + 46, offset + 46 + nameLength).toString("utf8");
+        const nameBytes = bytes.subarray(offset + 46, offset + 46 + nameLength);
+        const name = decodeZipName(nameBytes, flags);
         const extra = bytes.subarray(
             offset + 46 + nameLength,
             offset + 46 + nameLength + extraLength
@@ -95,11 +109,13 @@ function parseCanonicalZipRecords(bytes) {
         const localNameEnd = localNameStart + localNameLength;
         const localExtraEnd = localNameEnd + localExtraLength;
         if (localExtraEnd > start) throw new Error("ZIP local header exceeds the data region.");
-        const localName = bytes.subarray(localNameStart, localNameEnd).toString("utf8");
+        const localNameBytes = bytes.subarray(localNameStart, localNameEnd);
+        const localName = decodeZipName(localNameBytes, localFlags);
         const localExtra = bytes.subarray(localNameEnd, localExtraEnd);
         assertCanonicalArchiveName(localName);
         parseExtraFields(localExtra);
-        if (localName !== name || localFlags !== flags || localMethod !== method ||
+        if (!localNameBytes.equals(nameBytes) || localName !== name ||
+            localFlags !== flags || localMethod !== method ||
             localCrc32 !== crc32 || localCompressedSize !== compressedSize ||
             localUncompressedSize !== uncompressedSize) {
             throw new Error("ZIP local and central records disagree.");

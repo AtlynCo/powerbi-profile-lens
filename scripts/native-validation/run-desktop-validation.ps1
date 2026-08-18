@@ -25,6 +25,10 @@ try {
 
 $desktopExe = "C:\Program Files\Microsoft Power BI Desktop\bin\PBIDesktop.exe"
 $root = (Resolve-Path (Join-Path $PSScriptRoot "..\..")).Path
+$earlyFinalizableEvidence = Join-Path $root "dist\release\native-evidence\native-run.json"
+if (Test-Path $earlyFinalizableEvidence) {
+    Remove-Item $earlyFinalizableEvidence -Force
+}
 $recoveryRoot = Join-Path $root "dist\release\native-recovery"
 if (@(Get-Process -Name PBIDesktop -ErrorAction SilentlyContinue).Count -gt 0) {
     throw "Desktop ownership blocker: recovery deferred while Power BI Desktop is running"
@@ -290,7 +294,6 @@ $snapshotLockEvidence = $snapshotGuard.evidence
 New-Item -ItemType Directory -Force -Path (Split-Path $pbixPath), $evidencePath | Out-Null
 if (Test-Path $pbixPath) { Remove-Item $pbixPath -Force }
 $finalizableEvidencePath = Join-Path $evidencePath "native-run.json"
-if (Test-Path $finalizableEvidencePath) { Remove-Item $finalizableEvidencePath -Force }
 
 $record = [ordered]@{
     schemaVersion = 1
