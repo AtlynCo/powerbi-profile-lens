@@ -32,6 +32,13 @@ const CODE_ORDER: readonly DiagnosticCode[] = [
     "oversizedGeometry",
     "emptyGeometry",
     "nonFiniteContextValue",
+    "geometryUpdateBudgetExceeded",
+    "geometryParseRejected",
+    "geometryFeatureLimit",
+    "geometryRingLimit",
+    "geometryVertexLimit",
+    "contextProviderUnavailable",
+    "contextScenePartial",
     "highlightActive",
     "interactionsDisabled"
 ];
@@ -70,7 +77,14 @@ const SEVERITY_BY_CODE: Record<DiagnosticCode, DiagnosticSeverity> = {
     incompleteCoordinates: "warning",
     oversizedGeometry: "warning",
     emptyGeometry: "warning",
-    nonFiniteContextValue: "warning"
+    nonFiniteContextValue: "warning",
+    geometryUpdateBudgetExceeded: "warning",
+    geometryParseRejected: "warning",
+    geometryFeatureLimit: "warning",
+    geometryRingLimit: "warning",
+    geometryVertexLimit: "warning",
+    contextProviderUnavailable: "warning",
+    contextScenePartial: "warning"
 };
 
 export interface DiagnosticInput {

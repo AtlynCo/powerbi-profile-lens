@@ -56,6 +56,10 @@ assert(
     capabilities.supportsOnObjectFormatting === undefined,
     "on-object formatting must not be claimed"
 );
+assert(
+    capabilities.expandCollapse === undefined && capabilities.drilldown === undefined,
+    "expand/collapse and drilldown must remain undeclared until native host proof passes"
+);
 assert(fs.existsSync(packageDirectory), "dist directory is missing");
 
 const packages = fs.readdirSync(packageDirectory).filter((entry) => entry.endsWith(".pbiviz"));

@@ -100,6 +100,8 @@ export interface EntityOption {
     readonly element: HTMLElement;
 }
 
+const MAX_RENDERED_ENTITY_OPTIONS = 100;
+
 export function renderEntityList(
     container: HTMLElement,
     input: EntityListInput
@@ -126,12 +128,24 @@ export function renderEntityList(
         return options;
     }
 
-    for (const entity of input.model.entities) {
+    const halfWindow = Math.floor(MAX_RENDERED_ENTITY_OPTIONS / 2);
+    const start = Math.max(
+        Math.min(
+            input.entityIndex - halfWindow,
+            input.model.entities.length - MAX_RENDERED_ENTITY_OPTIONS
+        ),
+        0
+    );
+    const retained = input.model.entities.slice(start, start + MAX_RENDERED_ENTITY_OPTIONS);
+    list.setAttribute("aria-setsize", String(input.model.entities.length));
+    for (const entity of retained) {
         const option = document.createElement("div");
         option.className = "profile-lens-entity-option";
         option.setAttribute("role", "option");
         option.setAttribute("data-entity-index", String(entity.index));
         option.setAttribute("aria-selected", entity.index === input.entityIndex ? "true" : "false");
+        option.setAttribute("aria-posinset", String(entity.index + 1));
+        option.setAttribute("aria-setsize", String(input.model.entities.length));
         option.setAttribute(
             "tabindex",
             input.interactive && entity.index === input.entityIndex ? "0" : "-1"

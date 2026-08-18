@@ -4,8 +4,7 @@
  * The sample is authored as source, not as a native .pbix: a PBIP project can be produced and
  * validated offline, while producing and reopening a genuine .pbix remains a manual Power BI
  * Desktop step. The semantic model is a DAX calculated table, so the project has no data source,
- * needs no credentials and needs no refresh. Every label is deliberately generic and carries no
- * business or demographic meaning.
+ * needs no credentials and needs no refresh. Every label is deliberately generic.
  *
  * Usage: node scripts/build-sample-report.cjs
  */
@@ -21,11 +20,19 @@ const reportRoot = path.join(sampleRoot, `${sampleName}.Report`);
 const modelRoot = path.join(sampleRoot, `${sampleName}.SemanticModel`);
 const table = "ProfileFacts";
 
-const ENTITIES = ["Entity A", "Entity B", "Entity C"];
+const ENTITIES = ["Product A", "Team B", "Facility C", "Seat 04"];
 const PERIODS = ["Period 1", "Period 2"];
 const BANDS = ["Band 1", "Band 2", "Band 3", "Band 4", "Band 5"];
 const SERIES = ["Series X", "Series Y"];
 const METRICS = ["Metric A", "Metric B", "Metric C"];
+const LATITUDES = [47.61, 40.71, 51.51, -33.87];
+const LONGITUDES = [-122.33, -74.01, -0.13, 151.21];
+const GEOMETRIES = [
+    "POLYGON ((-122.36 47.59, -122.30 47.59, -122.30 47.63, -122.36 47.63, -122.36 47.59))",
+    "POLYGON ((-74.04 40.69, -73.98 40.69, -73.98 40.73, -74.04 40.73, -74.04 40.69))",
+    "POLYGON ((-0.16 51.49, -0.10 51.49, -0.10 51.53, -0.16 51.53, -0.16 51.49))",
+    "POLYGON ((151.18 -33.89, 151.24 -33.89, 151.24 -33.85, 151.18 -33.85, 151.18 -33.89))"
+];
 
 function writeJson(filePath, value) {
     fs.mkdirSync(path.dirname(filePath), { recursive: true });
@@ -55,7 +62,9 @@ function buildRows() {
                         syntheticValue(entityIndex, periodIndex, bandIndex, seriesIndex, metricIndex));
                     rows.push(
                         `        {"${entity}", "${period}", "${band}", ${bandIndex + 1}, "${series}", `
-                        + `${values[0]}, ${values[1]}, ${values[2]}}`
+                        + `${values[0]}, ${values[1]}, ${values[2]}, `
+                        + `${LATITUDES[entityIndex]}, ${LONGITUDES[entityIndex]}, `
+                        + `"${GEOMETRIES[entityIndex]}"}`
                     );
                 });
             });
@@ -67,9 +76,9 @@ function buildRows() {
 function tableTmdl() {
     const rows = buildRows().join(",\n");
     return [
-        "/// Offline synthetic sample data for the Atlyn Profile Lens listing. Defined as a DAX",
+        "/// Offline synthetic sample data for Atlyn Profile Lens. Defined as a DAX",
         "/// calculated table so the model has no data source, no credentials and no refresh.",
-        "/// The labels are deliberately generic and carry no business or demographic meaning.",
+        "/// The labels are deliberately generic.",
         `table ${table}`,
         "",
         "\tcolumn Entity",
@@ -117,6 +126,35 @@ function tableTmdl() {
             "\t\tannotation SummarizationSetBy = Automatic"
         ]),
         "",
+        "\tcolumn Latitude",
+        "\t\tsummarizeBy: none",
+        "\t\tisNameInferred",
+        "\t\tsourceColumn: [Latitude]",
+        "",
+        "\t\tannotation SummarizationSetBy = Automatic",
+        "",
+        "\tcolumn Longitude",
+        "\t\tsummarizeBy: none",
+        "\t\tisNameInferred",
+        "\t\tsourceColumn: [Longitude]",
+        "",
+        "\t\tannotation SummarizationSetBy = Automatic",
+        "",
+        "\tcolumn Geometry",
+        "\t\tsummarizeBy: none",
+        "\t\tisNameInferred",
+        "\t\tsourceColumn: [Geometry]",
+        "",
+        "\t\tannotation SummarizationSetBy = Automatic",
+        "",
+        `\tmeasure 'Context value' = SUM(${table}[Metric A])`,
+        "",
+        `\tmeasure 'Selected latitude' = SELECTEDVALUE(${table}[Latitude])`,
+        "",
+        `\tmeasure 'Selected longitude' = SELECTEDVALUE(${table}[Longitude])`,
+        "",
+        `\tmeasure 'Selected geometry' = SELECTEDVALUE(${table}[Geometry])`,
+        "",
         `\tpartition ${table} = calculated`,
         "\t\tmode: import",
         "\t\tsource =",
@@ -127,6 +165,9 @@ function tableTmdl() {
         '\t\t\t\t    "BandOrder", INTEGER,',
         '\t\t\t\t    "Series", STRING,',
         ...METRICS.map((metric) => `\t\t\t\t    "${metric}", DOUBLE,`),
+        '\t\t\t\t    "Latitude", DOUBLE,',
+        '\t\t\t\t    "Longitude", DOUBLE,',
+        '\t\t\t\t    "Geometry", STRING,',
         "\t\t\t\t    {",
         ...rows.split("\n").map((row) => `\t\t\t\t        ${row.trim()}`),
         "\t\t\t\t    }",
@@ -165,7 +206,20 @@ function projection(property, aggregate) {
     };
 }
 
-function visualJson(name, hierarchyProperties, withSeries, metrics) {
+function measureProjection(property) {
+    return {
+        field: {
+            Measure: {
+                Expression: { SourceRef: { Entity: table } },
+                Property: property
+            }
+        },
+        queryRef: `${table}.${property}`,
+        nativeQueryRef: property
+    };
+}
+
+function visualJson(name, hierarchyProperties, withSeries, metrics, options = {}) {
     const queryState = {
         Hierarchy: { projections: hierarchyProperties.map((property) => projection(property, false)) },
         Profiles: { projections: metrics.map((metric) => projection(metric, true)) }
@@ -173,16 +227,48 @@ function visualJson(name, hierarchyProperties, withSeries, metrics) {
     if (withSeries) {
         queryState.Series = { projections: [projection("Series", false)] };
     }
+    if (options.contextValue) {
+        queryState.ContextValue = { projections: [measureProjection("Context value")] };
+    }
+    if (options.coordinates) {
+        queryState.Latitude = { projections: [measureProjection("Selected latitude")] };
+        queryState.Longitude = { projections: [measureProjection("Selected longitude")] };
+    }
+    if (options.geometry) {
+        queryState.Geometry = { projections: [measureProjection("Selected geometry")] };
+    }
     return {
         $schema: "https://developer.microsoft.com/json-schemas/fabric/item/report/definition/visualContainer/2.7.0/schema.json",
         name,
-        position: { x: 40, y: 40, z: 0, height: 800, width: 1520, tabOrder: 0 },
+        position: options.position ?? { x: 40, y: 40, z: 0, height: 800, width: 1520, tabOrder: 0 },
         visual: {
             visualType: guid,
             query: { queryState },
             objects: {
-                data: [{ properties: { normalization: { expr: { Literal: { Value: "'shareOfProfile'" } } } } }],
-                diagnostics: [{ properties: { showDiagnostics: { expr: { Literal: { Value: "true" } } } } }]
+                data: [{
+                    properties: {
+                        normalization: { expr: { Literal: { Value: "'shareOfProfile'" } } }
+                    }
+                }],
+                layout: [{
+                    properties: {
+                        contextLayout: { expr: {
+                            Literal: { Value: `'${options.contextLayout ?? "split"}'` }
+                        } }
+                    }
+                }],
+                context: [{
+                    properties: {
+                        mode: { expr: {
+                            Literal: { Value: `'${options.contextMode ?? "none"}'` }
+                        } }
+                    }
+                }],
+                diagnostics: [{
+                    properties: {
+                        showDiagnostics: { expr: { Literal: { Value: "true" } } }
+                    }
+                }]
             },
             drillFilterOtherVisuals: true
         }
@@ -193,22 +279,100 @@ const pages = [
     {
         name: "pageProfileOnly",
         displayName: "1 - Entity and band",
-        visualName: "visualEntityBand",
-        hierarchy: ["Entity", "Band"],
-        series: false,
-        metrics: ["Metric A"]
+        visuals: [{
+            name: "visualEntityBand",
+            hierarchy: ["Entity", "Band"],
+            series: false,
+            metrics: ["Metric A"]
+        }]
     },
     {
         name: "pagePeriodSeries",
         displayName: "2 - Entity, period, band with series",
-        visualName: "visualPeriodSeries",
-        hierarchy: ["Entity", "Period", "Band"],
-        series: true,
-        metrics: METRICS
+        visuals: [{
+            name: "visualPeriodSeries",
+            hierarchy: ["Entity", "Period", "Band"],
+            series: true,
+            metrics: METRICS
+        }]
+    },
+    {
+        name: "pageGeneratedLayouts",
+        displayName: "3 - Nongeographic grid and hex",
+        visuals: [
+            {
+                name: "visualGrid",
+                hierarchy: ["Entity", "Band"],
+                series: false,
+                metrics: ["Metric A", "Metric B"],
+                options: {
+                    contextMode: "grid",
+                    contextValue: true,
+                    position: { x: 40, y: 40, z: 0, height: 800, width: 740, tabOrder: 0 }
+                }
+            },
+            {
+                name: "visualHex",
+                hierarchy: ["Entity", "Band"],
+                series: false,
+                metrics: ["Metric A", "Metric B"],
+                options: {
+                    contextMode: "hex",
+                    contextValue: true,
+                    position: { x: 820, y: 40, z: 1, height: 800, width: 740, tabOrder: 1 }
+                }
+            }
+        ]
+    },
+    {
+        name: "pageBoundPoints",
+        displayName: "4 - Bound WGS84 points",
+        visuals: [{
+            name: "visualBoundPoints",
+            hierarchy: ["Entity", "Band"],
+            series: false,
+            metrics: ["Metric A", "Metric B"],
+            options: {
+                contextMode: "points",
+                contextValue: true,
+                coordinates: true,
+                contextLayout: "locatorInset"
+            }
+        }]
+    },
+    {
+        name: "pageBoundPolygons",
+        displayName: "5 - Simple bound polygons",
+        visuals: [{
+            name: "visualBoundPolygons",
+            hierarchy: ["Entity", "Band"],
+            series: false,
+            metrics: ["Metric A", "Metric B"],
+            options: {
+                contextMode: "boundGeometry",
+                contextValue: true,
+                geometry: true,
+                contextLayout: "focusLens"
+            }
+        }]
     }
 ];
 
 fs.rmSync(sampleRoot, { recursive: true, force: true });
+
+writeText(path.join(sampleRoot, "README.md"), `# Atlyn Profile Lens offline PBIP sample
+
+Generated by \`npm run sample:pbip\`. The five pages retain the two profile examples and add
+nongeographic grid and hex layouts, bound WGS84 points, and strict WKT polygons.
+
+The semantic model contains only a synthetic DAX \`DATATABLE\` with generic product, team, facility,
+seat, period, band, series, and metric labels. It has no data source, credentials, refresh, file
+access, or network dependency. Latitude, longitude, geometry, and context measures are projections
+over the same synthetic rows.
+
+Open \`${sampleName}.pbip\` in Power BI Desktop. If the generator found \`dist\`, the report embeds
+that packaged visual for offline use. This repository does not produce or claim a PBIX.
+`);
 
 writeJson(path.join(sampleRoot, `${sampleName}.pbip`), {
     $schema: "https://developer.microsoft.com/json-schemas/fabric/pbip/pbipProperties/1.0.0/schema.json",
@@ -269,10 +433,12 @@ for (const page of pages) {
         height: 900,
         width: 1600
     });
-    writeJson(
-        path.join(reportRoot, "definition", "pages", page.name, "visuals", page.visualName, "visual.json"),
-        visualJson(page.visualName, page.hierarchy, page.series, page.metrics)
-    );
+    for (const visual of page.visuals) {
+        writeJson(
+            path.join(reportRoot, "definition", "pages", page.name, "visuals", visual.name, "visual.json"),
+            visualJson(visual.name, visual.hierarchy, visual.series, visual.metrics, visual.options)
+        );
+    }
 }
 
 writeJson(path.join(modelRoot, ".platform"), {

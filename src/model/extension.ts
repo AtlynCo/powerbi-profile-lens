@@ -39,12 +39,12 @@ const WKT_KEYWORDS = [
 ];
 
 /**
- * Builds the typed extension payload for the context and future map roles.
+ * Builds the typed source payload consumed by registered context providers.
  *
  * These roles are exposed in the field wells on purpose, so a binding is never ignored: the values
  * are validated into an explicit structure and reported through diagnostics. Nothing in this
- * package consumes the payload, and geometry text is measured and classified but never parsed, so
- * binding a map role cannot start a rendering, projection or network path.
+ * Geometry text is only measured and classified here; strict parsing belongs to the selected pure
+ * provider, and binding a role can never start a network path.
  */
 export function buildExtensionPayload(
     cells: readonly ExtensionSourceCell[],
@@ -70,6 +70,7 @@ export function buildExtensionPayload(
     const latitudes = new Map<number, { value: number; origin: ExtensionSourceCell["origin"] }>();
     const longitudes = new Map<number, { value: number; origin: ExtensionSourceCell["origin"] }>();
     const geometry = new Map<number, GeometryPayload>();
+    const coordinateConflicts = new Set<number>();
 
     let nonFiniteContextValues = 0;
     let invalidCoordinates = 0;
@@ -114,6 +115,7 @@ export function buildExtensionPayload(
                 const existing = latitudes.get(cell.entityIndex);
                 if (existing && existing.value !== numeric) {
                     conflictingCoordinates++;
+                    coordinateConflicts.add(cell.entityIndex);
                     break;
                 }
                 if (!existing) {
@@ -130,6 +132,7 @@ export function buildExtensionPayload(
                 const existing = longitudes.get(cell.entityIndex);
                 if (existing && existing.value !== numeric) {
                     conflictingCoordinates++;
+                    coordinateConflicts.add(cell.entityIndex);
                     break;
                 }
                 if (!existing) {
@@ -168,6 +171,9 @@ export function buildExtensionPayload(
     const coordinates: CoordinatePayload[] = [];
     const coordinateEntities = new Set<number>([...latitudes.keys(), ...longitudes.keys()]);
     for (const entityIndex of [...coordinateEntities].sort((left, right) => left - right)) {
+        if (coordinateConflicts.has(entityIndex)) {
+            continue;
+        }
         const latitude = latitudes.get(entityIndex);
         const longitude = longitudes.get(entityIndex);
         if (!latitude || !longitude) {
@@ -184,12 +190,6 @@ export function buildExtensionPayload(
         });
     }
 
-    if (boundRoles.length > 0) {
-        diagnostics.add("extensionRolesProfileOnly", {
-            received: boundRoles.length,
-            detail: boundRoles.join(", ")
-        });
-    }
     if (nonFiniteContextValues > 0) {
         diagnostics.add("nonFiniteContextValue", { rejected: nonFiniteContextValues });
     }

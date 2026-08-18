@@ -171,6 +171,7 @@ export function parseMatrix(
             index: entityIndex,
             key: entityKey,
             label: nodeLabel(entityNode, entityKey),
+            value: entityValue(entityNode.value),
             identity: dependencies.createSelectionId
                 ? dependencies.createSelectionId(entityNode, rowLevels)
                 : null
@@ -657,10 +658,19 @@ function nodeLabel(node: DataViewMatrixNode, fallback: string): string {
     if (value === undefined || value === null) {
         return fallback;
     }
+
     if (value instanceof Date) {
         return value.toISOString();
     }
+
     return String(value);
+}
+
+function entityValue(value: PrimitiveValue | undefined): EntityRef["value"] {
+    if (value === undefined || value === null) {
+        return null;
+    }
+    return value instanceof Date ? new Date(value.getTime()) : value;
 }
 
 function sourceKey(source: DataViewMetadataColumn | undefined, index: number): string {

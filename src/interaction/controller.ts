@@ -12,6 +12,17 @@ export interface InteractionTarget {
     readonly tooltip: () => readonly VisualTooltipDataItem[];
 }
 
+export interface SurfaceInteraction {
+    readonly element: HTMLElement;
+    readonly resolve: (x: number, y: number) => InteractionTarget | null;
+    readonly navigate?: (
+        currentKey: string | null,
+        direction: "ArrowLeft" | "ArrowRight" | "ArrowUp" | "ArrowDown"
+    ) => InteractionTarget | null;
+    readonly targetForKey?: (key: string | null) => InteractionTarget | null;
+    readonly hasKey?: (key: string) => boolean;
+}
+
 export interface ControllerDependencies {
     readonly root: HTMLElement;
     readonly selectionManager: ISelectionManager;
@@ -56,11 +67,20 @@ export class InteractionController {
         this.focusKey = key;
     }
 
-    public bind(targets: readonly InteractionTarget[]): void {
+    public bind(
+        targets: readonly InteractionTarget[],
+        surface: SurfaceInteraction | null = null
+    ): void {
         this.detachTargetListeners();
         this.targets = targets;
         this.orderedKeys = targets.map((target) => target.key);
-        if (this.focusKey === null || !this.orderedKeys.includes(this.focusKey)) {
+        if (
+            this.focusKey === null
+            || (
+                !this.orderedKeys.includes(this.focusKey)
+                && !surface?.hasKey?.(this.focusKey)
+            )
+        ) {
             this.focusKey = this.orderedKeys[0] ?? null;
         }
         for (const target of targets) {
@@ -69,6 +89,9 @@ export class InteractionController {
                 this.allowInteractions && target.key === this.focusKey ? "0" : "-1"
             );
             this.attachTarget(target);
+        }
+        if (surface) {
+            this.attachSurface(surface);
         }
         this.attachRootContextMenu();
     }
@@ -145,6 +168,107 @@ export class InteractionController {
 
         this.on(element, "keydown", (event) => {
             this.handleKeyDown(target, event as KeyboardEvent);
+        });
+    }
+
+    private attachSurface(surface: SurfaceInteraction): void {
+        const element = surface.element;
+        element.setAttribute("tabindex", this.allowInteractions ? "0" : "-1");
+        element.setAttribute("aria-disabled", this.allowInteractions ? "false" : "true");
+
+        this.on(element, "pointerdown", () => {
+            if (!this.allowInteractions) {
+                this.deps.root.focus();
+            }
+        });
+        this.on(element, "focus", () => {
+            if (!this.allowInteractions) {
+                this.deps.root.focus();
+            }
+        });
+        this.on(element, "click", (event) => {
+            const pointer = event as MouseEvent;
+            pointer.stopPropagation();
+            if (!this.allowInteractions) {
+                this.deps.root.focus();
+                return;
+            }
+            const target = resolveSurfaceTarget(surface, pointer);
+            if (!target) {
+                return;
+            }
+            this.focus(target.key);
+            if (target.identity) {
+                void this.deps.selectionManager
+                    .select(target.identity, Boolean(pointer.ctrlKey || pointer.metaKey || pointer.shiftKey))
+                    .then(() => this.deps.onSelectionChanged());
+            }
+        });
+        this.on(element, "pointermove", (event) => {
+            if (!this.allowInteractions) {
+                return;
+            }
+            const pointer = event as PointerEvent;
+            const target = resolveSurfaceTarget(surface, pointer);
+            if (!target) {
+                this.hideTooltip();
+                return;
+            }
+            this.showTooltip(target, pointer);
+        });
+        this.on(element, "pointerout", () => this.hideTooltip());
+        this.on(element, "contextmenu", (event) => {
+            const pointer = event as MouseEvent;
+            pointer.preventDefault();
+            pointer.stopPropagation();
+            if (!this.allowInteractions) {
+                this.deps.root.focus();
+                return;
+            }
+            const target = resolveSurfaceTarget(surface, pointer);
+            this.hideTooltip();
+            void this.deps.selectionManager.showContextMenu(
+                target?.identity ?? this.deps.emptySelectionId ?? ({} as ISelectionId),
+                { x: pointer.clientX ?? 0, y: pointer.clientY ?? 0 }
+            );
+        });
+        this.on(element, "keydown", (event) => {
+            if (!this.allowInteractions) {
+                return;
+            }
+            const keyboard = event as KeyboardEvent;
+            if (
+                keyboard.key === "ArrowLeft"
+                || keyboard.key === "ArrowRight"
+                || keyboard.key === "ArrowUp"
+                || keyboard.key === "ArrowDown"
+            ) {
+                const target = surface.navigate?.(this.focusKey, keyboard.key);
+                if (target) {
+                    keyboard.preventDefault();
+                    this.focus(target.key);
+                    element.setAttribute("aria-activedescendant", target.key);
+                }
+                return;
+            }
+            if (keyboard.key === "Enter" || keyboard.key === " ") {
+                const target = surface.targetForKey?.(this.focusKey);
+                if (target) {
+                    keyboard.preventDefault();
+                    this.focus(target.key);
+                    if (target.identity) {
+                        void this.deps.selectionManager
+                            .select(target.identity, Boolean(keyboard.ctrlKey || keyboard.metaKey))
+                            .then(() => this.deps.onSelectionChanged());
+                    }
+                }
+                return;
+            }
+            if (keyboard.key === "Escape") {
+                keyboard.preventDefault();
+                this.hideTooltip();
+                this.deps.root.focus();
+            }
         });
     }
 
@@ -292,4 +416,16 @@ export class InteractionController {
             remove?.();
         }
     }
+
+}
+
+function resolveSurfaceTarget(
+    surface: SurfaceInteraction,
+    event: MouseEvent | PointerEvent
+): InteractionTarget | null {
+    const bounds = surface.element.getBoundingClientRect();
+    return surface.resolve(
+        (event.clientX ?? 0) - bounds.left,
+        (event.clientY ?? 0) - bounds.top
+    );
 }

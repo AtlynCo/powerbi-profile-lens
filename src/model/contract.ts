@@ -38,6 +38,20 @@ export const LIMITS = {
     maxRetainedCells: 120000,
     maxSegmentRequests: 4,
     maxGeometryCharacters: 32000,
+    maxGeometryCharactersPerUpdate: 2000000,
+    maxContextFeatures: 1000,
+    maxGeometryNesting: 12,
+    maxRingsPerFeature: 256,
+    maxVerticesPerFeature: 4096,
+    maxVerticesPerScene: 100000,
+    maxWktTokens: 16384,
+    maxDiagnosticExamples: 5,
+    maxDiagnosticExampleCharacters: 160,
+    maxSvgContextFeatures: 500,
+    maxSvgContextVertices: 20000,
+    maxCanvasDpr: 2,
+    maxCanvasDimension: 4096,
+    maxCanvasBackingPixels: 8388608,
     minLatitude: -90,
     maxLatitude: 90,
     minLongitude: -180,
@@ -49,6 +63,7 @@ export interface EntityRef {
     /** Stable key used for focus restoration and deterministic tie-breaking only. */
     readonly key: string;
     readonly label: string;
+    readonly value: string | number | boolean | Date | null;
     /** Host selection identity for the entity level matrix node, when the host provided one. */
     readonly identity: unknown;
 }
@@ -226,7 +241,14 @@ export type DiagnosticCode =
     | "incompleteCoordinates"
     | "oversizedGeometry"
     | "emptyGeometry"
-    | "nonFiniteContextValue";
+    | "nonFiniteContextValue"
+    | "geometryUpdateBudgetExceeded"
+    | "geometryParseRejected"
+    | "geometryFeatureLimit"
+    | "geometryRingLimit"
+    | "geometryVertexLimit"
+    | "contextProviderUnavailable"
+    | "contextScenePartial";
 
 export interface Diagnostic {
     readonly code: DiagnosticCode;

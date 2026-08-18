@@ -51,9 +51,9 @@
     },
     {
       "name": "ContextValue",
-      "displayName": "Context value (future map value)",
+      "displayName": "Context value",
       "displayNameKey": "Role_ContextValue",
-      "description": "Optional entity level measure reserved for a future map or context extension. This package does not render geography.",
+      "description": "Optional entity-level value used by context features and tooltips.",
       "descriptionKey": "Role_ContextValue_Description",
       "kind": "Measure",
       "requiredTypes": [
@@ -67,9 +67,9 @@
     },
     {
       "name": "Latitude",
-      "displayName": "Latitude (future map role)",
+      "displayName": "Latitude",
       "displayNameKey": "Role_Latitude",
-      "description": "Optional latitude measure reserved for a future point extension. This package does not render geography.",
+      "description": "Optional WGS84 latitude measure for bound point context.",
       "descriptionKey": "Role_Latitude_Description",
       "kind": "Measure",
       "requiredTypes": [
@@ -83,9 +83,9 @@
     },
     {
       "name": "Longitude",
-      "displayName": "Longitude (future map role)",
+      "displayName": "Longitude",
       "displayNameKey": "Role_Longitude",
-      "description": "Optional longitude measure reserved for a future point extension. This package does not render geography.",
+      "description": "Optional WGS84 longitude measure for bound point context.",
       "descriptionKey": "Role_Longitude_Description",
       "kind": "Measure",
       "requiredTypes": [
@@ -99,9 +99,9 @@
     },
     {
       "name": "Geometry",
-      "displayName": "Custom geometry text (future map role)",
+      "displayName": "Custom geometry text",
       "displayNameKey": "Role_Geometry",
-      "description": "Optional text measure reserved for a future custom geometry extension. This package validates the payload and never parses or renders geometry.",
+      "description": "Optional strict GeoJSON or WKT text measure for report-bound context.",
       "descriptionKey": "Role_Geometry_Description",
       "kind": "Measure",
       "requiredTypes": [
@@ -208,6 +208,15 @@
     }
   ],
   "objects": {
+    "general": {
+      "properties": {
+        "filter": {
+          "type": {
+            "filter": true
+          }
+        }
+      }
+    },
     "data": {
       "displayName": "Data",
       "displayNameKey": "Format_Data_Card",
@@ -324,6 +333,34 @@
             ]
           }
         },
+        "contextLayout": {
+          "displayName": "Context layout",
+          "displayNameKey": "Format_ContextLayout",
+          "type": {
+            "enumeration": [
+              {
+                "value": "split",
+                "displayName": "Split",
+                "displayNameKey": "Format_ContextLayout_Split"
+              },
+              {
+                "value": "focusLens",
+                "displayName": "Focus lens",
+                "displayNameKey": "Format_ContextLayout_FocusLens"
+              },
+              {
+                "value": "locatorInset",
+                "displayName": "Locator inset",
+                "displayNameKey": "Format_ContextLayout_LocatorInset"
+              },
+              {
+                "value": "profileOnly",
+                "displayName": "Profile only",
+                "displayNameKey": "Format_ContextLayout_ProfileOnly"
+              }
+            ]
+          }
+        },
         "armRotation": {
           "displayName": "Arm rotation (degrees)",
           "displayNameKey": "Format_ArmRotation",
@@ -364,6 +401,176 @@
                 "value": "rtl",
                 "displayName": "Right to left",
                 "displayNameKey": "Format_Direction_Rtl"
+              }
+            ]
+          }
+        }
+      }
+    },
+    "context": {
+      "displayName": "Context",
+      "displayNameKey": "Format_Context_Card",
+      "properties": {
+        "mode": {
+          "displayName": "Provider",
+          "displayNameKey": "Format_ContextMode",
+          "type": {
+            "enumeration": [
+              {
+                "value": "none",
+                "displayName": "None",
+                "displayNameKey": "Format_ContextMode_None"
+              },
+              {
+                "value": "points",
+                "displayName": "Bound points",
+                "displayNameKey": "Format_ContextMode_Points"
+              },
+              {
+                "value": "boundGeometry",
+                "displayName": "Bound geometry",
+                "displayNameKey": "Format_ContextMode_BoundGeometry"
+              },
+              {
+                "value": "grid",
+                "displayName": "Generated grid",
+                "displayNameKey": "Format_ContextMode_Grid"
+              },
+              {
+                "value": "hex",
+                "displayName": "Generated hex layout",
+                "displayNameKey": "Format_ContextMode_Hex"
+              }
+            ]
+          }
+        },
+        "svgFeatureThreshold": {
+          "displayName": "SVG feature threshold",
+          "displayNameKey": "Format_SvgFeatureThreshold",
+          "type": {
+            "integer": true
+          }
+        },
+        "svgVertexThreshold": {
+          "displayName": "SVG vertex threshold",
+          "displayNameKey": "Format_SvgVertexThreshold",
+          "type": {
+            "integer": true
+          }
+        },
+        "pointSize": {
+          "displayName": "Point size",
+          "displayNameKey": "Format_PointSize",
+          "type": {
+            "numeric": true
+          }
+        },
+        "fillColor": {
+          "displayName": "Fill",
+          "displayNameKey": "Format_ContextFill",
+          "type": {
+            "fill": {
+              "solid": {
+                "color": true
+              }
+            }
+          }
+        },
+        "strokeColor": {
+          "displayName": "Outline",
+          "displayNameKey": "Format_ContextStroke",
+          "type": {
+            "fill": {
+              "solid": {
+                "color": true
+              }
+            }
+          }
+        },
+        "selectedColor": {
+          "displayName": "Selected and focused outline",
+          "displayNameKey": "Format_ContextSelected",
+          "type": {
+            "fill": {
+              "solid": {
+                "color": true
+              }
+            }
+          }
+        },
+        "maxGeometryCharacters": {
+          "displayName": "Geometry characters per entity",
+          "displayNameKey": "Format_MaxGeometryCharacters",
+          "type": {
+            "integer": true
+          }
+        },
+        "maxSceneVertices": {
+          "displayName": "Scene vertex safety limit",
+          "displayNameKey": "Format_MaxSceneVertices",
+          "type": {
+            "integer": true
+          }
+        }
+      }
+    },
+    "loading": {
+      "displayName": "Detail loading",
+      "displayNameKey": "Format_Loading_Card",
+      "properties": {
+        "strategy": {
+          "displayName": "Strategy",
+          "displayNameKey": "Format_LoadingStrategy",
+          "type": {
+            "enumeration": [
+              {
+                "value": "auto",
+                "displayName": "Automatic",
+                "displayNameKey": "Format_LoadingStrategy_Auto"
+              },
+              {
+                "value": "eager",
+                "displayName": "Eager",
+                "displayNameKey": "Format_LoadingStrategy_Eager"
+              },
+              {
+                "value": "segmented",
+                "displayName": "Segmented",
+                "displayNameKey": "Format_LoadingStrategy_Segmented"
+              },
+              {
+                "value": "external",
+                "displayName": "Report driven",
+                "displayNameKey": "Format_LoadingStrategy_External"
+              }
+            ]
+          }
+        }
+      }
+    },
+    "interaction": {
+      "displayName": "Interaction",
+      "displayNameKey": "Format_Interaction_Card",
+      "properties": {
+        "mode": {
+          "displayName": "Entity activation",
+          "displayNameKey": "Format_InteractionMode",
+          "type": {
+            "enumeration": [
+              {
+                "value": "localOnly",
+                "displayName": "Local focus only",
+                "displayNameKey": "Format_InteractionMode_Local"
+              },
+              {
+                "value": "reportSelection",
+                "displayName": "Report selection",
+                "displayNameKey": "Format_InteractionMode_Selection"
+              },
+              {
+                "value": "reportFilter",
+                "displayName": "Report filter",
+                "displayNameKey": "Format_InteractionMode_Filter"
               }
             ]
           }

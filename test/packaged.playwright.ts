@@ -279,7 +279,7 @@ test.describe("packaged visual in a real browser", () => {
     });
 
     test("uses the host high contrast colors", async ({ page }) => {
-        await mount(page, { highContrast: true });
+        await mount(page, { highContrast: true, contextMode: "grid" });
         const fills = await page.evaluate(() =>
             Array.from(document.querySelectorAll(".profile-lens-target rect"))
                 .slice(0, 4)
@@ -292,6 +292,11 @@ test.describe("packaged visual in a real browser", () => {
             expect(entry.stroke).toBe("#FFFFFF");
             expect(entry.fill === "#FFFFFF" || entry.fill?.startsWith("url(#")).toBe(true);
         }
+        const contextFeature = page.locator(".profile-lens-context-svg [data-context-key]").first();
+        await expect(contextFeature).toHaveAttribute("fill", "#000000");
+        await expect(contextFeature).toHaveAttribute("stroke", "#00FF00");
+        await expect(page.locator(".profile-lens-context-svg [data-context-key]").nth(1))
+            .toHaveAttribute("stroke", "#FFFFFF");
         await expect(page.locator(".profile-lens-high-contrast")).toHaveCount(1);
     });
 
@@ -336,5 +341,215 @@ test.describe("packaged visual in a real browser", () => {
         });
         expect(mutations).toBe(0);
         expect(externalRequests).toEqual([]);
+    });
+
+    test("keeps SVG and Canvas context semantics and host identities identical", async ({ page }) => {
+        const exercise = async (threshold: number): Promise<{
+            selected: string | null;
+            tooltip: string | null;
+            context: string | null;
+            renderer: string;
+        }> => {
+            await mount(page, {
+                contextMode: "grid",
+                svgFeatureThreshold: threshold,
+                entities: ["Entity A", "Entity B", "Entity C"],
+                periods: [],
+                bands: ["Band 1"],
+                series: [],
+                profiles: ["Metric A"]
+            });
+            const surface = page.locator(".profile-lens-context");
+            const bounds = await surface.boundingBox();
+            expect(bounds).not.toBeNull();
+            const x = (bounds?.x ?? 0) + (bounds?.width ?? 0) * 0.25;
+            const y = (bounds?.y ?? 0) + (bounds?.height ?? 0) * 0.25;
+            await page.mouse.move(x, y);
+            await page.mouse.click(x, y);
+            await page.mouse.click(x, y, { button: "right" });
+            const calls = await page.evaluate(() => (window as unknown as {
+                profileLensHost: { calls: Record<string, number | string | null> };
+            }).profileLensHost.calls);
+            const canvasWidth = await page.locator(".profile-lens-context-canvas")
+                .evaluate((canvas) => (canvas as HTMLCanvasElement).width);
+            return {
+                selected: calls.lastSelectedKey as string | null,
+                tooltip: calls.lastTooltipKey as string | null,
+                context: calls.lastContextKey as string | null,
+                renderer: canvasWidth > 1 ? "canvas" : "svg"
+            };
+        };
+
+        const svg = await exercise(500);
+        const canvas = await exercise(1);
+        expect(svg.renderer).toBe("svg");
+        expect(canvas.renderer).toBe("canvas");
+        expect(canvas.selected).toBe(svg.selected);
+        expect(canvas.tooltip).toBe(svg.tooltip);
+        expect(canvas.context).toBe(svg.context);
+        expect(svg.selected).toContain("entity:0");
+    });
+
+    test("bounds Canvas and redirects disabled physical context focus", async ({ page }) => {
+        await mount(page, {
+            contextMode: "grid",
+            svgFeatureThreshold: 1,
+            allowInteractions: false,
+            entities: Array.from({ length: 600 }, (_unused, index) => `Entity ${index + 1}`),
+            periods: [],
+            bands: ["Band 1"],
+            series: [],
+            profiles: ["Metric A"],
+            width: 1280,
+            height: 620
+        });
+        const canvas = page.locator(".profile-lens-context-canvas");
+        const allocation = await canvas.evaluate((node) => ({
+            width: (node as HTMLCanvasElement).width,
+            height: (node as HTMLCanvasElement).height
+        }));
+        expect(allocation.width).toBeLessThanOrEqual(4096);
+        expect(allocation.height).toBeLessThanOrEqual(4096);
+        expect(allocation.width * allocation.height).toBeLessThanOrEqual(8_388_608);
+
+        const surface = page.locator(".profile-lens-context");
+        await expect(surface).toHaveAttribute("tabindex", "-1");
+        const bounds = await surface.boundingBox();
+        await page.mouse.click(
+            (bounds?.x ?? 0) + (bounds?.width ?? 0) * 0.25,
+            (bounds?.y ?? 0) + (bounds?.height ?? 0) * 0.25
+        );
+        const activeClass = await page.evaluate(() =>
+            document.activeElement?.getAttribute("class") ?? "");
+        expect(activeClass).toBe("profile-lens");
+        const calls = await page.evaluate(() => (window as unknown as {
+            profileLensHost: { calls: Record<string, number> };
+        }).profileLensHost.calls);
+        expect(calls.select).toBe(0);
+        expect(calls.tooltipShow).toBe(0);
+        expect(calls.contextMenu).toBe(0);
+        expect(calls.filter).toBe(0);
+    });
+
+    test("preserves report-filter context focus until fresh host filters reconcile it", async ({ page }) => {
+        const assertEntity = async (label: string, activeDescendant: string): Promise<void> => {
+            await expect(page.locator(".profile-lens-header-title")).toHaveText(label);
+            await expect(page.locator(".profile-lens-context"))
+                .toHaveAttribute("aria-activedescendant", activeDescendant);
+        };
+        const options = {
+            contextMode: "grid",
+            interactionMode: "reportFilter",
+            entities: ["Entity A", "Entity B"],
+            periods: [],
+            bands: ["Band 1"],
+            series: [],
+            profiles: ["Metric A"]
+        };
+        await mount(page, options);
+        const surface = page.locator(".profile-lens-context");
+        const bounds = await surface.boundingBox();
+        expect(bounds).not.toBeNull();
+        await page.mouse.click(
+            (bounds?.x ?? 0) + (bounds?.width ?? 0) * 0.75,
+            (bounds?.y ?? 0) + (bounds?.height ?? 0) * 0.5
+        );
+        await assertEntity("Entity B", "context:entity:1");
+        expect(await page.evaluate(() => (window as unknown as {
+            profileLensHost: { calls: { filter: number } };
+        }).profileLensHost.calls.filter)).toBe(1);
+
+        await page.evaluate(() => (window as unknown as {
+            profileLensUpdate: (options: unknown) => void;
+            profileLensDataView: unknown;
+        }).profileLensUpdate({
+            width: 1280,
+            height: 620,
+            dataViews: [(window as unknown as { profileLensDataView: unknown }).profileLensDataView],
+            jsonFilters: [{
+                target: { table: "Table", column: "Entity" },
+                operator: "In",
+                values: ["Entity B"],
+                filterType: 1
+            }]
+        }));
+        await assertEntity("Entity B", "context:entity:1");
+
+        await page.evaluate(() => (window as unknown as {
+            profileLensUpdate: (options: unknown) => void;
+            profileLensDataView: unknown;
+        }).profileLensUpdate({
+            width: 1280,
+            height: 620,
+            dataViews: [(window as unknown as { profileLensDataView: unknown }).profileLensDataView],
+            jsonFilters: []
+        }));
+        await assertEntity("Entity A", "context:entity:0");
+
+        await mount(page, options);
+        const keyboardSurface = page.locator(".profile-lens-context");
+        await keyboardSurface.focus();
+        await page.keyboard.press("ArrowRight");
+        await assertEntity("Entity B", "context:entity:1");
+        await expect(keyboardSurface).toBeFocused();
+        expect(await page.evaluate(() => (window as unknown as {
+            profileLensHost: { calls: { filter: number } };
+        }).profileLensHost.calls.filter)).toBe(1);
+    });
+
+    test("bounds the semantic entity list while preserving host order", async ({ page }) => {
+        await mount(page, {
+            contextMode: "hex",
+            entities: Array.from({ length: 150 }, (_unused, index) => `Entity ${index + 1}`),
+            periods: [],
+            bands: ["Band 1"],
+            series: [],
+            profiles: ["Metric A"]
+        });
+        const options = page.locator(".profile-lens-context-semantic [role='option']");
+        await expect(options).toHaveCount(100);
+        await expect(options.first()).toHaveAttribute("aria-label", /Entity 1, hex cell/);
+        await expect(options.last()).toHaveAttribute("aria-label", /Entity 100, hex cell/);
+        await expect(options.last()).toHaveAttribute("aria-setsize", "150");
+    });
+
+    test("keeps every context layout bounded through 80x80", async ({ page }) => {
+        for (const contextLayout of ["split", "focusLens", "locatorInset", "profileOnly"]) {
+            await mount(page, {
+                contextMode: "grid",
+                contextLayout,
+                periods: [],
+                bands: ["Band 1"],
+                series: [],
+                profiles: ["Metric A"]
+            });
+            for (const size of SIZES) {
+                await page.evaluate(
+                    (viewport) => (window as unknown as {
+                        resizeProfileLens: (width: number, height: number) => boolean;
+                    }).resizeProfileLens(viewport.width, viewport.height),
+                    size
+                );
+                const overflow = await page.evaluate(() => {
+                    const root = document.getElementById("visual-root")!.getBoundingClientRect();
+                    const nodes = [
+                        document.querySelector(".profile-lens-context"),
+                        document.querySelector(".profile-lens-profile-svg")
+                    ].filter(Boolean) as Element[];
+                    return nodes
+                        .filter((node) => !(node as HTMLElement).hasAttribute("hidden"))
+                        .map((node) => node.getBoundingClientRect())
+                        .some((rect) =>
+                            rect.left < root.left - 1
+                            || rect.top < root.top - 1
+                            || rect.right > root.right + 1
+                            || rect.bottom > root.bottom + 1);
+                });
+                expect(overflow, `${contextLayout} at ${size.width}x${size.height}`).toBe(false);
+                if (size.width === 80 && size.height === 80) {
+                    await expect(page.locator(".profile-lens-context")).toBeHidden();
+                }
+            }
+        }
     });
 });
