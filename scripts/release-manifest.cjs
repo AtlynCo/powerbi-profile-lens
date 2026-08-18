@@ -17,6 +17,7 @@ const {
     assertBoundSourceMatchesCommit,
     computeAutomationIntegrity
 } = require("./native-source-integrity.cjs");
+const { REQUIRED_SCENARIOS } = require("./finalize-native-evidence.cjs");
 
 const root = path.resolve(__dirname, "..");
 const packageDirectory = path.join(root, "dist");
@@ -162,6 +163,11 @@ const pbixResourceParity = nativeValidated && pbixMetadata
     : null;
 if (nativeValidated) {
     const mismatches = [];
+    for (const scenario of REQUIRED_SCENARIOS) {
+        if (nativeEvidence.nativeScenarios?.[scenario]?.outcome !== "passed") {
+            mismatches.push(`native scenario ${scenario}`);
+        }
+    }
     try {
         assertBoundSourceMatchesCommit(root, nativeEvidence.sourceCommit);
     } catch {

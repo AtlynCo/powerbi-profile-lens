@@ -169,6 +169,8 @@ describe("native validation evidence safety", () => {
             expect(release).toContain("assertBoundSourceMatchesCommit");
             expect(release).toContain("assertCleanBoundSource");
             expect(release).toContain("writeFileAtomic.sync");
+            expect(release).toContain("REQUIRED_SCENARIOS");
+            expect(release).toContain('outcome !== "passed"');
         } finally {
             fs.rmSync(temp, { recursive: true, force: true });
         }
