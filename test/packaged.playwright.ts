@@ -588,6 +588,113 @@ test.describe("packaged visual in a real browser", () => {
         }).profileLensHost.calls.filter)).toBe(3);
     });
 
+    test("preserves a fresh external exit snapshot across report-filter re-entry", async ({ page }) => {
+        await mount(page, {
+            contextMode: "grid",
+            interactionMode: "reportFilter",
+            entities: ["Entity A", "Entity B", "Entity C"],
+            periods: [],
+            bands: ["Band 1"],
+            series: [],
+            profiles: ["Metric A"]
+        });
+        const surface = page.locator(".profile-lens-context");
+        await surface.focus();
+        await page.keyboard.press("ArrowRight");
+        await page.keyboard.press("Enter");
+        await expect(page.locator(".profile-lens-header-title")).toHaveText("Entity B");
+
+        await page.evaluate(() => {
+            const runtime = window as unknown as {
+                profileLensUpdate: (options: unknown) => void;
+                profileLensDataView: {
+                    metadata: { objects: { interaction: { mode: string } } };
+                };
+            };
+            runtime.profileLensDataView.metadata.objects.interaction.mode = "localOnly";
+            runtime.profileLensUpdate({
+                width: 1280,
+                height: 620,
+                dataViews: [runtime.profileLensDataView],
+                jsonFilters: [{
+                    target: { table: "Table", column: "Entity" },
+                    operator: "In",
+                    values: ["Entity C"],
+                    filterType: 1
+                }]
+            });
+            runtime.profileLensDataView.metadata.objects.interaction.mode = "reportFilter";
+            runtime.profileLensUpdate({
+                width: 1280,
+                height: 620,
+                dataViews: [runtime.profileLensDataView]
+            });
+        });
+        await expect(page.locator(".profile-lens-header-title")).toHaveText("Entity C");
+        await expect(surface).toHaveAttribute("aria-activedescendant", "context:entity:2");
+    });
+
+    test("keeps newest rapid activation through delayed host echoes", async ({ page }) => {
+        await mount(page, {
+            contextMode: "grid",
+            interactionMode: "reportFilter",
+            entities: ["Entity A", "Entity B", "Entity C"],
+            periods: [],
+            bands: ["Band 1"],
+            series: [],
+            profiles: ["Metric A"]
+        });
+        const surface = page.locator(".profile-lens-context");
+        await surface.focus();
+        await page.keyboard.press("ArrowRight");
+        await page.keyboard.press("Enter");
+        await page.keyboard.press("ArrowDown");
+        await page.keyboard.press("Enter");
+        await expect(page.locator(".profile-lens-header-title")).toHaveText("Entity C");
+        expect(await page.evaluate(() => (window as unknown as {
+            profileLensHost: { calls: { filter: number } };
+        }).profileLensHost.calls.filter)).toBe(2);
+
+        for (const value of ["Entity B", "Entity C"]) {
+            await page.evaluate((entityValue) => {
+                const runtime = window as unknown as {
+                    profileLensUpdate: (options: unknown) => void;
+                    profileLensDataView: unknown;
+                };
+                runtime.profileLensUpdate({
+                    width: 1280,
+                    height: 620,
+                    dataViews: [runtime.profileLensDataView],
+                    jsonFilters: [{
+                        target: { table: "Table", column: "Entity" },
+                        operator: "In",
+                        values: [entityValue],
+                        filterType: 1
+                    }]
+                });
+            }, value);
+            await expect(page.locator(".profile-lens-header-title")).toHaveText("Entity C");
+        }
+
+        await page.evaluate(() => {
+            const runtime = window as unknown as {
+                profileLensUpdate: (options: unknown) => void;
+                profileLensDataView: {
+                    metadata: { objects: { interaction: { mode: string } } };
+                };
+            };
+            runtime.profileLensDataView.metadata.objects.interaction.mode = "localOnly";
+            runtime.profileLensUpdate({
+                width: 1280,
+                height: 620,
+                dataViews: [runtime.profileLensDataView]
+            });
+        });
+        expect(await page.evaluate(() => (window as unknown as {
+            profileLensHost: { calls: { filter: number } };
+        }).profileLensHost.calls.filter)).toBe(3);
+    });
+
     test("bounds the semantic entity list while preserving host order", async ({ page }) => {
         await mount(page, {
             contextMode: "hex",

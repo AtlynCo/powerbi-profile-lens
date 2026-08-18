@@ -116,6 +116,12 @@ export class Visual implements IVisual {
     private visualOwnedEntityFilterActive = false;
     private visualOwnedEntityFilterValue: unknown = undefined;
     private visualOwnedFilterBaseline: readonly powerbi.IFilter[] | null = null;
+    private nextFilterGeneration = 1;
+    private currentFilterGeneration = 0;
+    private pendingFilterWrites: Array<{ readonly generation: number; readonly value: unknown }> = [];
+    private visualFilterWriteValues: unknown[] = [];
+    private missingCurrentFilterSnapshots = 0;
+    private currentFilterAcknowledged = false;
     private lastHostJsonFilters: readonly powerbi.IFilter[] = [];
 
     public constructor(options?: VisualConstructorOptions) {
@@ -273,7 +279,12 @@ export class Visual implements IVisual {
             || hasFreshHostFilters
             || enteredReportFilter
         ) {
-            this.synchronizeFilterState(this.lastHostJsonFilters, model, allowInteractions);
+            this.synchronizeFilterState(
+                this.lastHostJsonFilters,
+                model,
+                allowInteractions,
+                hasFreshHostFilters
+            );
         }
         this.renderModel(model, options, allowInteractions);
     }
@@ -752,12 +763,21 @@ export class Visual implements IVisual {
         this.host.applyJsonFilter(filter, "general", "filter", 0);
         this.visualOwnedEntityFilterActive = true;
         this.visualOwnedEntityFilterValue = entity.value;
+        this.currentFilterGeneration = this.nextFilterGeneration++;
+        this.pendingFilterWrites.push({
+            generation: this.currentFilterGeneration,
+            value: entity.value
+        });
+        this.visualFilterWriteValues.push(entity.value);
+        this.missingCurrentFilterSnapshots = 0;
+        this.currentFilterAcknowledged = false;
     }
 
     private synchronizeFilterState(
         filters: readonly powerbi.IFilter[],
         model: ProfileDataModel,
-        allowInteractions: boolean
+        allowInteractions: boolean,
+        hasFreshHostFilters: boolean
     ): void {
         if (this.settings.interactionMode !== "reportFilter") {
             if (this.visualOwnedEntityFilterActive && allowInteractions) {
@@ -767,11 +787,10 @@ export class Visual implements IVisual {
                     "filter",
                     1
                 );
-                this.lastHostJsonFilters = this.visualOwnedFilterBaseline
-                    ?? this.lastHostJsonFilters;
-                this.visualOwnedEntityFilterActive = false;
-                this.visualOwnedEntityFilterValue = undefined;
-                this.visualOwnedFilterBaseline = null;
+                this.lastHostJsonFilters = hasFreshHostFilters
+                    ? this.externalSnapshotAfterVisualRemoval(filters)
+                    : this.visualOwnedFilterBaseline ?? this.lastHostJsonFilters;
+                this.clearVisualFilterOwnership();
             }
             return;
         }
@@ -786,21 +805,47 @@ export class Visual implements IVisual {
                 && actual.target?.table === target.table
                 && actual.target?.column === target.column;
         });
-        let filter = matching[0]?.candidate;
-        if (this.visualOwnedEntityFilterActive) {
-            const owned = matching.find(({ candidate }) => {
-                const values = (candidate as unknown as { values?: readonly unknown[] }).values;
-                return values?.length === 1 && values[0] === this.visualOwnedEntityFilterValue;
-            });
-            if (owned) {
-                filter = owned.candidate;
-                this.visualOwnedFilterBaseline = filters.filter(
-                    (_candidate, index) => index !== owned.index
-                );
+        let filter: powerbi.IFilter | undefined = matching[0]?.candidate;
+        if (this.visualOwnedEntityFilterActive && this.currentFilterGeneration > 0) {
+            const oldestWrite = this.pendingFilterWrites[0];
+            if (oldestWrite) {
+                const echo = matching.find(({ candidate }) =>
+                    this.singleFilterValue(candidate) === oldestWrite.value);
+                this.pendingFilterWrites.shift();
+                this.visualOwnedFilterBaseline = this.externalSnapshotAfterVisualRemoval(filters);
+                if (
+                    echo
+                    && oldestWrite.generation === this.currentFilterGeneration
+                    && this.pendingFilterWrites.length === 0
+                ) {
+                    filter = echo.candidate;
+                    this.missingCurrentFilterSnapshots = 0;
+                    this.currentFilterAcknowledged = true;
+                } else if (this.pendingFilterWrites.length > 0) {
+                    this.focusOwnedEntity(model);
+                    return;
+                } else {
+                    this.clearVisualFilterOwnership();
+                    filter = matching[0]?.candidate;
+                }
             } else {
-                this.visualOwnedEntityFilterActive = false;
-                this.visualOwnedEntityFilterValue = undefined;
-                this.visualOwnedFilterBaseline = null;
+                const owned = matching.find(({ candidate }) =>
+                    this.singleFilterValue(candidate) === this.visualOwnedEntityFilterValue);
+                if (owned) {
+                    filter = owned.candidate;
+                    this.visualOwnedFilterBaseline = this.externalSnapshotAfterVisualRemoval(filters);
+                    this.missingCurrentFilterSnapshots = 0;
+                    this.currentFilterAcknowledged = true;
+                } else {
+                    this.missingCurrentFilterSnapshots++;
+                    this.visualOwnedFilterBaseline = this.externalSnapshotAfterVisualRemoval(filters);
+                    if (!this.currentFilterAcknowledged && this.missingCurrentFilterSnapshots < 2) {
+                        this.focusOwnedEntity(model);
+                        return;
+                    }
+                    this.clearVisualFilterOwnership();
+                    filter = matching[0]?.candidate;
+                }
             }
         }
         const values = (filter as unknown as { values?: readonly unknown[] } | undefined)?.values;
@@ -809,9 +854,7 @@ export class Visual implements IVisual {
             this.controller.setFocusKey(
                 this.focusedEntityKey ? `context:${this.focusedEntityKey}` : null
             );
-            this.visualOwnedEntityFilterActive = false;
-            this.visualOwnedEntityFilterValue = undefined;
-            this.visualOwnedFilterBaseline = null;
+            this.clearVisualFilterOwnership();
             return;
         }
         const match = model.entities.find((entity) => entity.value === values[0]);
@@ -824,6 +867,58 @@ export class Visual implements IVisual {
                 this.focusedEntityKey ? `context:${this.focusedEntityKey}` : null
             );
         }
+    }
+
+    private focusOwnedEntity(model: ProfileDataModel): void {
+        const match = model.entities.find(
+            (entity) => entity.value === this.visualOwnedEntityFilterValue
+        );
+        this.focusedEntityKey = match?.key ?? model.entities[0]?.key ?? null;
+        this.controller.setFocusKey(
+            this.focusedEntityKey ? `context:${this.focusedEntityKey}` : null
+        );
+    }
+
+    private clearVisualFilterOwnership(): void {
+        this.visualOwnedEntityFilterActive = false;
+        this.visualOwnedEntityFilterValue = undefined;
+        this.visualOwnedFilterBaseline = null;
+        this.currentFilterGeneration = 0;
+        this.pendingFilterWrites = [];
+        this.visualFilterWriteValues = [];
+        this.missingCurrentFilterSnapshots = 0;
+        this.currentFilterAcknowledged = false;
+    }
+
+    private singleFilterValue(filter: powerbi.IFilter): unknown {
+        const values = (filter as unknown as { values?: readonly unknown[] }).values;
+        return values?.length === 1 ? values[0] : undefined;
+    }
+
+    private externalSnapshotAfterVisualRemoval(
+        filters: readonly powerbi.IFilter[]
+    ): readonly powerbi.IFilter[] {
+        const target = this.entityFilterTarget();
+        const baseline = [...(this.visualOwnedFilterBaseline ?? [])];
+        const additions = filters.filter((filter) => {
+            const candidate = filter as unknown as {
+                target?: { table?: string; column?: string };
+            };
+            const isVisualTarget = target
+                && candidate.target?.table === target.table
+                && candidate.target?.column === target.column;
+            return !isVisualTarget
+                || !this.visualFilterWriteValues.includes(this.singleFilterValue(filter));
+        });
+        const seen = new Set(baseline.map((filter) => JSON.stringify(filter)));
+        for (const filter of additions) {
+            const key = JSON.stringify(filter);
+            if (!seen.has(key)) {
+                seen.add(key);
+                baseline.push(filter);
+            }
+        }
+        return baseline;
     }
 
     private entityFilterTarget(): { readonly table: string; readonly column: string } | null {
