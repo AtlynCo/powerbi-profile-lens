@@ -2,6 +2,18 @@ const path = require("node:path");
 const { spawn } = require("node:child_process");
 const readline = require("node:readline");
 
+async function withTimeout(promise, milliseconds, message) {
+    let timer;
+    const timeout = new Promise((unused, reject) => {
+        timer = setTimeout(() => reject(new Error(message)), milliseconds);
+    });
+    try {
+        return await Promise.race([promise, timeout]);
+    } finally {
+        clearTimeout(timer);
+    }
+}
+
 async function acquirePbixPublicationLock(root, pbixPath) {
     const child = spawn("pwsh", [
         "-NoProfile",
@@ -15,34 +27,68 @@ async function acquirePbixPublicationLock(root, pbixPath) {
         windowsHide: true
     });
     let stderr = "";
+    let exitState = null;
+    let locked = false;
+    let released = false;
     child.stderr.on("data", (chunk) => { stderr += chunk.toString(); });
-    const lines = readline.createInterface({ input: child.stdout });
-    await new Promise((resolve, reject) => {
-        const timeout = setTimeout(() => reject(new Error("Timed out acquiring PBIX lock.")), 15000);
-        lines.once("line", (line) => {
-            clearTimeout(timeout);
-            if (line === "LOCKED") resolve();
-            else reject(new Error(`PBIX lock failed: ${line}`));
-        });
-        child.once("exit", (code) => {
-            clearTimeout(timeout);
-            reject(new Error(`PBIX lock process exited ${code}: ${stderr}`));
+    const exitPromise = new Promise((resolve) => {
+        child.once("exit", (code, signal) => {
+            exitState = { code, signal, premature: locked && !released };
+            resolve(exitState);
         });
     });
-    let released = false;
-    return {
-        async release() {
-            if (released) return;
-            released = true;
-            child.stdin.write("\n");
-            child.stdin.end();
-            await new Promise((resolve, reject) => {
-                child.once("exit", (code) => {
-                    lines.close();
-                    if (code === 0) resolve();
-                    else reject(new Error(`PBIX lock release failed: ${stderr}`));
-                });
+    const lines = readline.createInterface({ input: child.stdout });
+    try {
+        await withTimeout(
+        new Promise((resolve, reject) => {
+            lines.once("line", (line) => {
+                if (line === "LOCKED") {
+                    locked = true;
+                    resolve();
+                } else {
+                    reject(new Error(`PBIX lock failed: ${line}`));
+                }
             });
+            exitPromise.then((state) => {
+                if (!locked) reject(new Error(`PBIX lock exited ${state.code}: ${stderr}`));
+            });
+        }),
+        15000,
+        "Timed out acquiring PBIX lock."
+        );
+    } catch (error) {
+        released = true;
+        child.stdin.destroy();
+        lines.close();
+        if (!exitState) child.kill();
+        await withTimeout(exitPromise, 5000, "PBIX lock helper would not exit after acquire failure.")
+            .catch(() => {});
+        throw error;
+    }
+    function assertAlive() {
+        if (exitState) {
+            throw new Error(`PBIX lock helper exited prematurely: ${exitState.code}: ${stderr}`);
+        }
+    }
+    return {
+        processId: child.pid,
+        assertAlive,
+        async release() {
+            if (released) return exitState;
+            released = true;
+            if (!exitState) {
+                child.stdin.write("\n");
+                child.stdin.end();
+                try {
+                    await withTimeout(exitPromise, 10000, "Timed out releasing PBIX lock.");
+                } catch (error) {
+                    child.kill();
+                    await withTimeout(exitPromise, 5000, "PBIX lock would not exit.");
+                    throw error;
+                }
+            }
+            lines.close();
+            return exitState;
         }
     };
 }

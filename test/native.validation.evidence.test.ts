@@ -45,10 +45,12 @@ const { verifySampleResourceParity } = require("../scripts/sample-resource-parit
     }): Promise<{ parity: boolean; payload: { sha256: string }; embedded: Array<{ sha256: string }> }>;
 };
 const {
+    assertUniqueArchiveNames,
     parseExtraFields,
     requireCanonicalPbixResource,
     verifyPbixVisualParity
 } = require("../scripts/sample-resource-parity.cjs") as {
+    assertUniqueArchiveNames(records: Array<{ name: string }>): void;
     parseExtraFields(extra: Buffer): void;
     requireCanonicalPbixResource(names: string[], guid: string): string;
     verifyPbixVisualParity(options: {
@@ -81,7 +83,11 @@ const { acquirePbixPublicationLock } = require("../scripts/pbix-publication-lock
     acquirePbixPublicationLock(
         root: string,
         pbixPath: string
-    ): Promise<{ release(): Promise<void> }>;
+    ): Promise<{
+        processId: number;
+        assertAlive(): void;
+        release(): Promise<unknown>;
+    }>;
 };
 const {
     createPbixSnapshot,
@@ -363,19 +369,16 @@ describe("native validation evidence safety", () => {
         fs.rmSync(temp, { recursive: true, force: true });
     });
 
-    it("uses OS file sharing to block snapshot writes", () => {
+    it("locks expected files and detects directory-set additions at phase checks", () => {
         const temp = fs.mkdtempSync(path.join(os.tmpdir(), "profile-lens-lock-"));
         const snapshot = path.join(temp, "dist", "release", "native-snapshot", "a".repeat(64));
-        const recovery = path.join(temp, "dist", "release", "native-recovery");
         fs.mkdirSync(snapshot, { recursive: true });
         const file = path.join(snapshot, "locked.pbip");
         fs.writeFileSync(file, "locked");
-        const escaped = temp.replaceAll("'", "''");
         const snapshotEscaped = snapshot.replaceAll("'", "''");
-        const recoveryEscaped = recovery.replaceAll("'", "''");
+        const before = snapshotManifest(snapshot).sha256;
         const command = ". 'scripts\\native-validation\\snapshot-guard.ps1'; "
-            + `$guard = Open-SnapshotReadLocks -RepoRoot '${escaped}' `
-            + `-SnapshotRoot '${snapshotEscaped}' -RecoveryRoot '${recoveryEscaped}' -RunId '${"a".repeat(32)}'; `
+            + `$guard = Open-SnapshotReadLocks -SnapshotRoot '${snapshotEscaped}' -ExpectedFileCount 1; `
             + "try { "
             + `try { [IO.File]::Open('${snapshotEscaped}\\locked.pbip','Open','Write','None').Dispose(); 'writable' } `
             + "catch { 'write-blocked' }; "
@@ -387,91 +390,8 @@ describe("native validation evidence safety", () => {
                 cwd: root
             }).toString();
             expect(output).toContain("write-blocked");
-            expect(output).toContain("addition-blocked");
-        } finally {
-            fs.rmSync(temp, { recursive: true, force: true });
-        }
-    });
-
-    it("recovers ACL journals after crash and partial restoration", () => {
-        const temp = fs.mkdtempSync(path.join(os.tmpdir(), "profile-lens-recovery-"));
-        const snapshot = path.join(temp, "dist", "release", "native-snapshot", "b".repeat(64));
-        const recovery = path.join(temp, "dist", "release", "native-recovery");
-        fs.mkdirSync(path.join(snapshot, "child"), { recursive: true });
-        fs.writeFileSync(path.join(snapshot, "child", "file.pbip"), "fixture");
-        const command = ". 'scripts\\native-validation\\snapshot-guard.ps1'; "
-            + `$guard = Open-SnapshotReadLocks -RepoRoot '${temp.replaceAll("'", "''")}' `
-            + `-SnapshotRoot '${snapshot.replaceAll("'", "''")}' `
-            + `-RecoveryRoot '${recovery.replaceAll("'", "''")}' -RunId '${"c".repeat(32)}'; `
-            + "foreach($s in $guard.streams){$s.Dispose()}; "
-            + "$script:first=$true; $partial={param($p,$a) if($script:first){$script:first=$false;throw 'injected'}else{Set-Acl -Path $p -AclObject $a}}; "
-            + "try { Recover-StaleSnapshotAclJournals -RepoRoot $guard.repoRoot "
-            + `-RecoveryRoot '${recovery.replaceAll("'", "''")}' -AclWriter $partial; 'unexpected' } `
-            + "catch { 'partial-preserved' }; "
-            + `if((Get-ChildItem '${recovery.replaceAll("'", "''")}' -Filter '*.json').Count -eq 0){throw 'journal lost'}; `
-            + "Recover-StaleSnapshotAclJournals -RepoRoot $guard.repoRoot "
-            + `-RecoveryRoot '${recovery.replaceAll("'", "''")}' | Out-Null; `
-            + "Recover-StaleSnapshotAclJournals -RepoRoot $guard.repoRoot "
-            + `-RecoveryRoot '${recovery.replaceAll("'", "''")}' | Out-Null; 'recovered-idempotent'`;
-        try {
-            const output = execFileSync("pwsh", ["-NoProfile", "-Command", command], {
-                cwd: root
-            }).toString();
-            expect(output).toContain("partial-preserved");
-            expect(output).toContain("recovered-idempotent");
-            expect(fs.existsSync(recovery) ? fs.readdirSync(recovery) : []).toHaveLength(0);
-        } finally {
-            fs.rmSync(temp, { recursive: true, force: true });
-        }
-    });
-
-    it("authenticates journals and rejects traversal and reparse targets", () => {
-        const temp = fs.mkdtempSync(path.join(os.tmpdir(), "profile-lens-journal-auth-"));
-        const snapshot = path.join(temp, "dist", "release", "native-snapshot", "d".repeat(64));
-        const recovery = path.join(temp, "dist", "release", "native-recovery");
-        const outside = path.join(temp, "outside");
-        fs.mkdirSync(snapshot, { recursive: true });
-        fs.mkdirSync(outside);
-        fs.writeFileSync(path.join(snapshot, "file.pbip"), "fixture");
-        const e = (value: string): string => value.replaceAll("'", "''");
-        const command = ". 'scripts\\native-validation\\snapshot-guard.ps1'; "
-            + `$guard=Open-SnapshotReadLocks -RepoRoot '${e(temp)}' -SnapshotRoot '${e(snapshot)}' `
-            + `-RecoveryRoot '${e(recovery)}' -RunId '${"e".repeat(32)}'; `
-            + "foreach($s in $guard.streams){$s.Dispose()}; $journal=$guard.journalPath; "
-            + "$original=[IO.File]::ReadAllBytes($journal); $envelope=Get-Content $journal -Raw|ConvertFrom-Json; "
-            + "$envelope.payload.recoveryErrors=@('tampered'); Set-Content $journal ($envelope|ConvertTo-Json -Depth 10 -Compress); "
-            + `try{Recover-StaleSnapshotAclJournals -RepoRoot '${e(temp)}' -RecoveryRoot '${e(recovery)}';throw 'accepted-tamper'}catch{'tamper-rejected'}; `
-            + "[IO.File]::WriteAllBytes($journal,$original); "
-            + "$envelope=Get-Content $journal -Raw|ConvertFrom-Json; $envelope.payload.directories[0].relativePath='../escape'; "
-            + "Write-AtomicRecoveryJournal -Path $journal -Journal $envelope.payload; "
-            + `try{Recover-StaleSnapshotAclJournals -RepoRoot '${e(temp)}' -RecoveryRoot '${e(recovery)}';throw 'accepted-traversal'}catch{'traversal-rejected'}; `
-            + "[IO.File]::WriteAllBytes($journal,$original); "
-            + `Recover-StaleSnapshotAclJournals -RepoRoot '${e(temp)}' -RecoveryRoot '${e(recovery)}'|Out-Null; `
-            + `New-Item -ItemType Junction -Path '${e(path.join(snapshot, "link"))}' -Target '${e(outside)}'|Out-Null; `
-            + "$payload=[ordered]@{schemaVersion=1;harnessId='atlyn-profile-lens-native-validation';"
-            + `runId='${"f".repeat(32)}';snapshotToken='${"d".repeat(64)}';`
-            + `snapshotLogicalPath='dist/release/native-snapshot/${"d".repeat(64)}';`
-            + "directories=@([ordered]@{relativePath='link';sddl=(Get-Acl "
-            + `'${e(path.join(snapshot, "link"))}').Sddl;sddlSha256='0';semanticAclSha256='0'});recoveryErrors=@()}; `
-            + `try{Assert-JournalSchemaAndContainment -Payload $payload -RepoRoot '${e(temp)}';throw 'accepted-reparse'}catch{'reparse-rejected'}; `
-            + "$acl=(Get-Acl "
-            + `'${e(snapshot)}').Sddl;$entry=[ordered]@{relativePath='';sddl=$acl;`
-            + "sddlSha256=(Get-SddlSha256 $acl);semanticAclSha256=(Get-SemanticAclSha256 $acl)};"
-            + "$payload.directories=@($entry,$entry);"
-            + `try{Assert-JournalSchemaAndContainment -Payload $payload -RepoRoot '${e(temp)}';throw 'accepted-duplicate'}catch{'duplicate-rejected'};`
-            + "$bad='D:(A;;FA;;;WD)';$entry=[ordered]@{relativePath='';sddl=$bad;"
-            + "sddlSha256=(Get-SddlSha256 $bad);semanticAclSha256=(Get-SemanticAclSha256 $bad)};"
-            + "$payload.directories=@($entry);"
-            + `try{Assert-JournalSchemaAndContainment -Payload $payload -RepoRoot '${e(temp)}';throw 'accepted-principal'}catch{'principal-rejected'}`;
-        try {
-            const output = execFileSync("pwsh", ["-NoProfile", "-Command", command], {
-                cwd: root
-            }).toString();
-            expect(output).toContain("tamper-rejected");
-            expect(output).toContain("traversal-rejected");
-            expect(output).toContain("reparse-rejected");
-            expect(output).toContain("duplicate-rejected");
-            expect(output).toContain("principal-rejected");
+            expect(output).toContain("addition-allowed");
+            expect(snapshotManifest(snapshot).sha256).not.toBe(before);
         } finally {
             fs.rmSync(temp, { recursive: true, force: true });
         }
@@ -568,17 +488,47 @@ describe("native validation evidence safety", () => {
         fs.writeFileSync(pbix, "release bytes");
         const lock = await acquirePbixPublicationLock(root, pbix);
         try {
+            lock.assertAlive();
             expect(() => fs.writeFileSync(pbix, "replacement")).toThrow();
             expect(() => fs.rmSync(pbix)).toThrow();
         } finally {
+            await lock.release();
             await lock.release();
             fs.rmSync(temp, { recursive: true, force: true });
         }
     });
 
+    it("detects premature PBIX lock-helper exit without hanging release", async () => {
+        const temp = fs.mkdtempSync(path.join(os.tmpdir(), "profile-lens-lock-exit-"));
+        const pbix = path.join(temp, "AtlynProfileLensSample-1.2.0.0.pbix");
+        fs.writeFileSync(pbix, "release bytes");
+        const lock = await acquirePbixPublicationLock(root, pbix);
+        const output = path.join(temp, "atomic-output.json");
+        process.kill(lock.processId);
+        await new Promise((resolve) => setTimeout(resolve, 250));
+        expect(() => lock.assertAlive()).toThrow(/prematurely/i);
+        try {
+            lock.assertAlive();
+            fs.writeFileSync(output, "{}");
+        } catch {}
+        expect(fs.existsSync(output)).toBe(false);
+        await expect(lock.release()).resolves.toBeDefined();
+        await expect(lock.release()).resolves.toBeDefined();
+        fs.rmSync(temp, { recursive: true, force: true });
+    });
+
     it("requires one exact canonical PBIX resource and an active metadata pointer", async () => {
         const guid = "atlynProfileLens";
         const canonical = `Report/CustomVisuals/${guid}/resources/${guid}.pbiviz.json`;
+        expect(() => assertUniqueArchiveNames([
+            { name: "malicious/first" },
+            { name: "resources/atlynProfileLens.pbiviz.json" },
+            { name: "resources/atlynProfileLens.pbiviz.json" }
+        ])).toThrow(/duplicate/i);
+        expect(() => assertUniqueArchiveNames([
+            { name: "RESOURCES/ATLYNPROFILELENS.PBIVIZ.JSON" },
+            { name: "resources/atlynProfileLens.pbiviz.json" }
+        ])).toThrow(/case-ambiguous/i);
         expect(requireCanonicalPbixResource([canonical], guid)).toBe(canonical);
         expect(() => requireCanonicalPbixResource([canonical, canonical], guid)).toThrow(/duplicate/i);
         expect(() => requireCanonicalPbixResource([

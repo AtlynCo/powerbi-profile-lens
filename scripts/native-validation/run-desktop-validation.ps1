@@ -20,7 +20,7 @@ try {
         $mutexOwned = $true
     }
     if (-not $mutexOwned) {
-        throw "Another native validation run owns the recovery boundary"
+        throw "Another native validation run owns the controlled-run boundary"
     }
 
 $desktopExe = "C:\Program Files\Microsoft Power BI Desktop\bin\PBIDesktop.exe"
@@ -29,11 +29,9 @@ $earlyFinalizableEvidence = Join-Path $root "dist\release\native-evidence\native
 if (Test-Path $earlyFinalizableEvidence) {
     Remove-Item $earlyFinalizableEvidence -Force
 }
-$recoveryRoot = Join-Path $root "dist\release\native-recovery"
 if (@(Get-Process -Name PBIDesktop -ErrorAction SilentlyContinue).Count -gt 0) {
-    throw "Desktop ownership blocker: recovery deferred while Power BI Desktop is running"
+    throw "Desktop ownership blocker: Power BI Desktop is already running"
 }
-Recover-StaleSnapshotAclJournals -RepoRoot $root -RecoveryRoot $recoveryRoot | Out-Null
 $pbipPath = (Resolve-Path (Join-Path $root $Pbip)).Path
 $pbixPath = [System.IO.Path]::GetFullPath((Join-Path $root $Pbix))
 $evidencePath = [System.IO.Path]::GetFullPath((Join-Path $root $EvidenceDirectory))
@@ -283,8 +281,8 @@ function Close-OwnedReport {
     return Invoke-OwnedProcessCleanup -Job $Job
 }
 
-$snapshotGuard = Open-SnapshotReadLocks -RepoRoot $root -SnapshotRoot $snapshotRoot `
-    -RecoveryRoot $recoveryRoot -RunId $runId
+$snapshotGuard = Open-SnapshotReadLocks -SnapshotRoot $snapshotRoot `
+    -ExpectedFileCount $snapshot.manifest.files
 $guardsRestored = $false
 $cleanupCompleted = $false
 $primaryFailure = $null
@@ -301,6 +299,7 @@ $finalizableEvidencePath = Join-Path $evidencePath "native-run.json"
 
 $record = [ordered]@{
     schemaVersion = 1
+    runId = $runId
     sourceCommit = $sourceCommit
     automation = $sourceState.automation
     startedAt = (Get-Date).ToUniversalTime().ToString("o")

@@ -91,9 +91,9 @@
   "boundaries": [
     "No native scenario is marked passed.",
     "Scenario outcomes are derived from fixed-schema observations. Uninstrumented field-well, profile, context, selection, tooltip, keyboard, and lifecycle scenarios are hard-coded as untrusted and cannot pass.",
-    "Future runs launch a content-addressed PBIP snapshot protected by file-share locks and directory deny ACLs; the blocked historical run predates that snapshot evidence and makes no snapshot claim.",
-    "Future runs use a suspended kill-on-close Windows Job Object, write-through crash-recovery ACL journals, a separately locked content-addressed PBIX reopen snapshot, and central/local ZIP record reconciliation; the blocked historical run predates these operational proofs.",
-    "Follow-up recovery journals are authenticated with a DPAPI-protected external HMAC key and strict contained non-reparse schemas; release PBIX bytes remain locked through evidence and manifest publication.",
+    "Future controlled runs launch a content-addressed PBIP snapshot, hold read handles on every expected file, and compare exact file manifests at each phase. Additions and removals are detected by phase checks.",
+    "The snapshot controls protect against accidental or ordinary mutation during the exclusive harness run. They do not claim immutability against a malicious process running as the same user or a transient attack restored between phase checks.",
+    "No filesystem ACL is modified and no persistent recovery key or journal is created. Release PBIX bytes remain read-locked through evidence and manifest publication.",
     "The exact generated fixture tree opened in the blocked launch was not contemporaneously hashed, so the current 12-page fixture is not claimed as the launched bytes.",
     "PBIP structural generation and a responsive Desktop window are not PBIX validation.",
     "Touch, Power BI Service publication, dashboard pinning, and Partner Center submission were not attempted.",

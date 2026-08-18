@@ -59,6 +59,7 @@ function validateZipPayloads(bytes, records) {
             if (record.uncompressedSize > MAX_ENTRY_UNCOMPRESSED) {
                 throw new Error(`ZIP entry exceeds uncompressed budget: ${record.name}`);
             }
+
             total += record.uncompressedSize;
             if (total > MAX_TOTAL_UNCOMPRESSED) throw new Error("ZIP total uncompressed budget exceeded.");
             if (record.compressedSize === 0 && record.uncompressedSize > 0) {
@@ -88,6 +89,19 @@ function validateZipPayloads(bytes, records) {
             if (crc32(actual) !== record.crc32) {
                 throw new Error(`ZIP entry CRC32 differs from payload: ${record.name}`);
         }
+    }
+}
+
+function assertUniqueArchiveNames(records) {
+    const names = new Map();
+    for (const record of records) {
+        const key = record.name.toLowerCase();
+        if (names.has(key)) {
+            throw new Error(
+                `ZIP contains duplicate or case-ambiguous entries: ${names.get(key)}, ${record.name}`
+            );
+        }
+        names.set(key, record.name);
     }
 }
 
@@ -337,6 +351,7 @@ async function verifySampleResourceParity({ packagePath, sampleRoot, guid }) {
 async function packagePayload(packagePath, guid) {
     const packageBytes = fs.readFileSync(packagePath);
     const packageRecords = parseCanonicalZipRecords(packageBytes);
+    assertUniqueArchiveNames(packageRecords);
     validateZipPayloads(packageBytes, packageRecords);
     const zip = await JSZip.loadAsync(packageBytes);
     const archivePath = `resources/${guid}.pbiviz.json`;
@@ -353,6 +368,7 @@ async function verifyPbixVisualParity({ packagePath, pbixPath, guid }) {
     const { packageBytes, archivePath, payload } = await packagePayload(packagePath, guid);
     const pbixBytes = fs.readFileSync(pbixPath);
     const records = parseCanonicalZipRecords(pbixBytes);
+    assertUniqueArchiveNames(records);
     validateZipPayloads(pbixBytes, records);
     const rawNames = records.map((record) => record.name);
     const pbix = await JSZip.loadAsync(pbixBytes);
@@ -383,6 +399,7 @@ async function verifyPbixVisualParity({ packagePath, pbixPath, guid }) {
 }
 
 module.exports = {
+    assertUniqueArchiveNames,
     parseExtraFields,
     validateZipPayloads,
     requireCanonicalPbixResource,
