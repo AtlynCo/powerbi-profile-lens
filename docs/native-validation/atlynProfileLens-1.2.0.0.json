@@ -20,7 +20,7 @@
     "openedByDesktop": true,
     "fixtureIdentityAtLaunch": "not-recorded",
     "currentPreparedFixture": {
-      "sourceCommit": "f63b2aa50d040694914c445278983114f3726ac8",
+      "sourceCommit": "a637884d13ea64a45db812fd5f0bece7bcaad468",
       "projectTreeSha256": "b287ce8bbd5c5192940c78ca653373abe9f2a99c02788c2efae4bae564818e3f",
       "reportDefinitionTreeSha256": "c7b5e4f05b4e86b2d7e3854ef7590ac0ce3570f37b46152c59a5fdae53e6b710",
       "modelDefinitionTreeSha256": "407a94d172ea8ef05797a2856a96dc49d9aa76046b5ade4210d5417e4518db9c",
@@ -32,14 +32,15 @@
           "scripts/native-validation",
           "scripts/native-evidence-sanitize.cjs",
           "scripts/native-observations.cjs",
+          "scripts/native-pbix-snapshot.cjs",
           "scripts/native-snapshot.cjs",
           "scripts/native-source-integrity.cjs",
           "scripts/finalize-native-evidence.cjs",
           "scripts/sample-integrity.cjs",
           "scripts/sample-resource-parity.cjs"
         ],
-        "files": 10,
-        "sha256": "c5e70105434da8955dd3f829fc7a194c81b39724be538f06f703e79bba0a4ed0"
+        "files": 11,
+        "sha256": "8e873e6e102231093b90cb0fd8d5fa09d3ccb59b33d558138b75f23a86607497"
       },
       "resourceParity": {
         "packageSha256": "83f85fcf44c5e1b49ea22f657bd980f7c408370d1267cd91291de81b2e30db56",
@@ -90,6 +91,7 @@
     "No native scenario is marked passed.",
     "Scenario outcomes are derived from fixed-schema observations. Uninstrumented field-well, profile, context, selection, tooltip, keyboard, and lifecycle scenarios are hard-coded as untrusted and cannot pass.",
     "Future runs launch a content-addressed PBIP snapshot protected by file-share locks and directory deny ACLs; the blocked historical run predates that snapshot evidence and makes no snapshot claim.",
+    "Future runs use a suspended kill-on-close Windows Job Object, write-through crash-recovery ACL journals, a separately locked content-addressed PBIX reopen snapshot, and central/local ZIP record reconciliation; the blocked historical run predates these operational proofs.",
     "The exact generated fixture tree opened in the blocked launch was not contemporaneously hashed, so the current 12-page fixture is not claimed as the launched bytes.",
     "PBIP structural generation and a responsive Desktop window are not PBIX validation.",
     "Touch, Power BI Service publication, dashboard pinning, and Partner Center submission were not attempted.",

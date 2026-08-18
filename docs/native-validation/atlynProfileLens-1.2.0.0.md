@@ -18,7 +18,7 @@ blind retry or input to an unproven window occurred.
 
 The current prepared fixture is now reproducibly bound by
 `samples/AtlynProfileLensSample/sample-integrity.json` at source commit
-`f63b2aa50d040694914c445278983114f3726ac8`: project tree
+`a637884d13ea64a45db812fd5f0bece7bcaad468`: project tree
 `b287ce8bbd5c5192940c78ca653373abe9f2a99c02788c2efae4bae564818e3f`, report definition
 `c7b5e4f05b4e86b2d7e3854ef7590ac0ce3570f37b46152c59a5fdae53e6b710`, model definition
 `407a94d172ea8ef05797a2856a96dc49d9aa76046b5ade4210d5417e4518db9c`, generator
@@ -28,8 +28,8 @@ resource `19bbf6ffbdfe10c67707dff348879570a7b0e9234fd00973a22bedc2e92c91f7`.
 These hashes prepare a future run; they are not retroactive native evidence.
 
 The guarded automation and every invoked observation, snapshot, integrity, sanitizer, finalizer,
-and parity helper are bound as ten files at
-`c5e70105434da8955dd3f829fc7a194c81b39724be538f06f703e79bba0a4ed0`.
+PBIX-snapshot, and parity helper are bound as eleven files at
+`8e873e6e102231093b90cb0fd8d5fa09d3ccb59b33d558138b75f23a86607497`.
 The final PBIVIZ payload and the sample's one embedded custom-visual resource are byte-identical at
 `19bbf6ffbdfe10c67707dff348879570a7b0e9234fd00973a22bedc2e92c91f7`.
 
