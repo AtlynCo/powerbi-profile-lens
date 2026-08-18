@@ -5,9 +5,7 @@ import {
     decodeFeatureColor,
     encodeFeatureColor,
     hitTestBoundedCandidates,
-    hitTestScene,
-    MAX_CANVAS_FALLBACK_CANDIDATES,
-    retainPickedWithinCandidateBound
+    hitTestScene
 } from "../src/context/hitTest";
 import type {
     ContextProvider,
@@ -295,7 +293,7 @@ describe("hit testing", () => {
         expect(shared.hit).toEqual(expected);
     });
 
-    it("hard-caps localized fallback validation work", () => {
+    it("retains every localized candidate under the scene budget", () => {
         const transform = { scale: 1, translateX: 0, translateY: 0, invertY: false };
         const candidates = Array.from({ length: 40 }, (_, index) => ({
             index,
@@ -318,47 +316,73 @@ describe("hit testing", () => {
                 ]]]
             }
         }));
-        const result = hitTestBoundedCandidates(null, candidates, transform, 0, 0);
-        expect(result.hit).toBeNull();
-        expect(result.candidateValidations).toBe(MAX_CANVAS_FALLBACK_CANDIDATES);
-        expect(result.localizedCandidatesExamined).toBe(MAX_CANVAS_FALLBACK_CANDIDATES);
+        const validBase = {
+            ...candidates[0],
+            key: "valid-base",
+            geometry: {
+                kind: "polygon" as const,
+                center: { x: 0.5, y: 0.5 },
+                polygons: [[[
+                    { x: 0, y: 0 }, { x: 1, y: 0 }, { x: 1, y: 1 },
+                    { x: 0, y: 1 }, { x: 0, y: 0 }
+                ]]]
+            }
+        };
+        const result = hitTestBoundedCandidates(
+            validBase,
+            [validBase, ...candidates],
+            transform,
+            0.5,
+            0.5
+        );
+        expect(result.hit?.featureKey).toBe("valid-base");
+        expect(result.candidateValidations).toBe(41);
+        expect(result.localizedCandidatesExamined).toBe(41);
     });
 
-    it("reserves a bounded slot for an underlying pixel-picked feature", () => {
+    it("keeps a valid picked feature below more than 32 later candidates", () => {
         const transform = { scale: 1, translateX: 0, translateY: 0, invertY: false };
-        const candidates = Array.from({ length: 33 }, (_, index) => ({
-            index,
-            key: `candidate-${index}`,
-            entityIndex: index,
-            label: `candidate-${index}`,
-            description: `candidate-${index}`,
-            selection: { key: `candidate-${index}`, hostIdentity: null },
+        const base = {
+            index: 0,
+            key: "base",
+            entityIndex: 0,
+            label: "base",
+            description: "base",
+            selection: { key: "base", hostIdentity: null },
             contextValue: null,
             tooltipValues: [],
             geometry: {
                 kind: "polygon" as const,
-                center: { x: index === 0 ? 5 : 100 + index, y: 5 },
+                center: { x: 5, y: 5 },
                 polygons: [[[
-                    { x: index === 0 ? 0 : 100 + index, y: 0 },
-                    { x: index === 0 ? 10 : 101 + index, y: 0 },
-                    { x: index === 0 ? 10 : 101 + index, y: 10 },
-                    { x: index === 0 ? 0 : 100 + index, y: 10 },
-                    { x: index === 0 ? 0 : 100 + index, y: 0 }
+                    { x: 0, y: 0 }, { x: 10, y: 0 }, { x: 10, y: 10 },
+                    { x: 0, y: 10 }, { x: 0, y: 0 }
+                ]]]
+            }
+        };
+        const later = Array.from({ length: 40 }, (_, index) => ({
+            ...base,
+            index: index + 1,
+            key: `later-${index}`,
+            geometry: {
+                ...base.geometry,
+                center: { x: 105 + index, y: 5 },
+                polygons: [[[
+                    { x: 100 + index, y: 0 }, { x: 101 + index, y: 0 },
+                    { x: 101 + index, y: 10 }, { x: 100 + index, y: 10 },
+                    { x: 100 + index, y: 0 }
                 ]]]
             }
         }));
-        const bounded = retainPickedWithinCandidateBound(candidates, candidates[0]);
-        expect(bounded).toHaveLength(MAX_CANVAS_FALLBACK_CANDIDATES);
-        expect(bounded).toContain(candidates[0]);
         const result = hitTestBoundedCandidates(
-            candidates[0],
-            bounded,
+            base,
+            [base, ...later],
             transform,
             5,
             5
         );
-        expect(result.hit?.featureKey).toBe("candidate-0");
-        expect(result.candidateValidations).toBe(MAX_CANVAS_FALLBACK_CANDIDATES);
+        expect(result.hit?.featureKey).toBe("base");
+        expect(result.candidateValidations).toBe(41);
     });
 });
 

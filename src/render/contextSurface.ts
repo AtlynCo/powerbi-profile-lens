@@ -11,15 +11,13 @@ import {
     decodeFeatureColor,
     encodeFeatureColor,
     hitTestBoundedCandidates,
+    hitTestFeature,
     hitTestScene,
-    MAX_CANVAS_FALLBACK_CANDIDATES,
-    retainPickedWithinCandidateBound
 } from "../context/hitTest";
 import { projectPoint } from "../context/projection";
 
 const SVG_NS = "http://www.w3.org/2000/svg";
 const PICKING_BUCKET_SIZE = 32;
-const MAX_BUCKETS_PER_FEATURE = 256;
 
 export interface ContextSurfaceElements {
     readonly root: HTMLElement;
@@ -96,13 +94,17 @@ export function renderContextSurface(
         targetMapMisses: 0,
         resolvedHits: 0,
         pickedCandidatesDecoded: 0,
-        localizedQueries: 0,
-        localizedCandidateValidations: 0,
-        maxLocalizedCandidatesExamined: 0,
+        normalBucketChecks: 0,
+        normalCandidateValidationAttempts: 0,
+        normalPickingSuccesses: 0,
+        fallbackQueries: 0,
+        fallbackCandidateReferencesRead: 0,
+        fallbackCandidateValidations: 0,
+        maxFallbackCandidatesExamined: 0,
         spatialBucketEntries: picking.spatialBucketEntries,
-        spatialGlobalCandidates: picking.globalCandidates.length,
         maxBucketOccupancy: picking.maxBucketOccupancy,
-        maxBucketsPerFeature: MAX_BUCKETS_PER_FEATURE,
+        spatialReferenceBudget: LIMITS.maxPickingSpatialReferences,
+        bucketSize: picking.bucketSize,
         pickingScaleX: picking.scaleX,
         pickingScaleY: picking.scaleY
     };
@@ -116,20 +118,33 @@ export function renderContextSurface(
             if (picked) {
                 metrics.pickedCandidatesDecoded++;
             }
-            metrics.localizedQueries++;
+            metrics.normalBucketChecks++;
+            const bucketKey = pickingBucketKey(picking, x, y);
+            const topmostBucketCandidate = picking.topmostByBucket.get(bucketKey) ?? null;
+            if (picked && picked === topmostBucketCandidate) {
+                metrics.normalCandidateValidationAttempts++;
+                metrics.candidateValidations++;
+                if (hitTestFeature(picked, request.transform, x, y, style.pointSize)) {
+                    metrics.normalPickingSuccesses++;
+                    metrics.resolvedHits++;
+                    return { featureIndex: picked.index, featureKey: picked.key };
+                }
+            }
+            metrics.fallbackQueries++;
+            const localized = pickingCandidatesAt(picking, bucketKey);
+            metrics.fallbackCandidateReferencesRead += localized.referencesRead;
             const result = hitTestBoundedCandidates(
                 picked,
-                pickingCandidatesAt(picking, x, y, picked),
+                localized.candidates,
                 request.transform,
                 x,
                 y,
-                style.pointSize,
-                MAX_CANVAS_FALLBACK_CANDIDATES
+                style.pointSize
             );
             metrics.candidateValidations += result.candidateValidations;
-            metrics.localizedCandidateValidations += result.localizedCandidateValidations;
-            metrics.maxLocalizedCandidatesExamined = Math.max(
-                metrics.maxLocalizedCandidatesExamined,
+            metrics.fallbackCandidateValidations += result.localizedCandidateValidations;
+            metrics.maxFallbackCandidatesExamined = Math.max(
+                metrics.maxFallbackCandidatesExamined,
                 result.localizedCandidatesExamined
             );
             if (result.hit) {
@@ -207,8 +222,7 @@ interface PickingState {
     readonly scaleY: number;
     readonly bucketSize: number;
     readonly buckets: ReadonlyMap<string, readonly ContextFeature[]>;
-    readonly globalCandidates: readonly ContextFeature[];
-    readonly renderOrderByIndex: ReadonlyMap<number, number>;
+    readonly topmostByBucket: ReadonlyMap<string, ContextFeature>;
     readonly spatialBucketEntries: number;
     readonly maxBucketOccupancy: number;
 }
@@ -368,6 +382,8 @@ function renderCanvas(
         request.pointSize ?? 5,
         pickingScaleX,
         pickingScaleY,
+        pickSize.width,
+        pickSize.height,
         PICKING_BUCKET_SIZE
     );
     return {
@@ -377,7 +393,6 @@ function renderCanvas(
         featuresByIndex: new Map(request.scene.features.map((feature) => [feature.index, feature])),
         scaleX: pickingScaleX,
         scaleY: pickingScaleY,
-        bucketSize: PICKING_BUCKET_SIZE,
         ...spatial
     };
 }
@@ -467,57 +482,106 @@ function buildPickingIndex(
     pointRadius: number,
     scaleX: number,
     scaleY: number,
-    bucketSize: number
+    width: number,
+    height: number,
+    initialBucketSize: number
 ): Pick<PickingState,
     "buckets"
-    | "globalCandidates"
-    | "renderOrderByIndex"
+    | "topmostByBucket"
+    | "bucketSize"
     | "spatialBucketEntries"
     | "maxBucketOccupancy"
 > {
+    const entries = scene.features.map((feature) => ({
+        feature,
+        bounds: pickingBounds(
+            projectedFeatureBounds(feature, transform, pointRadius),
+            scaleX,
+            scaleY,
+            width,
+            height
+        )
+    }));
+    let bucketSize = initialBucketSize;
+    while (
+        spatialReferenceCount(entries, bucketSize) > LIMITS.maxPickingSpatialReferences
+        && bucketSize <= Math.max(width, height)
+    ) {
+        bucketSize *= 2;
+    }
+    const expectedReferences = spatialReferenceCount(entries, bucketSize);
+    if (expectedReferences > LIMITS.maxPickingSpatialReferences) {
+        throw new Error(
+            `Context picking index requires ${expectedReferences} references, above the `
+            + `${LIMITS.maxPickingSpatialReferences} scene safety budget.`
+        );
+    }
     const buckets = new Map<string, ContextFeature[]>();
-    const globalCandidates: ContextFeature[] = [];
-    const renderOrderByIndex = new Map<number, number>();
+    const topmostByBucket = new Map<string, ContextFeature>();
     let spatialBucketEntries = 0;
     let maxBucketOccupancy = 0;
-    scene.features.forEach((feature, renderOrder) => {
-        renderOrderByIndex.set(feature.index, renderOrder);
-        const bounds = projectedFeatureBounds(feature, transform, pointRadius);
-        const minBucketX = Math.floor(bounds.minX * scaleX / bucketSize);
-        const maxBucketX = Math.floor(bounds.maxX * scaleX / bucketSize);
-        const minBucketY = Math.floor(bounds.minY * scaleY / bucketSize);
-        const maxBucketY = Math.floor(bounds.maxY * scaleY / bucketSize);
-        const bucketCount = (maxBucketX - minBucketX + 1) * (maxBucketY - minBucketY + 1);
-        if (bucketCount > MAX_BUCKETS_PER_FEATURE) {
-            retainHighestRenderOrder(globalCandidates, feature);
-            return;
-        }
+    for (const entry of entries) {
+        const minBucketX = Math.floor(entry.bounds.minX / bucketSize);
+        const maxBucketX = Math.floor(entry.bounds.maxX / bucketSize);
+        const minBucketY = Math.floor(entry.bounds.minY / bucketSize);
+        const maxBucketY = Math.floor(entry.bounds.maxY / bucketSize);
         for (let bucketX = minBucketX; bucketX <= maxBucketX; bucketX++) {
             for (let bucketY = minBucketY; bucketY <= maxBucketY; bucketY++) {
                 const key = `${bucketX}:${bucketY}`;
                 const entries = buckets.get(key) ?? [];
-                const before = entries.length;
-                retainHighestRenderOrder(entries, feature);
-                spatialBucketEntries += entries.length - before;
+                entries.push(entry.feature);
+                topmostByBucket.set(key, entry.feature);
+                spatialBucketEntries++;
                 maxBucketOccupancy = Math.max(maxBucketOccupancy, entries.length);
                 buckets.set(key, entries);
             }
         }
-    });
+    }
     return {
         buckets,
-        globalCandidates,
-        renderOrderByIndex,
+        topmostByBucket,
+        bucketSize,
         spatialBucketEntries,
         maxBucketOccupancy
     };
 }
 
-function retainHighestRenderOrder(entries: ContextFeature[], feature: ContextFeature): void {
-    entries.push(feature);
-    if (entries.length > MAX_CANVAS_FALLBACK_CANDIDATES) {
-        entries.shift();
-    }
+interface PickingIndexEntry {
+    readonly feature: ContextFeature;
+    readonly bounds: {
+        readonly minX: number;
+        readonly maxX: number;
+        readonly minY: number;
+        readonly maxY: number;
+    };
+}
+
+function spatialReferenceCount(
+    entries: readonly PickingIndexEntry[],
+    bucketSize: number
+): number {
+    return entries.reduce((total, entry) => {
+        const columns = Math.floor(entry.bounds.maxX / bucketSize)
+            - Math.floor(entry.bounds.minX / bucketSize) + 1;
+        const rows = Math.floor(entry.bounds.maxY / bucketSize)
+            - Math.floor(entry.bounds.minY / bucketSize) + 1;
+        return total + columns * rows;
+    }, 0);
+}
+
+function pickingBounds(
+    bounds: { readonly minX: number; readonly maxX: number; readonly minY: number; readonly maxY: number },
+    scaleX: number,
+    scaleY: number,
+    width: number,
+    height: number
+): PickingIndexEntry["bounds"] {
+    return {
+        minX: Math.min(Math.max(Math.floor(bounds.minX * scaleX), 0), Math.max(width - 1, 0)),
+        maxX: Math.min(Math.max(Math.ceil(bounds.maxX * scaleX), 0), Math.max(width - 1, 0)),
+        minY: Math.min(Math.max(Math.floor(bounds.minY * scaleY), 0), Math.max(height - 1, 0)),
+        maxY: Math.min(Math.max(Math.ceil(bounds.maxY * scaleY), 0), Math.max(height - 1, 0))
+    };
 }
 
 function projectedFeatureBounds(
@@ -538,32 +602,21 @@ function projectedFeatureBounds(
     };
 }
 
+function pickingBucketKey(picking: PickingState, x: number, y: number): string {
+    return `${Math.floor(x * picking.scaleX / picking.bucketSize)}:`
+        + `${Math.floor(y * picking.scaleY / picking.bucketSize)}`;
+}
+
 function pickingCandidatesAt(
     picking: PickingState,
-    x: number,
-    y: number,
-    picked: ContextFeature | null
-): readonly ContextFeature[] {
-    const local = picking.buckets.get(
-        `${Math.floor(x * picking.scaleX / picking.bucketSize)}:`
-        + `${Math.floor(y * picking.scaleY / picking.bucketSize)}`
-    ) ?? [];
+    bucketKey: string
+): { readonly candidates: readonly ContextFeature[]; readonly referencesRead: number } {
+    const local = picking.buckets.get(bucketKey) ?? [];
     const unique = new Map<number, ContextFeature>();
-    for (const feature of [...picking.globalCandidates, ...local]) {
+    for (const feature of local) {
         unique.set(feature.index, feature);
     }
-    if (picked) {
-        unique.set(picked.index, picked);
-    }
-    const renderOrdered = [...unique.values()]
-        .sort((left, right) =>
-            (picking.renderOrderByIndex.get(left.index) ?? -1)
-            - (picking.renderOrderByIndex.get(right.index) ?? -1));
-    return retainPickedWithinCandidateBound(
-        renderOrdered,
-        picked,
-        MAX_CANVAS_FALLBACK_CANDIDATES
-    );
+    return { candidates: [...unique.values()], referencesRead: local.length };
 }
 
 interface CanvasHitMetrics {
@@ -574,13 +627,17 @@ interface CanvasHitMetrics {
     targetMapMisses: number;
     resolvedHits: number;
     pickedCandidatesDecoded: number;
-    localizedQueries: number;
-    localizedCandidateValidations: number;
-    maxLocalizedCandidatesExamined: number;
+    normalBucketChecks: number;
+    normalCandidateValidationAttempts: number;
+    normalPickingSuccesses: number;
+    fallbackQueries: number;
+    fallbackCandidateReferencesRead: number;
+    fallbackCandidateValidations: number;
+    maxFallbackCandidatesExamined: number;
     readonly spatialBucketEntries: number;
-    readonly spatialGlobalCandidates: number;
     readonly maxBucketOccupancy: number;
-    readonly maxBucketsPerFeature: number;
+    readonly spatialReferenceBudget: number;
+    readonly bucketSize: number;
     readonly pickingScaleX: number;
     readonly pickingScaleY: number;
 }

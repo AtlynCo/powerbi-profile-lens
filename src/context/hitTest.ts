@@ -1,30 +1,11 @@
 import type { ContextFeature, ContextHit, ContextScene, ScenePoint, SceneTransform } from "./contract";
 import { projectPoint } from "./projection";
 
-export const MAX_CANVAS_FALLBACK_CANDIDATES = 32;
-
 export interface BoundedHitTestResult {
     readonly hit: ContextHit | null;
     readonly candidateValidations: number;
     readonly localizedCandidateValidations: number;
     readonly localizedCandidatesExamined: number;
-}
-
-export function retainPickedWithinCandidateBound(
-    renderOrderedCandidates: readonly ContextFeature[],
-    picked: ContextFeature | null,
-    maximum = MAX_CANVAS_FALLBACK_CANDIDATES
-): readonly ContextFeature[] {
-    if (renderOrderedCandidates.length <= maximum) {
-        return renderOrderedCandidates;
-    }
-    const highest = renderOrderedCandidates.slice(-maximum);
-    if (!picked || highest.includes(picked)) {
-        return highest;
-    }
-    const reserved = renderOrderedCandidates.slice(-(maximum - 1));
-    return [...reserved, picked].sort((left, right) =>
-        renderOrderedCandidates.indexOf(left) - renderOrderedCandidates.indexOf(right));
 }
 
 export function hitTestScene(
@@ -82,8 +63,7 @@ export function hitTestBoundedCandidates(
     transform: SceneTransform,
     x: number,
     y: number,
-    pointRadius = 7,
-    maxFallbackCandidates = MAX_CANVAS_FALLBACK_CANDIDATES
+    pointRadius = 7
 ): BoundedHitTestResult {
     const candidates = localizedCandidates.length > 0
         ? localizedCandidates
@@ -94,7 +74,7 @@ export function hitTestBoundedCandidates(
     let localizedCandidatesExamined = 0;
     for (
         let index = candidates.length - 1;
-        index >= 0 && localizedCandidatesExamined < maxFallbackCandidates;
+        index >= 0;
         index--
     ) {
         const candidate = candidates[index];

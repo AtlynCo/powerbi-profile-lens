@@ -61,14 +61,18 @@ Both renderers use the same transform, selection identities, hit-test target key
 tooltip content, and accessible descriptions. Canvas is a rendering optimization, not a reduced
 semantic mode.
 
-Canvas hit testing reads the color-picking pixel before geometry work, performs O(1) feature and
-interaction-target lookups, and validates at most one picked feature plus 32 reverse-scene candidates
-from a 32-pixel spatial bucket. The picking buffer uses fills without inflated strokes, so shared
-boundaries do not overwrite neighboring interiors. A bounded localized fallback preserves underlying
-feature, hole, overlap, and shared-edge parity without an all-scene pointer scan. Buckets retain at
-most 32 highest-render-order features; a picked feature always keeps one validation slot. Features
-covering more than 256 picking buckets move to a 32-entry global large-feature list, bounding index
-construction and storage at large viewports.
+Canvas hit testing reads the color-picking pixel before geometry work and performs O(1) feature and
+interaction-target lookups. When the picked feature is the highest-rendered candidate in its spatial
+bucket, one geometric validation completes the normal path. Otherwise the fallback evaluates every
+geometrically possible bucket candidate in reverse render order, bounded by the scene's declared
+feature budget rather than a lossy constant cap. The picking buffer uses fills without inflated
+strokes, so shared boundaries do not overwrite neighboring interiors.
+
+The spatial index never evicts feature references. It starts with 32-pixel picking buckets and doubles
+the bucket size until total references fit the 500,000-reference safety budget. Under the 4,000-feature
+scene cap, a single full-surface bucket guarantees a non-lossy bounded construction. This preserves
+underlying feature, nested-hole, overlap, saturated-cell, and shared-edge parity without an all-scene
+scan on normal pointer moves.
 
 ## Detail loading
 

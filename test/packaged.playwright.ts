@@ -54,13 +54,17 @@ interface PickingMetrics {
     readonly targetMapMisses: number;
     readonly resolvedHits: number;
     readonly pickedCandidatesDecoded: number;
-    readonly localizedQueries: number;
-    readonly localizedCandidateValidations: number;
-    readonly maxLocalizedCandidatesExamined: number;
+    readonly normalBucketChecks: number;
+    readonly normalCandidateValidationAttempts: number;
+    readonly normalPickingSuccesses: number;
+    readonly fallbackQueries: number;
+    readonly fallbackCandidateReferencesRead: number;
+    readonly fallbackCandidateValidations: number;
+    readonly maxFallbackCandidatesExamined: number;
     readonly spatialBucketEntries: number;
-    readonly spatialGlobalCandidates: number;
     readonly maxBucketOccupancy: number;
-    readonly maxBucketsPerFeature: number;
+    readonly spatialReferenceBudget: number;
+    readonly bucketSize: number;
     readonly scaled: boolean;
 }
 
@@ -74,26 +78,35 @@ function assertCoherentPickingMetrics(metrics: PickingMetrics): void {
     if (metrics.targetMapMisses !== 0) {
         throw new Error("every resolved feature must have a precomputed target");
     }
-    if (metrics.localizedQueries !== metrics.pickingReads) {
-        throw new Error("every picking read must use the localized candidate index");
+    if (metrics.normalPickingSuccesses + metrics.fallbackQueries !== metrics.pickingReads) {
+        throw new Error("every picking read must resolve normally or run one fallback query");
     }
-    if (metrics.localizedCandidateValidations !== metrics.candidateValidations) {
-        throw new Error("candidate validation counters must describe real localized work");
+    if (metrics.normalBucketChecks !== metrics.pickingReads) {
+        throw new Error("normal O(1) bucket checks must equal picking reads");
     }
-    if (metrics.candidateValidations > metrics.pickingReads * 32) {
-        throw new Error("candidate validation exceeded the strict fallback bound");
+    if (
+        metrics.normalCandidateValidationAttempts + metrics.fallbackCandidateValidations
+        !== metrics.candidateValidations
+    ) {
+        throw new Error("candidate validation counters must describe real operations");
     }
-    if (metrics.maxLocalizedCandidatesExamined > 32) {
-        throw new Error("localized fallback examined too many candidates");
+    if (metrics.normalPickingSuccesses > metrics.normalCandidateValidationAttempts) {
+        throw new Error("normal successes exceed actual validation attempts");
     }
-    if (metrics.maxBucketOccupancy > 32 || metrics.spatialGlobalCandidates > 32) {
-        throw new Error("spatial index candidate storage exceeded its fixed bound");
+    if (metrics.maxFallbackCandidatesExamined > metrics.sceneFeatures) {
+        throw new Error("fallback exceeded the declared scene feature budget");
     }
-    if (metrics.maxBucketsPerFeature !== 256) {
-        throw new Error("spatial index per-feature expansion bound changed");
+    if (metrics.fallbackCandidateValidations > metrics.fallbackCandidateReferencesRead) {
+        throw new Error("fallback validated more candidates than the index returned");
     }
-    if (metrics.spatialBucketEntries > metrics.sceneFeatures * metrics.maxBucketsPerFeature) {
-        throw new Error("spatial index storage exceeded its scene-derived bound");
+    if (metrics.spatialBucketEntries > metrics.spatialReferenceBudget) {
+        throw new Error("spatial index exceeded its explicit reference budget");
+    }
+    if (metrics.maxBucketOccupancy > metrics.sceneFeatures) {
+        throw new Error("spatial bucket contains more references than scene features");
+    }
+    if (metrics.bucketSize < 32) {
+        throw new Error("adaptive bucket size fell below its minimum");
     }
 }
 
@@ -616,6 +629,99 @@ test.describe("packaged visual in a real browser", () => {
         }
     });
 
+    test("retains valid features beneath more than 32 large overlapping holes", async ({ page }) => {
+        const base = "POLYGON ((0 0,80 0,80 80,0 80,0 0))";
+        const holed = "POLYGON ((0 0,80 0,80 80,0 80,0 0),"
+            + "(30 30,50 30,50 50,30 50,30 30))";
+        const geometries = [base, ...Array.from({ length: 160 }, () => holed)];
+        const entities = geometries.map((_unused, index) => `Layer ${index}`);
+        const exercise = async (
+            threshold: number,
+            width: number,
+            height: number,
+            devicePixelRatio: number
+        ): Promise<{
+            keys: string[];
+            metrics: {
+                fallbackCandidateValidations: number;
+                maxFallbackCandidatesExamined: number;
+                maxBucketOccupancy: number;
+                spatialBucketEntries: number;
+                spatialReferenceBudget: number;
+            } | null;
+        }> => {
+            await mount(page, {
+                contextMode: "boundGeometry",
+                svgFeatureThreshold: threshold,
+                entities,
+                geometryTexts: geometries,
+                periods: [],
+                bands: ["Band 1"],
+                series: [],
+                profiles: ["Metric A"],
+                width,
+                height,
+                devicePixelRatio
+            });
+            return page.locator(".profile-lens-context").evaluate((node) => {
+                type Metrics = {
+                    fallbackCandidateValidations: number;
+                    maxFallbackCandidatesExamined: number;
+                    maxBucketOccupancy: number;
+                    spatialBucketEntries: number;
+                    spatialReferenceBudget: number;
+                };
+                const root = node as HTMLElement & {
+                    __profileLensCanvasHitMetrics?: Metrics | null;
+                };
+                const bounds = root.getBoundingClientRect();
+                const innerWidth = Math.max(bounds.width - 16, 1);
+                const innerHeight = Math.max(bounds.height - 16, 1);
+                const scale = Math.min(innerWidth / 80, innerHeight / 80);
+                const translateX = 8 + (innerWidth - 80 * scale) / 2;
+                const translateY = 8 + (innerHeight - 80 * scale) / 2 + 80 * scale;
+                const keys: string[] = [];
+                for (const point of [{ x: 40, y: 40 }, { x: 20, y: 20 }]) {
+                    root.dispatchEvent(new PointerEvent("pointermove", {
+                        bubbles: true,
+                        clientX: bounds.left + point.x * scale + translateX,
+                        clientY: bounds.top + translateY - point.y * scale,
+                        pointerType: "mouse"
+                    }));
+                    keys.push((window as unknown as {
+                        profileLensHost: { calls: { lastTooltipKey: string } };
+                    }).profileLensHost.calls.lastTooltipKey);
+                }
+                return {
+                    keys,
+                    metrics: root.__profileLensCanvasHitMetrics
+                        ? { ...root.__profileLensCanvasHitMetrics }
+                        : null
+                };
+            });
+        };
+
+        const svg = await exercise(500, 1280, 620, 1);
+        expect(svg.keys).toEqual(["|node:entity:0", "|node:entity:160"]);
+        const observed: unknown[] = [];
+        for (const value of [
+            { width: 1280, height: 620, dpr: 1 },
+            { width: 1280, height: 620, dpr: 2 },
+            { width: 10000, height: 2000, dpr: 2 }
+        ]) {
+            const canvas = await exercise(1, value.width, value.height, value.dpr);
+            expect(canvas.keys).toEqual(svg.keys);
+            expect(canvas.metrics).not.toBeNull();
+            expect(canvas.metrics!.maxBucketOccupancy).toBe(161);
+            expect(canvas.metrics!.maxFallbackCandidatesExamined).toBeGreaterThan(32);
+            expect(canvas.metrics!.fallbackCandidateValidations).toBeGreaterThan(32);
+            expect(canvas.metrics!.spatialBucketEntries)
+                .toBeLessThanOrEqual(canvas.metrics!.spatialReferenceBudget);
+            observed.push({ ...value, ...canvas.metrics });
+        }
+        console.log(`Adversarial overlap metrics: ${JSON.stringify(observed)}`);
+    });
+
     test("keeps SVG and Canvas context semantics and host identities identical", async ({ page }) => {
         const exercise = async (threshold: number): Promise<{
             selected: string | null;
@@ -773,13 +879,17 @@ test.describe("packaged visual in a real browser", () => {
                     targetMapMisses: number;
                     resolvedHits: number;
                     pickedCandidatesDecoded: number;
-                    localizedQueries: number;
-                    localizedCandidateValidations: number;
-                    maxLocalizedCandidatesExamined: number;
+                    normalBucketChecks: number;
+                    normalCandidateValidationAttempts: number;
+                    normalPickingSuccesses: number;
+                    fallbackQueries: number;
+                    fallbackCandidateReferencesRead: number;
+                    fallbackCandidateValidations: number;
+                    maxFallbackCandidatesExamined: number;
                     spatialBucketEntries: number;
-                    spatialGlobalCandidates: number;
                     maxBucketOccupancy: number;
-                    maxBucketsPerFeature: number;
+                    spatialReferenceBudget: number;
+                    bucketSize: number;
                     pickingScaleX: number;
                     pickingScaleY: number;
                 };
@@ -810,15 +920,25 @@ test.describe("packaged visual in a real browser", () => {
                     resolvedHits: after.resolvedHits - before.resolvedHits,
                     pickedCandidatesDecoded:
                         after.pickedCandidatesDecoded - before.pickedCandidatesDecoded,
-                    localizedQueries: after.localizedQueries - before.localizedQueries,
-                    localizedCandidateValidations:
-                        after.localizedCandidateValidations
-                        - before.localizedCandidateValidations,
-                    maxLocalizedCandidatesExamined: after.maxLocalizedCandidatesExamined,
+                    normalBucketChecks:
+                        after.normalBucketChecks - before.normalBucketChecks,
+                    normalCandidateValidationAttempts:
+                        after.normalCandidateValidationAttempts
+                        - before.normalCandidateValidationAttempts,
+                    normalPickingSuccesses:
+                        after.normalPickingSuccesses - before.normalPickingSuccesses,
+                    fallbackQueries: after.fallbackQueries - before.fallbackQueries,
+                    fallbackCandidateReferencesRead:
+                        after.fallbackCandidateReferencesRead
+                        - before.fallbackCandidateReferencesRead,
+                    fallbackCandidateValidations:
+                        after.fallbackCandidateValidations
+                        - before.fallbackCandidateValidations,
+                    maxFallbackCandidatesExamined: after.maxFallbackCandidatesExamined,
                     spatialBucketEntries: after.spatialBucketEntries,
-                    spatialGlobalCandidates: after.spatialGlobalCandidates,
                     maxBucketOccupancy: after.maxBucketOccupancy,
-                    maxBucketsPerFeature: after.maxBucketsPerFeature,
+                    spatialReferenceBudget: after.spatialReferenceBudget,
+                    bucketSize: after.bucketSize,
                     scaled: after.pickingScaleX < 1 || after.pickingScaleY < 1
                 };
             });
