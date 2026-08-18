@@ -448,7 +448,7 @@ export interface ResolvedSettings {
     readonly maxGeometryCharacters: number;
     readonly maxSceneVertices: number;
     readonly detailStrategy: Exclude<DetailStrategyId, "matrixExpand">;
-    readonly interactionMode: "localOnly" | "reportSelection" | "reportFilter";
+    readonly interactionMode: "localOnly" | "reportSelection";
     readonly armRotation: number;
     readonly bandGap: number;
     readonly showEntityList: boolean;
@@ -532,7 +532,7 @@ export function resolveSettings(model: ProfileLensFormattingModel): ResolvedSett
         ),
         interactionMode: enumValue(
             model.interaction.mode.value,
-            ["localOnly", "reportSelection", "reportFilter"],
+            ["localOnly", "reportSelection"],
             "reportSelection"
         ),
         armRotation: clamp(model.layout.armRotation.value, 0, 359),

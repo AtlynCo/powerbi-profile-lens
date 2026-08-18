@@ -56,9 +56,8 @@ candidate; record the package name and SHA-256 from `dist/release-manifest.json`
 4. Verify native tooltip pointer tracking and bound tooltip fields.
 5. Apply slicers, cross-filters, highlights, RLS, and a bookmark; verify host state remains
    authoritative after resize and refresh.
-6. Exercise local-only, report-selection, and explicit report-filter modes. Confirm the filter mode
-   restores from `jsonFilters` and does not remove unrelated filters.
-7. Disable report interactions and confirm no selection, filter, tooltip, focus mutation, or
+6. Exercise local-only and report-selection modes. Confirm no visual gesture writes an outward filter.
+7. Disable report interactions and confirm no selection, tooltip, focus mutation, or
    context-menu host call.
 
 ## Accessibility and semantic parity

@@ -390,6 +390,36 @@ test.describe("packaged visual in a real browser", () => {
         expect(svg.selected).toContain("entity:0");
     });
 
+    test("supports only local focus and report selection without outward filters", async ({ page }) => {
+        const activate = async (interactionMode: "localOnly" | "reportSelection"): Promise<{
+            filter: number;
+            select: number;
+        }> => {
+            await mount(page, {
+                contextMode: "grid",
+                interactionMode,
+                entities: ["Entity A", "Entity B"],
+                periods: [],
+                bands: ["Band 1"],
+                series: [],
+                profiles: ["Metric A"]
+            });
+            const surface = page.locator(".profile-lens-context");
+            const bounds = await surface.boundingBox();
+            await page.mouse.click(
+                (bounds?.x ?? 0) + (bounds?.width ?? 0) * 0.75,
+                (bounds?.y ?? 0) + (bounds?.height ?? 0) * 0.5
+            );
+            await expect(page.locator(".profile-lens-header-title")).toHaveText("Entity B");
+            return page.evaluate(() => (window as unknown as {
+                profileLensHost: { calls: { filter: number; select: number } };
+            }).profileLensHost.calls);
+        };
+
+        expect(await activate("localOnly")).toMatchObject({ filter: 0, select: 0 });
+        expect(await activate("reportSelection")).toMatchObject({ filter: 0, select: 1 });
+    });
+
     test("bounds Canvas and redirects disabled physical context focus", async ({ page }) => {
         await mount(page, {
             contextMode: "grid",
@@ -429,270 +459,6 @@ test.describe("packaged visual in a real browser", () => {
         expect(calls.tooltipShow).toBe(0);
         expect(calls.contextMenu).toBe(0);
         expect(calls.filter).toBe(0);
-    });
-
-    test("preserves report-filter context focus until fresh host filters reconcile it", async ({ page }) => {
-        const assertEntity = async (label: string, activeDescendant: string): Promise<void> => {
-            await expect(page.locator(".profile-lens-header-title")).toHaveText(label);
-            await expect(page.locator(".profile-lens-context"))
-                .toHaveAttribute("aria-activedescendant", activeDescendant);
-        };
-        const options = {
-            contextMode: "grid",
-            interactionMode: "reportFilter",
-            entities: ["Entity A", "Entity B"],
-            periods: [],
-            bands: ["Band 1"],
-            series: [],
-            profiles: ["Metric A"]
-        };
-        await mount(page, options);
-        const surface = page.locator(".profile-lens-context");
-        const bounds = await surface.boundingBox();
-        expect(bounds).not.toBeNull();
-        await page.mouse.click(
-            (bounds?.x ?? 0) + (bounds?.width ?? 0) * 0.75,
-            (bounds?.y ?? 0) + (bounds?.height ?? 0) * 0.5
-        );
-        await assertEntity("Entity B", "context:entity:1");
-        expect(await page.evaluate(() => (window as unknown as {
-            profileLensHost: { calls: { filter: number } };
-        }).profileLensHost.calls.filter)).toBe(1);
-
-        await page.evaluate(() => (window as unknown as {
-            profileLensUpdate: (options: unknown) => void;
-            profileLensDataView: unknown;
-        }).profileLensUpdate({
-            width: 1280,
-            height: 620,
-            dataViews: [(window as unknown as { profileLensDataView: unknown }).profileLensDataView],
-            jsonFilters: [{
-                target: { table: "Table", column: "Entity" },
-                operator: "In",
-                values: ["Entity B"],
-                filterType: 1
-            }]
-        }));
-        await assertEntity("Entity B", "context:entity:1");
-
-        await page.evaluate(() => (window as unknown as {
-            profileLensUpdate: (options: unknown) => void;
-            profileLensDataView: unknown;
-        }).profileLensUpdate({
-            width: 1280,
-            height: 620,
-            dataViews: [(window as unknown as { profileLensDataView: unknown }).profileLensDataView],
-            jsonFilters: []
-        }));
-        await assertEntity("Entity A", "context:entity:0");
-
-        await mount(page, options);
-        const keyboardSurface = page.locator(".profile-lens-context");
-        await keyboardSurface.focus();
-        await page.keyboard.press("ArrowRight");
-        await assertEntity("Entity B", "context:entity:1");
-        await expect(keyboardSurface).toBeFocused();
-        expect(await page.evaluate(() => (window as unknown as {
-            profileLensHost: { calls: { filter: number } };
-        }).profileLensHost.calls.filter)).toBe(0);
-        await page.keyboard.press("Enter");
-        expect(await page.evaluate(() => (window as unknown as {
-            profileLensHost: { calls: { filter: number } };
-        }).profileLensHost.calls.filter)).toBe(1);
-    });
-
-    test("reconciles report-filter mode re-entry without fresh host filters", async ({ page }) => {
-        await mount(page, {
-            contextMode: "grid",
-            interactionMode: "reportFilter",
-            entities: ["Entity A", "Entity B"],
-            periods: [],
-            bands: ["Band 1"],
-            series: [],
-            profiles: ["Metric A"]
-        });
-        const surface = page.locator(".profile-lens-context");
-        const bounds = await surface.boundingBox();
-        await page.mouse.click(
-            (bounds?.x ?? 0) + (bounds?.width ?? 0) * 0.75,
-            (bounds?.y ?? 0) + (bounds?.height ?? 0) * 0.5
-        );
-        await expect(page.locator(".profile-lens-header-title")).toHaveText("Entity B");
-        expect(await page.evaluate(() => (window as unknown as {
-            profileLensHost: { calls: { filter: number } };
-        }).profileLensHost.calls.filter)).toBe(1);
-
-        await page.evaluate(() => {
-            const runtime = window as unknown as {
-                profileLensUpdate: (options: unknown) => void;
-                profileLensDataView: unknown;
-            };
-            runtime.profileLensUpdate({
-                width: 1280,
-                height: 620,
-                dataViews: [runtime.profileLensDataView],
-                jsonFilters: [{
-                    target: { table: "Table", column: "Entity" },
-                    operator: "In",
-                    values: ["Entity B"],
-                    filterType: 1
-                }]
-            });
-        });
-        await expect(page.locator(".profile-lens-header-title")).toHaveText("Entity B");
-
-        await page.evaluate(() => {
-            const runtime = window as unknown as {
-                profileLensUpdate: (options: unknown) => void;
-                profileLensDataView: {
-                    metadata: { objects: { interaction: { mode: string } } };
-                };
-            };
-            runtime.profileLensDataView.metadata.objects.interaction.mode = "localOnly";
-            runtime.profileLensUpdate({
-                width: 1280,
-                height: 620,
-                dataViews: [runtime.profileLensDataView]
-            });
-        });
-        await expect(page.locator(".profile-lens-header-title")).toHaveText("Entity B");
-        expect(await page.evaluate(() => (window as unknown as {
-            profileLensHost: { calls: { filter: number } };
-        }).profileLensHost.calls.filter)).toBe(2);
-
-        await page.evaluate(() => {
-            const runtime = window as unknown as {
-                profileLensUpdate: (options: unknown) => void;
-                profileLensDataView: {
-                    metadata: { objects: { interaction: { mode: string } } };
-                };
-            };
-            runtime.profileLensDataView.metadata.objects.interaction.mode = "reportFilter";
-            runtime.profileLensUpdate({
-                width: 1280,
-                height: 620,
-                dataViews: [runtime.profileLensDataView]
-            });
-        });
-        await expect(page.locator(".profile-lens-header-title")).toHaveText("Entity A");
-        await expect(surface).toHaveAttribute("aria-activedescendant", "context:entity:0");
-
-        await page.mouse.click(
-            (bounds?.x ?? 0) + (bounds?.width ?? 0) * 0.75,
-            (bounds?.y ?? 0) + (bounds?.height ?? 0) * 0.5
-        );
-        await expect(page.locator(".profile-lens-header-title")).toHaveText("Entity B");
-        await expect(surface).toHaveAttribute("aria-activedescendant", "context:entity:1");
-        expect(await page.evaluate(() => (window as unknown as {
-            profileLensHost: { calls: { filter: number } };
-        }).profileLensHost.calls.filter)).toBe(3);
-    });
-
-    test("preserves a fresh external exit snapshot across report-filter re-entry", async ({ page }) => {
-        await mount(page, {
-            contextMode: "grid",
-            interactionMode: "reportFilter",
-            entities: ["Entity A", "Entity B", "Entity C"],
-            periods: [],
-            bands: ["Band 1"],
-            series: [],
-            profiles: ["Metric A"]
-        });
-        const surface = page.locator(".profile-lens-context");
-        await surface.focus();
-        await page.keyboard.press("ArrowRight");
-        await page.keyboard.press("Enter");
-        await expect(page.locator(".profile-lens-header-title")).toHaveText("Entity B");
-
-        await page.evaluate(() => {
-            const runtime = window as unknown as {
-                profileLensUpdate: (options: unknown) => void;
-                profileLensDataView: {
-                    metadata: { objects: { interaction: { mode: string } } };
-                };
-            };
-            runtime.profileLensDataView.metadata.objects.interaction.mode = "localOnly";
-            runtime.profileLensUpdate({
-                width: 1280,
-                height: 620,
-                dataViews: [runtime.profileLensDataView],
-                jsonFilters: [{
-                    target: { table: "Table", column: "Entity" },
-                    operator: "In",
-                    values: ["Entity C"],
-                    filterType: 1
-                }]
-            });
-            runtime.profileLensDataView.metadata.objects.interaction.mode = "reportFilter";
-            runtime.profileLensUpdate({
-                width: 1280,
-                height: 620,
-                dataViews: [runtime.profileLensDataView]
-            });
-        });
-        await expect(page.locator(".profile-lens-header-title")).toHaveText("Entity C");
-        await expect(surface).toHaveAttribute("aria-activedescendant", "context:entity:2");
-    });
-
-    test("keeps newest rapid activation through delayed host echoes", async ({ page }) => {
-        await mount(page, {
-            contextMode: "grid",
-            interactionMode: "reportFilter",
-            entities: ["Entity A", "Entity B", "Entity C"],
-            periods: [],
-            bands: ["Band 1"],
-            series: [],
-            profiles: ["Metric A"]
-        });
-        const surface = page.locator(".profile-lens-context");
-        await surface.focus();
-        await page.keyboard.press("ArrowRight");
-        await page.keyboard.press("Enter");
-        await page.keyboard.press("ArrowDown");
-        await page.keyboard.press("Enter");
-        await expect(page.locator(".profile-lens-header-title")).toHaveText("Entity C");
-        expect(await page.evaluate(() => (window as unknown as {
-            profileLensHost: { calls: { filter: number } };
-        }).profileLensHost.calls.filter)).toBe(2);
-
-        for (const value of ["Entity B", "Entity C"]) {
-            await page.evaluate((entityValue) => {
-                const runtime = window as unknown as {
-                    profileLensUpdate: (options: unknown) => void;
-                    profileLensDataView: unknown;
-                };
-                runtime.profileLensUpdate({
-                    width: 1280,
-                    height: 620,
-                    dataViews: [runtime.profileLensDataView],
-                    jsonFilters: [{
-                        target: { table: "Table", column: "Entity" },
-                        operator: "In",
-                        values: [entityValue],
-                        filterType: 1
-                    }]
-                });
-            }, value);
-            await expect(page.locator(".profile-lens-header-title")).toHaveText("Entity C");
-        }
-
-        await page.evaluate(() => {
-            const runtime = window as unknown as {
-                profileLensUpdate: (options: unknown) => void;
-                profileLensDataView: {
-                    metadata: { objects: { interaction: { mode: string } } };
-                };
-            };
-            runtime.profileLensDataView.metadata.objects.interaction.mode = "localOnly";
-            runtime.profileLensUpdate({
-                width: 1280,
-                height: 620,
-                dataViews: [runtime.profileLensDataView]
-            });
-        });
-        expect(await page.evaluate(() => (window as unknown as {
-            profileLensHost: { calls: { filter: number } };
-        }).profileLensHost.calls.filter)).toBe(3);
     });
 
     test("bounds the semantic entity list while preserving host order", async ({ page }) => {

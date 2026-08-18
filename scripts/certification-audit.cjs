@@ -60,6 +60,10 @@ assert(
     capabilities.expandCollapse === undefined && capabilities.drilldown === undefined,
     "expand/collapse and drilldown must remain undeclared until native host proof passes"
 );
+assert(
+    capabilities.objects?.general === undefined,
+    "outward filter capability must remain absent"
+);
 assert(fs.existsSync(packageDirectory), "dist directory is missing");
 
 const packages = fs.readdirSync(packageDirectory).filter((entry) => entry.endsWith(".pbiviz"));
@@ -122,6 +126,16 @@ for (const key of ["name", "displayName", "guid", "visualClassName", "version", 
         "packaged capabilities must declare empty privileges"
     );
     assert(
+        resource.capabilities.objects?.general === undefined,
+        "packaged capabilities must not declare outward filter support"
+    );
+    const packagedInteractionModes = resource.capabilities.objects?.interaction
+        ?.properties?.mode?.type?.enumeration?.map((entry) => entry.value);
+    assert(
+        JSON.stringify(packagedInteractionModes) === JSON.stringify(["localOnly", "reportSelection"]),
+        "packaged interaction modes must be exactly localOnly and reportSelection"
+    );
+    assert(
         Array.isArray(resource.stringResources) || typeof resource.stringResources === "object",
         "packaged string resources are missing"
     );
@@ -132,6 +146,7 @@ for (const key of ["name", "displayName", "guid", "visualClassName", "version", 
             `packaged bundle uses ${rule.name}, which certification forbids`
         );
     }
+    assert(!/\bapplyJsonFilter\b/.test(resource.content.js), "packaged bundle uses outward filter API");
 
     const iconBase64 = String(resource.content.iconBase64 ?? "");
     assert(iconBase64.startsWith("data:image/png;base64,"), "packaged icon is not a base64 PNG data URI");

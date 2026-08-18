@@ -208,15 +208,6 @@
     }
   ],
   "objects": {
-    "general": {
-      "properties": {
-        "filter": {
-          "type": {
-            "filter": true
-          }
-        }
-      }
-    },
     "data": {
       "displayName": "Data",
       "displayNameKey": "Format_Data_Card",
@@ -566,11 +557,6 @@
                 "value": "reportSelection",
                 "displayName": "Report selection",
                 "displayNameKey": "Format_InteractionMode_Selection"
-              },
-              {
-                "value": "reportFilter",
-                "displayName": "Report filter",
-                "displayNameKey": "Format_InteractionMode_Filter"
               }
             ]
           }
