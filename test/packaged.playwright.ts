@@ -43,6 +43,73 @@ const COUNTY_KEYS = packKeys("us-counties-2025-5m.pack.json");
 const STATE_KEYS = packKeys("us-states-2025-5m.pack.json");
 const WORLD_50_KEYS = packKeys("world-countries-50m.pack.json");
 
+interface PickingMetrics {
+    readonly elapsed: number;
+    readonly mountElapsed: number;
+    readonly moves: number;
+    readonly sceneFeatures: number;
+    readonly pickingReads: number;
+    readonly candidateValidations: number;
+    readonly targetMapLookups: number;
+    readonly targetMapMisses: number;
+    readonly resolvedHits: number;
+    readonly pickedCandidatesDecoded: number;
+    readonly normalBucketChecks: number;
+    readonly normalCandidateValidationAttempts: number;
+    readonly normalPickingSuccesses: number;
+    readonly fallbackQueries: number;
+    readonly fallbackCandidateReferencesRead: number;
+    readonly fallbackCandidateValidations: number;
+    readonly maxFallbackCandidatesExamined: number;
+    readonly spatialBucketEntries: number;
+    readonly maxBucketOccupancy: number;
+    readonly spatialReferenceBudget: number;
+    readonly bucketSize: number;
+    readonly scaled: boolean;
+}
+
+function assertCoherentPickingMetrics(metrics: PickingMetrics): void {
+    if (metrics.pickingReads !== metrics.moves) {
+        throw new Error("pickingReads must equal dispatched pointer moves");
+    }
+    if (metrics.targetMapLookups !== metrics.resolvedHits) {
+        throw new Error("targetMapLookups must equal resolved hits");
+    }
+    if (metrics.targetMapMisses !== 0) {
+        throw new Error("every resolved feature must have a precomputed target");
+    }
+    if (metrics.normalPickingSuccesses + metrics.fallbackQueries !== metrics.pickingReads) {
+        throw new Error("every picking read must resolve normally or run one fallback query");
+    }
+    if (metrics.normalBucketChecks !== metrics.pickingReads) {
+        throw new Error("normal O(1) bucket checks must equal picking reads");
+    }
+    if (
+        metrics.normalCandidateValidationAttempts + metrics.fallbackCandidateValidations
+        !== metrics.candidateValidations
+    ) {
+        throw new Error("candidate validation counters must describe real operations");
+    }
+    if (metrics.normalPickingSuccesses > metrics.normalCandidateValidationAttempts) {
+        throw new Error("normal successes exceed actual validation attempts");
+    }
+    if (metrics.maxFallbackCandidatesExamined > metrics.sceneFeatures) {
+        throw new Error("fallback exceeded the declared scene feature budget");
+    }
+    if (metrics.fallbackCandidateValidations > metrics.fallbackCandidateReferencesRead) {
+        throw new Error("fallback validated more candidates than the index returned");
+    }
+    if (metrics.spatialBucketEntries > metrics.spatialReferenceBudget) {
+        throw new Error("spatial index exceeded its explicit reference budget");
+    }
+    if (metrics.maxBucketOccupancy > metrics.sceneFeatures) {
+        throw new Error("spatial bucket contains more references than scene features");
+    }
+    if (metrics.bucketSize < 32) {
+        throw new Error("adaptive bucket size fell below its minimum");
+    }
+}
+
 const SIZES = [
     { width: 1280, height: 620 },
     { width: 398, height: 298 },
@@ -480,6 +547,181 @@ test.describe("packaged visual in a real browser", () => {
         expect(canvas.elapsed).toBeLessThan(750);
     });
 
+    test("keeps adversarial boundaries, holes, and overlaps in SVG/Canvas parity", async ({ page }) => {
+        const geometries = [
+            "POLYGON ((0 0,10 0,10 10,0 10,0 0))",
+            "POLYGON ((10 0,20 0,20 10,10 10,10 0))",
+            "POLYGON ((2 2,8 2,8 8,2 8,2 2),(4 4,6 4,6 6,4 6,4 4))",
+            "POLYGON ((7 2,12 2,12 8,7 8,7 2))"
+        ];
+        const points = [
+            { x: 9.9, y: 9, name: "under adjacent stroke" },
+            { x: 5, y: 5, name: "inside overlay hole" },
+            { x: 8, y: 5, name: "inside later overlap" },
+            { x: 15, y: 5, name: "inside adjacent polygon" },
+            { x: 10, y: 9, name: "on shared edge" }
+        ];
+        const exercise = async (
+            svgFeatureThreshold: number,
+            width: number,
+            height: number,
+            devicePixelRatio: number
+        ): Promise<string[]> => {
+            await mount(page, {
+                contextMode: "boundGeometry",
+                svgFeatureThreshold,
+                entities: ["Base", "Adjacent", "Holed", "Overlap"],
+                geometryTexts: geometries,
+                periods: [],
+                bands: ["Band 1"],
+                series: [],
+                profiles: ["Metric A"],
+                width,
+                height,
+                devicePixelRatio
+            });
+            return page.locator(".profile-lens-context").evaluate((node, testPoints) => {
+                const root = node as HTMLElement;
+                const bounds = root.getBoundingClientRect();
+                const innerWidth = Math.max(bounds.width - 16, 1);
+                const innerHeight = Math.max(bounds.height - 16, 1);
+                const scale = Math.min(innerWidth / 20, innerHeight / 10);
+                const translateX = 8 + (innerWidth - 20 * scale) / 2;
+                const translateY = 8 + (innerHeight - 10 * scale) / 2 + 10 * scale;
+                const keys: string[] = [];
+                for (const point of testPoints) {
+                    const clientX = bounds.left + point.x * scale + translateX;
+                    const clientY = bounds.top + translateY - point.y * scale;
+                    root.dispatchEvent(new PointerEvent("pointermove", {
+                        bubbles: true,
+                        clientX,
+                        clientY,
+                        pointerType: "mouse"
+                    }));
+                    keys.push((window as unknown as {
+                        profileLensHost: { calls: { lastTooltipKey: string } };
+                    }).profileLensHost.calls.lastTooltipKey);
+                    root.dispatchEvent(new PointerEvent("pointerout", {
+                        bubbles: true,
+                        clientX,
+                        clientY,
+                        pointerType: "mouse"
+                    }));
+                }
+                return keys;
+            }, points);
+        };
+
+        const svg = await exercise(500, 1280, 620, 1);
+        expect(svg.slice(0, 4)).toEqual([
+            "|node:entity:0",
+            "|node:entity:0",
+            "|node:entity:3",
+            "|node:entity:1"
+        ]);
+        for (const value of [
+            { threshold: 1, width: 1280, height: 620, dpr: 1 },
+            { threshold: 1, width: 1280, height: 620, dpr: 2 },
+            { threshold: 1, width: 10000, height: 2000, dpr: 2 }
+        ]) {
+            const canvas = await exercise(value.threshold, value.width, value.height, value.dpr);
+            expect(canvas, `Canvas parity at DPR ${value.dpr}, width ${value.width}`).toEqual(svg);
+        }
+    });
+
+    test("retains valid features beneath more than 32 large overlapping holes", async ({ page }) => {
+        const base = "POLYGON ((0 0,80 0,80 80,0 80,0 0))";
+        const holed = "POLYGON ((0 0,80 0,80 80,0 80,0 0),"
+            + "(30 30,50 30,50 50,30 50,30 30))";
+        const geometries = [base, ...Array.from({ length: 160 }, () => holed)];
+        const entities = geometries.map((_unused, index) => `Layer ${index}`);
+        const exercise = async (
+            threshold: number,
+            width: number,
+            height: number,
+            devicePixelRatio: number
+        ): Promise<{
+            keys: string[];
+            metrics: {
+                fallbackCandidateValidations: number;
+                maxFallbackCandidatesExamined: number;
+                maxBucketOccupancy: number;
+                spatialBucketEntries: number;
+                spatialReferenceBudget: number;
+            } | null;
+        }> => {
+            await mount(page, {
+                contextMode: "boundGeometry",
+                svgFeatureThreshold: threshold,
+                entities,
+                geometryTexts: geometries,
+                periods: [],
+                bands: ["Band 1"],
+                series: [],
+                profiles: ["Metric A"],
+                width,
+                height,
+                devicePixelRatio
+            });
+            return page.locator(".profile-lens-context").evaluate((node) => {
+                type Metrics = {
+                    fallbackCandidateValidations: number;
+                    maxFallbackCandidatesExamined: number;
+                    maxBucketOccupancy: number;
+                    spatialBucketEntries: number;
+                    spatialReferenceBudget: number;
+                };
+                const root = node as HTMLElement & {
+                    __profileLensCanvasHitMetrics?: Metrics | null;
+                };
+                const bounds = root.getBoundingClientRect();
+                const innerWidth = Math.max(bounds.width - 16, 1);
+                const innerHeight = Math.max(bounds.height - 16, 1);
+                const scale = Math.min(innerWidth / 80, innerHeight / 80);
+                const translateX = 8 + (innerWidth - 80 * scale) / 2;
+                const translateY = 8 + (innerHeight - 80 * scale) / 2 + 80 * scale;
+                const keys: string[] = [];
+                for (const point of [{ x: 40, y: 40 }, { x: 20, y: 20 }]) {
+                    root.dispatchEvent(new PointerEvent("pointermove", {
+                        bubbles: true,
+                        clientX: bounds.left + point.x * scale + translateX,
+                        clientY: bounds.top + translateY - point.y * scale,
+                        pointerType: "mouse"
+                    }));
+                    keys.push((window as unknown as {
+                        profileLensHost: { calls: { lastTooltipKey: string } };
+                    }).profileLensHost.calls.lastTooltipKey);
+                }
+                return {
+                    keys,
+                    metrics: root.__profileLensCanvasHitMetrics
+                        ? { ...root.__profileLensCanvasHitMetrics }
+                        : null
+                };
+            });
+        };
+
+        const svg = await exercise(500, 1280, 620, 1);
+        expect(svg.keys).toEqual(["|node:entity:0", "|node:entity:160"]);
+        const observed: unknown[] = [];
+        for (const value of [
+            { width: 1280, height: 620, dpr: 1 },
+            { width: 1280, height: 620, dpr: 2 },
+            { width: 10000, height: 2000, dpr: 2 }
+        ]) {
+            const canvas = await exercise(1, value.width, value.height, value.dpr);
+            expect(canvas.keys).toEqual(svg.keys);
+            expect(canvas.metrics).not.toBeNull();
+            expect(canvas.metrics!.maxBucketOccupancy).toBe(161);
+            expect(canvas.metrics!.maxFallbackCandidatesExamined).toBeGreaterThan(32);
+            expect(canvas.metrics!.fallbackCandidateValidations).toBeGreaterThan(32);
+            expect(canvas.metrics!.spatialBucketEntries)
+                .toBeLessThanOrEqual(canvas.metrics!.spatialReferenceBudget);
+            observed.push({ ...value, ...canvas.metrics });
+        }
+        console.log(`Adversarial overlap metrics: ${JSON.stringify(observed)}`);
+    });
+
     test("keeps SVG and Canvas context semantics and host identities identical", async ({ page }) => {
         const exercise = async (threshold: number): Promise<{
             selected: string | null;
@@ -602,14 +844,19 @@ test.describe("packaged visual in a real browser", () => {
         await expect(page.locator(".profile-lens-context-semantic [role='option']")).toHaveCount(100);
     });
 
-    test("bounds full-county Canvas picking to one candidate at DPR and scaled backing", async ({ page }) => {
+    test("bounds full-county Canvas picking candidates at DPR and scaled backing", async ({ page }) => {
         const cases = [
             { width: 1280, height: 620, devicePixelRatio: 1, scaled: false },
             { width: 1280, height: 620, devicePixelRatio: 2, scaled: false },
             { width: 10000, height: 2000, devicePixelRatio: 2, scaled: true }
         ];
-        const observed: Array<Record<string, number | boolean>> = [];
+        const observed: Array<PickingMetrics & {
+            readonly width: number;
+            readonly height: number;
+            readonly devicePixelRatio: number;
+        }> = [];
         for (const value of cases) {
+            const mountStarted = Date.now();
             await mount(page, {
                 contextMode: "builtInPack",
                 contextPack: "usCounties",
@@ -622,13 +869,27 @@ test.describe("packaged visual in a real browser", () => {
                 height: value.height,
                 devicePixelRatio: value.devicePixelRatio
             });
-            const result = await page.locator(".profile-lens-context").evaluate((node) => {
+            const mountElapsed = Date.now() - mountStarted;
+            const interaction = await page.locator(".profile-lens-context").evaluate((node) => {
                 type Metrics = {
                     sceneFeatures: number;
                     pickingReads: number;
                     candidateValidations: number;
-                    fullSceneScans: number;
                     targetMapLookups: number;
+                    targetMapMisses: number;
+                    resolvedHits: number;
+                    pickedCandidatesDecoded: number;
+                    normalBucketChecks: number;
+                    normalCandidateValidationAttempts: number;
+                    normalPickingSuccesses: number;
+                    fallbackQueries: number;
+                    fallbackCandidateReferencesRead: number;
+                    fallbackCandidateValidations: number;
+                    maxFallbackCandidatesExamined: number;
+                    spatialBucketEntries: number;
+                    maxBucketOccupancy: number;
+                    spatialReferenceBudget: number;
+                    bucketSize: number;
                     pickingScaleX: number;
                     pickingScaleY: number;
                 };
@@ -654,20 +915,50 @@ test.describe("packaged visual in a real browser", () => {
                     pickingReads: after.pickingReads - before.pickingReads,
                     candidateValidations:
                         after.candidateValidations - before.candidateValidations,
-                    fullSceneScans: after.fullSceneScans,
                     targetMapLookups: after.targetMapLookups - before.targetMapLookups,
+                    targetMapMisses: after.targetMapMisses - before.targetMapMisses,
+                    resolvedHits: after.resolvedHits - before.resolvedHits,
+                    pickedCandidatesDecoded:
+                        after.pickedCandidatesDecoded - before.pickedCandidatesDecoded,
+                    normalBucketChecks:
+                        after.normalBucketChecks - before.normalBucketChecks,
+                    normalCandidateValidationAttempts:
+                        after.normalCandidateValidationAttempts
+                        - before.normalCandidateValidationAttempts,
+                    normalPickingSuccesses:
+                        after.normalPickingSuccesses - before.normalPickingSuccesses,
+                    fallbackQueries: after.fallbackQueries - before.fallbackQueries,
+                    fallbackCandidateReferencesRead:
+                        after.fallbackCandidateReferencesRead
+                        - before.fallbackCandidateReferencesRead,
+                    fallbackCandidateValidations:
+                        after.fallbackCandidateValidations
+                        - before.fallbackCandidateValidations,
+                    maxFallbackCandidatesExamined: after.maxFallbackCandidatesExamined,
+                    spatialBucketEntries: after.spatialBucketEntries,
+                    maxBucketOccupancy: after.maxBucketOccupancy,
+                    spatialReferenceBudget: after.spatialReferenceBudget,
+                    bucketSize: after.bucketSize,
                     scaled: after.pickingScaleX < 1 || after.pickingScaleY < 1
                 };
             });
+            const result = { ...interaction, mountElapsed };
             expect(result.sceneFeatures).toBe(3235);
-            expect(result.pickingReads).toBe(result.moves);
-            expect(result.candidateValidations).toBeLessThanOrEqual(result.moves);
-            expect(result.fullSceneScans).toBe(0);
-            expect(result.targetMapLookups).toBe(result.pickingReads);
+            assertCoherentPickingMetrics(result);
+            expect(result.targetMapLookups).toBeGreaterThan(0);
             expect(result.scaled).toBe(value.scaled);
             expect(result.elapsed).toBeLessThan(250);
+            expect(result.mountElapsed).toBeLessThan(750);
             observed.push({ ...value, ...result });
         }
+        expect(() => assertCoherentPickingMetrics({
+            ...observed[0],
+            targetMapLookups: 0
+        })).toThrow(/targetMapLookups/);
+        expect(() => assertCoherentPickingMetrics({
+            ...observed[0],
+            pickingReads: 0
+        })).toThrow(/pickingReads/);
         console.log(`Full-county picking metrics: ${JSON.stringify(observed)}`);
     });
 

@@ -1,7 +1,12 @@
 import { describe, expect, it } from "vitest";
 import { ContextProviderRegistry, ContextRendererRegistry } from "../src/context/registry";
 import { chooseContextRenderer } from "../src/context/rendererSelection";
-import { decodeFeatureColor, encodeFeatureColor, hitTestScene } from "../src/context/hitTest";
+import {
+    decodeFeatureColor,
+    encodeFeatureColor,
+    hitTestBoundedCandidates,
+    hitTestScene
+} from "../src/context/hitTest";
 import type {
     ContextProvider,
     ContextProviderInput,
@@ -192,6 +197,192 @@ describe("hit testing", () => {
             15,
             15
         )).toBeNull();
+    });
+
+    it("resolves adjacent, holed, overlapping, and shared-edge candidates with bounded parity", () => {
+        const transform = { scale: 1, translateX: 0, translateY: 0, invertY: false };
+        const polygon = (
+            index: number,
+            key: string,
+            rings: readonly (readonly { x: number; y: number }[])[]
+        ): ContextScene["features"][number] => ({
+            index,
+            key,
+            entityIndex: index,
+            label: key,
+            description: key,
+            selection: { key, hostIdentity: null },
+            contextValue: null,
+            tooltipValues: [],
+            geometry: {
+                kind: "polygon",
+                center: rings[0][0],
+                polygons: [[...rings]]
+            }
+        });
+        const base = polygon(0, "base", [[
+            { x: 0, y: 0 }, { x: 10, y: 0 }, { x: 10, y: 10 },
+            { x: 0, y: 10 }, { x: 0, y: 0 }
+        ]]);
+        const adjacent = polygon(1, "adjacent", [[
+            { x: 10, y: 0 }, { x: 20, y: 0 }, { x: 20, y: 10 },
+            { x: 10, y: 10 }, { x: 10, y: 0 }
+        ]]);
+        const holed = polygon(2, "holed", [
+            [
+                { x: 2, y: 2 }, { x: 8, y: 2 }, { x: 8, y: 8 },
+                { x: 2, y: 8 }, { x: 2, y: 2 }
+            ],
+            [
+                { x: 4, y: 4 }, { x: 6, y: 4 }, { x: 6, y: 6 },
+                { x: 4, y: 6 }, { x: 4, y: 4 }
+            ]
+        ]);
+        const overlap = polygon(3, "overlap", [[
+            { x: 7, y: 2 }, { x: 12, y: 2 }, { x: 12, y: 8 },
+            { x: 7, y: 8 }, { x: 7, y: 2 }
+        ]]);
+
+        const adjacentFallback = hitTestBoundedCandidates(
+            adjacent,
+            [base, adjacent],
+            transform,
+            9.9,
+            9
+        );
+        expect(adjacentFallback).toMatchObject({
+            hit: { featureKey: "base" },
+            candidateValidations: 2,
+            localizedCandidateValidations: 2
+        });
+
+        const holeFallback = hitTestBoundedCandidates(
+            holed,
+            [base, holed],
+            transform,
+            5,
+            5
+        );
+        expect(holeFallback.hit?.featureKey).toBe("base");
+
+        const overlapHit = hitTestBoundedCandidates(
+            overlap,
+            [base, overlap],
+            transform,
+            8,
+            5
+        );
+        expect(overlapHit).toMatchObject({
+            hit: { featureKey: "overlap" },
+            candidateValidations: 1,
+            localizedCandidateValidations: 1
+        });
+
+        const sharedScene: ContextScene = {
+            ...scene(2, 10),
+            features: [base, adjacent]
+        };
+        const expected = hitTestScene(sharedScene, transform, 10, 9);
+        const shared = hitTestBoundedCandidates(
+            adjacent,
+            sharedScene.features,
+            transform,
+            10,
+            9
+        );
+        expect(shared.hit).toEqual(expected);
+    });
+
+    it("retains every localized candidate under the scene budget", () => {
+        const transform = { scale: 1, translateX: 0, translateY: 0, invertY: false };
+        const candidates = Array.from({ length: 40 }, (_, index) => ({
+            index,
+            key: `outside-${index}`,
+            entityIndex: index,
+            label: `outside-${index}`,
+            description: `outside-${index}`,
+            selection: { key: `outside-${index}`, hostIdentity: null },
+            contextValue: null,
+            tooltipValues: [],
+            geometry: {
+                kind: "polygon" as const,
+                center: { x: 100 + index, y: 100 },
+                polygons: [[[
+                    { x: 100 + index, y: 100 },
+                    { x: 101 + index, y: 100 },
+                    { x: 101 + index, y: 101 },
+                    { x: 100 + index, y: 101 },
+                    { x: 100 + index, y: 100 }
+                ]]]
+            }
+        }));
+        const validBase = {
+            ...candidates[0],
+            key: "valid-base",
+            geometry: {
+                kind: "polygon" as const,
+                center: { x: 0.5, y: 0.5 },
+                polygons: [[[
+                    { x: 0, y: 0 }, { x: 1, y: 0 }, { x: 1, y: 1 },
+                    { x: 0, y: 1 }, { x: 0, y: 0 }
+                ]]]
+            }
+        };
+        const result = hitTestBoundedCandidates(
+            validBase,
+            [validBase, ...candidates],
+            transform,
+            0.5,
+            0.5
+        );
+        expect(result.hit?.featureKey).toBe("valid-base");
+        expect(result.candidateValidations).toBe(41);
+        expect(result.localizedCandidatesExamined).toBe(41);
+    });
+
+    it("keeps a valid picked feature below more than 32 later candidates", () => {
+        const transform = { scale: 1, translateX: 0, translateY: 0, invertY: false };
+        const base = {
+            index: 0,
+            key: "base",
+            entityIndex: 0,
+            label: "base",
+            description: "base",
+            selection: { key: "base", hostIdentity: null },
+            contextValue: null,
+            tooltipValues: [],
+            geometry: {
+                kind: "polygon" as const,
+                center: { x: 5, y: 5 },
+                polygons: [[[
+                    { x: 0, y: 0 }, { x: 10, y: 0 }, { x: 10, y: 10 },
+                    { x: 0, y: 10 }, { x: 0, y: 0 }
+                ]]]
+            }
+        };
+        const later = Array.from({ length: 40 }, (_, index) => ({
+            ...base,
+            index: index + 1,
+            key: `later-${index}`,
+            geometry: {
+                ...base.geometry,
+                center: { x: 105 + index, y: 5 },
+                polygons: [[[
+                    { x: 100 + index, y: 0 }, { x: 101 + index, y: 0 },
+                    { x: 101 + index, y: 10 }, { x: 100 + index, y: 10 },
+                    { x: 100 + index, y: 0 }
+                ]]]
+            }
+        }));
+        const result = hitTestBoundedCandidates(
+            base,
+            [base, ...later],
+            transform,
+            5,
+            5
+        );
+        expect(result.hit?.featureKey).toBe("base");
+        expect(result.candidateValidations).toBe(41);
     });
 });
 

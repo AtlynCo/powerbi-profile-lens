@@ -53,6 +53,7 @@ export const LIMITS = {
     maxCanvasDpr: 2,
     maxCanvasDimension: 4096,
     maxCanvasBackingPixels: 8388608,
+    maxPickingSpatialReferences: 500000,
     minLatitude: -90,
     maxLatitude: 90,
     minLongitude: -180,

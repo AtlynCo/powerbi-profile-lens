@@ -1,6 +1,13 @@
 import type { ContextFeature, ContextHit, ContextScene, ScenePoint, SceneTransform } from "./contract";
 import { projectPoint } from "./projection";
 
+export interface BoundedHitTestResult {
+    readonly hit: ContextHit | null;
+    readonly candidateValidations: number;
+    readonly localizedCandidateValidations: number;
+    readonly localizedCandidatesExamined: number;
+}
+
 export function hitTestScene(
     scene: ContextScene,
     transform: SceneTransform,
@@ -32,6 +39,7 @@ export function hitTestFeature(
             return Math.hypot(projected.x - point.x, projected.y - point.y) <= pointRadius;
         });
     }
+
     for (const polygon of geometry.polygons ?? []) {
         if (polygon.length === 0) {
             continue;
@@ -47,6 +55,46 @@ export function hitTestFeature(
         }
     }
     return false;
+}
+
+export function hitTestBoundedCandidates(
+    picked: ContextFeature | null,
+    localizedCandidates: readonly ContextFeature[],
+    transform: SceneTransform,
+    x: number,
+    y: number,
+    pointRadius = 7
+): BoundedHitTestResult {
+    const candidates = localizedCandidates.length > 0
+        ? localizedCandidates
+        : picked
+            ? [picked]
+            : [];
+    let localizedCandidateValidations = 0;
+    let localizedCandidatesExamined = 0;
+    for (
+        let index = candidates.length - 1;
+        index >= 0;
+        index--
+    ) {
+        const candidate = candidates[index];
+        localizedCandidatesExamined++;
+        localizedCandidateValidations++;
+        if (hitTestFeature(candidate, transform, x, y, pointRadius)) {
+            return {
+                hit: { featureIndex: candidate.index, featureKey: candidate.key },
+                candidateValidations: localizedCandidateValidations,
+                localizedCandidateValidations,
+                localizedCandidatesExamined
+            };
+        }
+    }
+    return {
+        hit: null,
+        candidateValidations: localizedCandidateValidations,
+        localizedCandidateValidations,
+        localizedCandidatesExamined
+    };
 }
 
 function pointInRing(point: ScenePoint, ring: readonly ScenePoint[]): boolean {
