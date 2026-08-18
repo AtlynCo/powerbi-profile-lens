@@ -98,6 +98,7 @@ const {
 } = require("../scripts/native-pbix-snapshot.cjs") as {
     createPbixSnapshot(root: string, source: string): {
         token: string;
+        basename: string;
         logicalPath: string;
         original: { sha256: string };
         snapshot: { sha256: string };
