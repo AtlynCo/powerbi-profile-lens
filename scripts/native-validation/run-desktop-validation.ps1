@@ -289,6 +289,8 @@ try {
 $snapshotLockEvidence = $snapshotGuard.evidence
 New-Item -ItemType Directory -Force -Path (Split-Path $pbixPath), $evidencePath | Out-Null
 if (Test-Path $pbixPath) { Remove-Item $pbixPath -Force }
+$finalizableEvidencePath = Join-Path $evidencePath "native-run.json"
+if (Test-Path $finalizableEvidencePath) { Remove-Item $finalizableEvidencePath -Force }
 
 $record = [ordered]@{
     schemaVersion = 1
@@ -466,7 +468,11 @@ try {
     $sanitizedJson = ($record | ConvertTo-Json -Depth 12 -Compress) |
         & node (Join-Path $root "scripts\native-evidence-sanitize.cjs")
     if ($LASTEXITCODE -ne 0) { throw "Evidence sanitization failed" }
-    $outputPath = Join-Path $evidencePath "native-run.json"
+    $outputPath = if ($failure -or -not $guardsRestored -or -not $record.cleanup.allExited) {
+        Join-Path $evidencePath "native-failure.json"
+    } else {
+        $finalizableEvidencePath
+    }
     Set-Content -Path $outputPath -Value $sanitizedJson
     & node (Join-Path $root "scripts\native-evidence-sanitize.cjs") --check $outputPath
     if ($LASTEXITCODE -ne 0) {

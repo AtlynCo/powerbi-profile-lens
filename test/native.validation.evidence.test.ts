@@ -45,9 +45,11 @@ const { verifySampleResourceParity } = require("../scripts/sample-resource-parit
     }): Promise<{ parity: boolean; payload: { sha256: string }; embedded: Array<{ sha256: string }> }>;
 };
 const {
+    parseExtraFields,
     requireCanonicalPbixResource,
     verifyPbixVisualParity
 } = require("../scripts/sample-resource-parity.cjs") as {
+    parseExtraFields(extra: Buffer): void;
     requireCanonicalPbixResource(names: string[], guid: string): string;
     verifyPbixVisualParity(options: {
         packagePath: string;
@@ -181,18 +183,20 @@ describe("native validation evidence safety", () => {
             fs.rmSync(temp, { recursive: true, force: true });
         }
 
-        const actualOutput = path.join(
-            root,
-            "dist",
-            "release",
-            "native-evidence",
-            "native-run.json"
-        );
-        if (fs.existsSync(actualOutput)) {
-            expect(() => assertEvidenceSafe(
-                JSON.parse(fs.readFileSync(actualOutput, "utf8")) as unknown,
-                [process.env.USERNAME ?? "", process.env.USER ?? ""]
-            )).not.toThrow();
+        for (const filename of ["native-run.json", "native-failure.json"]) {
+            const actualOutput = path.join(
+                root,
+                "dist",
+                "release",
+                "native-evidence",
+                filename
+            );
+            if (fs.existsSync(actualOutput)) {
+                expect(() => assertEvidenceSafe(
+                    JSON.parse(fs.readFileSync(actualOutput, "utf8")) as unknown,
+                    [process.env.USERNAME ?? "", process.env.USER ?? ""]
+                )).not.toThrow();
+            }
         }
     });
 
@@ -482,6 +486,10 @@ describe("native validation evidence safety", () => {
         expect(() => requireCanonicalPbixResource([
             `Report/FooCustomVisuals/${guid}/resources/${guid}.pbiviz.json`
         ], guid)).toThrow(/noncanonical|decoy/i);
+        const unicodePathOverride = Buffer.alloc(5);
+        unicodePathOverride.writeUInt16LE(0x7075, 0);
+        unicodePathOverride.writeUInt16LE(1, 2);
+        expect(() => parseExtraFields(unicodePathOverride)).toThrow(/Unicode path overrides/i);
         expect(() => requireCanonicalPbixResource([
             `report/CustomVisuals/${guid}/resources/${guid}.pbiviz.json`
         ], guid)).toThrow(/noncanonical|decoy/i);

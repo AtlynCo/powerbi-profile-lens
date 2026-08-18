@@ -14,6 +14,7 @@ function parseExtraFields(extra) {
         const length = extra.readUInt16LE(offset + 2);
         if (offset + 4 + length > extra.length) throw new Error("ZIP extra field exceeds bounds.");
         if (id === 0x0001) throw new Error("ZIP64 entries are not supported.");
+        if (id === 0x7075) throw new Error("ZIP Unicode path overrides are not supported.");
         offset += 4 + length;
     }
 }
@@ -308,6 +309,7 @@ async function verifyPbixVisualParity({ packagePath, pbixPath, guid }) {
 }
 
 module.exports = {
+    parseExtraFields,
     requireCanonicalPbixResource,
     parseCanonicalZipRecords,
     resolveActiveResourcePointer,
