@@ -84,6 +84,32 @@
           }
         }
       ],
+      "layout": [
+        {
+          "properties": {
+            "contextLayout": {
+              "expr": {
+                "Literal": {
+                  "Value": "'split'"
+                }
+              }
+            }
+          }
+        }
+      ],
+      "context": [
+        {
+          "properties": {
+            "mode": {
+              "expr": {
+                "Literal": {
+                  "Value": "'none'"
+                }
+              }
+            }
+          }
+        }
+      ],
       "diagnostics": [
         {
           "properties": {

@@ -130,6 +130,9 @@ for (const block of cardBlocks) {
 }
 
 for (const [objectName, object] of Object.entries(capabilities.objects ?? {})) {
+    if (objectName === "general") {
+        continue;
+    }
     const card = declaredCards.get(objectName);
     check(card !== undefined, `capabilities object "${objectName}" has no formatting card.`);
     if (!card) {

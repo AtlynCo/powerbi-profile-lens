@@ -9,6 +9,9 @@ import {
     TableVisibility,
     TextDirection
 } from "./model/contract";
+import type { ContextMode } from "./context/contract";
+import type { ContextLayoutMode } from "./layout/contextLayout";
+import type { DetailStrategyId } from "./detail/contract";
 
 import Card = formattingSettings.SimpleCard;
 import Model = formattingSettings.Model;
@@ -81,6 +84,12 @@ export class LayoutCard extends Card {
         value: "auto"
     });
 
+    public contextLayout = new formattingSettings.AutoDropdown({
+        name: "contextLayout",
+        displayNameKey: "Format_ContextLayout",
+        value: "split"
+    });
+
     public armRotation = new formattingSettings.NumUpDown({
         name: "armRotation",
         displayNameKey: "Format_ArmRotation",
@@ -109,11 +118,114 @@ export class LayoutCard extends Card {
 
     public override slices = [
         this.arrangement,
+        this.contextLayout,
         this.armRotation,
         this.bandGap,
         this.showEntityList,
         this.direction
     ];
+}
+
+export class ContextCard extends Card {
+    public override name = "context";
+    public override displayNameKey = "Format_Context_Card";
+
+    public mode = new formattingSettings.AutoDropdown({
+        name: "mode",
+        displayNameKey: "Format_ContextMode",
+        value: "none"
+    });
+
+    public svgFeatureThreshold = new formattingSettings.NumUpDown({
+        name: "svgFeatureThreshold",
+        displayNameKey: "Format_SvgFeatureThreshold",
+        value: LIMITS.maxSvgContextFeatures,
+        options: numberOptions(1, LIMITS.maxContextFeatures)
+    });
+
+    public svgVertexThreshold = new formattingSettings.NumUpDown({
+        name: "svgVertexThreshold",
+        displayNameKey: "Format_SvgVertexThreshold",
+        value: LIMITS.maxSvgContextVertices,
+        options: numberOptions(100, LIMITS.maxVerticesPerScene)
+    });
+
+    public pointSize = new formattingSettings.NumUpDown({
+        name: "pointSize",
+        displayNameKey: "Format_PointSize",
+        value: 6,
+        options: numberOptions(2, 24)
+    });
+
+    public fillColor = new formattingSettings.ColorPicker({
+        name: "fillColor",
+        displayNameKey: "Format_ContextFill",
+        value: { value: "#D2D0CE" }
+    });
+
+    public strokeColor = new formattingSettings.ColorPicker({
+        name: "strokeColor",
+        displayNameKey: "Format_ContextStroke",
+        value: { value: "#605E5C" }
+    });
+
+    public selectedColor = new formattingSettings.ColorPicker({
+        name: "selectedColor",
+        displayNameKey: "Format_ContextSelected",
+        value: { value: "#118DFF" }
+    });
+
+    public maxGeometryCharacters = new formattingSettings.NumUpDown({
+        name: "maxGeometryCharacters",
+        displayNameKey: "Format_MaxGeometryCharacters",
+        value: LIMITS.maxGeometryCharacters,
+        options: numberOptions(1000, LIMITS.maxGeometryCharacters)
+    });
+
+    public maxSceneVertices = new formattingSettings.NumUpDown({
+        name: "maxSceneVertices",
+        displayNameKey: "Format_MaxSceneVertices",
+        value: LIMITS.maxVerticesPerScene,
+        options: numberOptions(1000, LIMITS.maxVerticesPerScene)
+    });
+
+    public override slices = [
+        this.mode,
+        this.svgFeatureThreshold,
+        this.svgVertexThreshold,
+        this.pointSize,
+        this.fillColor,
+        this.strokeColor,
+        this.selectedColor,
+        this.maxGeometryCharacters,
+        this.maxSceneVertices
+    ];
+}
+
+export class LoadingCard extends Card {
+    public override name = "loading";
+    public override displayNameKey = "Format_Loading_Card";
+
+    public strategy = new formattingSettings.AutoDropdown({
+        name: "strategy",
+        displayNameKey: "Format_LoadingStrategy",
+        value: "auto"
+    });
+
+    public override slices = [this.strategy];
+}
+
+export class InteractionCard extends Card {
+    public override name = "interaction";
+    public override displayNameKey = "Format_Interaction_Card";
+
+    public mode = new formattingSettings.AutoDropdown({
+        name: "mode",
+        displayNameKey: "Format_InteractionMode",
+        value: "reportSelection"
+    });
+
+    public override slices = [this.mode];
 }
 
 export class ProfilesCard extends Card {
@@ -293,6 +405,9 @@ export class AccessibilityCard extends Card {
 export class ProfileLensFormattingModel extends Model {
     public data = new DataCard();
     public layout = new LayoutCard();
+    public context = new ContextCard();
+    public loading = new LoadingCard();
+    public interaction = new InteractionCard();
     public profiles = new ProfilesCard();
     public series = new SeriesCard();
     public period = new PeriodCard();
@@ -303,6 +418,9 @@ export class ProfileLensFormattingModel extends Model {
     public override cards = [
         this.data,
         this.layout,
+        this.context,
+        this.loading,
+        this.interaction,
         this.profiles,
         this.series,
         this.period,
@@ -319,6 +437,18 @@ export interface ResolvedSettings {
     readonly maxProfiles: number;
     readonly maxSeries: number;
     readonly arrangement: Arrangement;
+    readonly contextLayout: ContextLayoutMode;
+    readonly contextMode: ContextMode;
+    readonly svgFeatureThreshold: number;
+    readonly svgVertexThreshold: number;
+    readonly contextPointSize: number;
+    readonly contextFillColor: string;
+    readonly contextStrokeColor: string;
+    readonly contextSelectedColor: string;
+    readonly maxGeometryCharacters: number;
+    readonly maxSceneVertices: number;
+    readonly detailStrategy: Exclude<DetailStrategyId, "matrixExpand">;
+    readonly interactionMode: "localOnly" | "reportSelection" | "reportFilter";
     readonly armRotation: number;
     readonly bandGap: number;
     readonly showEntityList: boolean;
@@ -361,6 +491,50 @@ export function resolveSettings(model: ProfileLensFormattingModel): ResolvedSett
         maxProfiles: clamp(model.data.maxProfiles.value, 1, LIMITS.maxProfiles),
         maxSeries: clamp(model.data.maxSeries.value, 1, LIMITS.maxSeries),
         arrangement: enumValue(model.layout.arrangement.value, ["auto", "radial", "stacked"], "auto"),
+        contextLayout: enumValue(
+            model.layout.contextLayout.value,
+            ["split", "focusLens", "locatorInset", "profileOnly"],
+            "split"
+        ),
+        contextMode: enumValue(
+            model.context.mode.value,
+            ["none", "points", "boundGeometry", "grid", "hex"],
+            "none"
+        ),
+        svgFeatureThreshold: clamp(
+            model.context.svgFeatureThreshold.value,
+            1,
+            LIMITS.maxContextFeatures
+        ),
+        svgVertexThreshold: clamp(
+            model.context.svgVertexThreshold.value,
+            100,
+            LIMITS.maxVerticesPerScene
+        ),
+        contextPointSize: clamp(model.context.pointSize.value, 2, 24),
+        contextFillColor: model.context.fillColor.value.value,
+        contextStrokeColor: model.context.strokeColor.value.value,
+        contextSelectedColor: model.context.selectedColor.value.value,
+        maxGeometryCharacters: clamp(
+            model.context.maxGeometryCharacters.value,
+            1000,
+            LIMITS.maxGeometryCharacters
+        ),
+        maxSceneVertices: clamp(
+            model.context.maxSceneVertices.value,
+            1000,
+            LIMITS.maxVerticesPerScene
+        ),
+        detailStrategy: enumValue(
+            model.loading.strategy.value,
+            ["auto", "eager", "segmented", "external"],
+            "auto"
+        ),
+        interactionMode: enumValue(
+            model.interaction.mode.value,
+            ["localOnly", "reportSelection", "reportFilter"],
+            "reportSelection"
+        ),
         armRotation: clamp(model.layout.armRotation.value, 0, 359),
         bandGap: clamp(model.layout.bandGap.value, 0, 12),
         showEntityList: model.layout.showEntityList.value,

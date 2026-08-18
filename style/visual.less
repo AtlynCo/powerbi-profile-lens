@@ -44,13 +44,56 @@
     flex: 1 1 auto;
     min-width: 0;
     min-height: 0;
+    overflow: hidden;
 
-    svg {
+    > svg {
         display: block;
         width: 100%;
         height: 100%;
         max-width: 100%;
         max-height: 100%;
+    }
+}
+
+.profile-lens-context {
+    position: absolute;
+    inset: 0;
+    overflow: hidden;
+    z-index: 0;
+    max-width: 100%;
+    max-height: 100%;
+
+    &:focus-visible {
+        outline: 2px solid @text-color;
+        outline-offset: -2px;
+    }
+}
+
+.profile-lens-context-canvas,
+.profile-lens-context-svg {
+    position: absolute;
+    inset: 0;
+    display: block;
+    max-width: 100%;
+    max-height: 100%;
+}
+
+.profile-lens-context-canvas {
+    z-index: 0;
+}
+
+.profile-lens-context-svg {
+    z-index: 1;
+    pointer-events: none;
+}
+
+.profile-lens-profile-svg {
+    position: relative;
+    z-index: 2;
+    pointer-events: none;
+
+    .profile-lens-target {
+        pointer-events: auto;
     }
 }
 
@@ -204,6 +247,7 @@
 }
 
 .profile-lens-table-sr,
+.profile-lens-context-semantic,
 .profile-lens-status-sr {
     position: absolute;
     width: 1px;

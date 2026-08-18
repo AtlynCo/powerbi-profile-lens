@@ -228,7 +228,7 @@ describe("matrix parsing", () => {
 });
 
 describe("future map roles", () => {
-    it("validates entity level context values and coordinates without rendering geography", () => {
+    it("validates entity level context values and coordinates for providers", () => {
         const model = parseMatrix(buildMatrixDataView({
             entities: ["Entity A", "Entity B"],
             bands,
@@ -246,9 +246,8 @@ describe("future map roles", () => {
             { entityIndex: 0, latitude: 40, longitude: -70, origin: "entityNode" },
             { entityIndex: 1, latitude: 41, longitude: -71, origin: "entityNode" }
         ]);
-        const diagnostic = model.diagnostics.find((entry) => entry.code === "extensionRolesProfileOnly");
-        expect(diagnostic?.detail).toBe("ContextValue, Latitude, Longitude");
-        expect(diagnostic?.severity).toBe("warning");
+        expect(model.diagnostics.map((entry) => entry.code))
+            .not.toContain("extensionRolesProfileOnly");
     });
 
     it("rejects out of range coordinates and reports the count", () => {
@@ -281,13 +280,16 @@ describe("future map roles", () => {
             bands,
             profiles: ["Metric A"],
             extensionOnLeaves: true,
-            latitude: () => 40,
+            latitude: (_entityIndex, bandIndex) => bandIndex === 0 ? 40 : 41,
             longitude: () => -70
         }));
-        expect(conflicting.extension.rejected.conflictingCoordinates).toBe(0);
+        expect(conflicting.extension.coordinates).toEqual([]);
+        expect(conflicting.extension.rejected.conflictingCoordinates).toBeGreaterThan(0);
+        expect(conflicting.diagnostics.map((entry) => entry.code))
+            .toContain("conflictingCoordinates");
     });
 
-    it("measures and classifies geometry text without parsing it", () => {
+    it("measures and classifies geometry text before strict provider parsing", () => {
         const geoJson = '{"type":"Polygon","coordinates":[[[0,0],[1,0],[1,1],[0,0]]]}';
         const model = parseMatrix(buildMatrixDataView({
             entities: ["Entity A"],
@@ -303,7 +305,8 @@ describe("future map roles", () => {
             withinCharacterLimit: true,
             origin: "entityNode"
         }]);
-        expect(model.diagnostics.map((entry) => entry.code)).toContain("extensionRolesProfileOnly");
+        expect(model.diagnostics.map((entry) => entry.code))
+            .not.toContain("extensionRolesProfileOnly");
     });
 
     it("flags geometry beyond the documented character limit", () => {

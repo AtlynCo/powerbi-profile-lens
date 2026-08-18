@@ -23,8 +23,8 @@ export interface MatrixInput {
     readonly highlight?: (address: CellAddressInput) => PrimitiveValue | null | undefined;
     readonly tooltips?: readonly { name: string; value: PrimitiveValue }[];
     readonly contextValue?: (entityIndex: number) => PrimitiveValue | null | undefined;
-    readonly latitude?: (entityIndex: number) => PrimitiveValue | null | undefined;
-    readonly longitude?: (entityIndex: number) => PrimitiveValue | null | undefined;
+    readonly latitude?: (entityIndex: number, bandIndex: number) => PrimitiveValue | null | undefined;
+    readonly longitude?: (entityIndex: number, bandIndex: number) => PrimitiveValue | null | undefined;
     readonly geometry?: (entityIndex: number) => PrimitiveValue | null | undefined;
     /** Emits the extension role values on the band leaves instead of the entity node. */
     readonly extensionOnLeaves?: boolean;
@@ -126,7 +126,7 @@ export function buildMatrixDataView(input: MatrixInput): DataView {
                     } as powerbi.DataViewMatrixNodeValue;
                 }
                 if (input.extensionOnLeaves) {
-                    applyExtensionValues(values, seriesIndex * valueCount, entityIndex);
+                    applyExtensionValues(values, seriesIndex * valueCount, entityIndex, bandIndex);
                 }
             }
             return {
@@ -139,16 +139,20 @@ export function buildMatrixDataView(input: MatrixInput): DataView {
     const applyExtensionValues = (
         values: Record<number, powerbi.DataViewMatrixNodeValue>,
         offset: number,
-        entityIndex: number
+        entityIndex: number,
+        bandIndex = -1
     ): void => {
         const assign = (
             index: number | null,
-            provider: ((entityIndex: number) => PrimitiveValue | null | undefined) | undefined
+            provider: ((
+                entityIndex: number,
+                bandIndex: number
+            ) => PrimitiveValue | null | undefined) | undefined
         ): void => {
             if (index === null || !provider) {
                 return;
             }
-            const value = provider(entityIndex);
+            const value = provider(entityIndex, bandIndex);
             if (value === undefined || value === null) {
                 return;
             }

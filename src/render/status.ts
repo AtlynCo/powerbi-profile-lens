@@ -82,6 +82,10 @@ export function describe(diagnostic: Diagnostic, localization: Localization): st
         case "incompleteCoordinates":
         case "emptyGeometry":
         case "nonFiniteContextValue":
+        case "geometryParseRejected":
+        case "geometryRingLimit":
+        case "geometryVertexLimit":
+        case "contextScenePartial":
             values.push(diagnostic.rejected ?? 0);
             break;
         case "hierarchyDepthUnsupported":
@@ -91,7 +95,16 @@ export function describe(diagnostic: Diagnostic, localization: Localization): st
             values.push(diagnostic.received ?? 0, diagnostic.retained ?? 0);
             break;
     }
-    return localization.format(key, ...values);
+    const message = localization.format(key, ...values);
+    return diagnostic.detail && (
+        diagnostic.code === "geometryParseRejected"
+        || diagnostic.code === "geometryRingLimit"
+        || diagnostic.code === "geometryVertexLimit"
+        || diagnostic.code === "geometryUpdateBudgetExceeded"
+        || diagnostic.code === "geometryFeatureLimit"
+    )
+        ? `${message} ${diagnostic.detail}`
+        : message;
 }
 
 function clear(node: Element): void {

@@ -52,6 +52,7 @@ export interface MockHost {
         onSelectCallback: ((ids: ISelectionId[]) => void) | null;
     };
     readonly fetchMoreData: HostMock;
+    readonly applyJsonFilter: HostMock;
 }
 
 function createSelectionId(key: string): MockSelectionId {
@@ -90,6 +91,7 @@ export function createMockHost(options: MockHostOptions = {}): MockHost {
         onSelectCallback: null
     };
     const fetchMoreData = vi.fn(() => true) as unknown as HostMock;
+    const applyJsonFilter = vi.fn() as HostMock;
 
     let identityCounter = 0;
 
@@ -193,7 +195,7 @@ export function createMockHost(options: MockHostOptions = {}): MockHost {
         fetchMoreData,
         instanceId: "mock-instance",
         refreshHostData: () => undefined,
-        applyJsonFilter: () => undefined,
+        applyJsonFilter,
         storageService: undefined,
         launchUrl: () => undefined,
         openModalDialog: () => Promise.resolve({}),
@@ -212,7 +214,8 @@ export function createMockHost(options: MockHostOptions = {}): MockHost {
         events,
         tooltip,
         selection,
-        fetchMoreData
+        fetchMoreData,
+        applyJsonFilter
     };
 }
 

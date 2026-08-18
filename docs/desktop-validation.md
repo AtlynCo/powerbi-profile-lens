@@ -1,73 +1,79 @@
-# Power BI Desktop validation checklist
+# Power BI Desktop host-spike checklist
 
-The automated checks in this repository cannot replace the native host. This checklist is the manual
-gate that must pass against the exact release candidate before any submission.
+Automated checks do not replace the native host. Run this checklist against the exact release
+candidate; record the package name and SHA-256 from `dist/release-manifest.json`.
 
-Record the package name and SHA-256 from `dist/release-manifest.json` before starting, and repeat the
-checklist if the package is rebuilt.
+## Install and bindings
 
-## 1. Install and field wells
+1. Import the packaged visual into the target Desktop version.
+2. Add and remove fields progressively: entity; entity/band; entity/period/band; one to six profiles;
+   series; context value; latitude/longitude; geometry; tooltips.
+3. Confirm invalid and incomplete bindings show guidance rather than a host error.
+4. Verify band *Sort by column*, one/two series values, and the over-limit diagnostic.
 
-1. Import `dist/atlynProfileLens.<version>.pbiviz` into Power BI Desktop.
-2. Drop fields one at a time and confirm each drop is accepted:
-   - entity only, then entity + band, then entity + period + band;
-   - profile measures added first, before any hierarchy field;
-   - series added before and after the profile measures;
-   - tooltip fields added at any stage.
-3. Confirm the landing page advances through its steps and never blocks a valid drop.
-4. Remove fields one at a time and confirm the visual degrades to guidance instead of an error.
+## Context providers and preprocessing
 
-## 2. Rendering and layout
+1. Exercise `none`, `grid`, and `hex` with nongeographic product/team/facility/seat-like entities.
+2. Bind complete WGS84 point pairs, then blanks, half-pairs, non-finite values, and coordinates outside
+   latitude `[-90,90]` or longitude `[-180,180]`.
+3. Bind strict GeoJSON Geometry and Feature plus strict WKT Point, MultiPoint, Polygon, MultiPolygon.
+4. Confirm malformed input, unknown CRS, `GeometryCollection`, unsupported types, invalid rings, and
+   out-of-range coordinates are rejected, not repaired or projected.
+5. Exercise exact safety bounds: 32,000 UTF-16 characters/value, 2,000,000 characters/update, depth 12,
+   256 rings/feature, 4,096 vertices/feature, 100,000 vertices/scene, 16,384 WKT tokens, and 1,000
+   entities/features. Confirm visible diagnostics at each exceeded bound.
+6. Use browser/proxy monitoring to confirm no upload, file access, network request, tile lookup, or
+   geocoding.
 
-1. One, two, three, four, five and six profile measures.
-2. `Entity > Band` and `Entity > Period > Band`.
-3. Zero, one and two series values, then three or more values to confirm the diagnostic.
-4. Resize the tile down to the smallest usable size and confirm nothing escapes the container.
-5. Focus mode and Reading Mode.
+## Layout and rendering
 
-## 3. Interaction
+1. Test `split`, `focusLens`, `locatorInset`, and `profileOnly` in large, narrow, short, and minimum
+   usable tiles, Focus mode, and Reading mode.
+2. Verify SVG at 500 features and 20,000 vertices, then Canvas when either threshold is exceeded.
+3. Compare SVG and Canvas labels, selection, focus, tooltip, context menu, and accessible descriptions.
+4. Test one through six profile measures, both radial and stacked arrangements.
 
-1. Click a band segment: confirm cross-highlighting in other visuals.
-2. Ctrl-click for multi-select, and click empty space to clear.
-3. Right-click a segment and right-click empty space: both context menus must appear exactly once.
-4. Hover a segment: confirm the native tooltip content and that it follows the pointer.
-5. Bind tooltip fields and confirm they appear.
-6. Apply a slicer and a cross-filter from another visual and confirm the profile updates.
-7. Create a bookmark with a selection, navigate away, and restore it.
-8. Disable report interactions for the visual and confirm no selection, tooltip or context menu.
+## Loading and native capability spike
 
-## 4. Data behaviour
+1. Exercise `auto`, `eager`, `segmented`, and `external` in Import, DirectQuery, and Direct Lake where
+   available.
+2. For segmented data, record host segment markers, request count, aggregation behavior, completion,
+   and the four-request bound.
+3. Confirm `matrixExpand` is unavailable and that no expand/collapse or drilldown affordance appears.
+4. Separately capture real native host evidence before proposing capabilities `expandCollapse` or
+   `drilldown`: API/Desktop version, DataView before/after, host calls, identities, filter state,
+   keyboard/accessibility behavior, and Import/DirectQuery results. Do not enable either capability
+   from mocks or documentation alone.
 
-1. Blank values, non-numeric values and duplicated band rows produce the documented diagnostics.
-2. Each normalization mode matches a hand-computed value from the semantic model.
-3. `Sort by column` on the band field controls the band order.
-4. A large model (many entities, periods and bands) surfaces bounded counts rather than freezing.
-5. Import, DirectQuery and, where available, Direct Lake.
+## Interaction and filters
 
-## 5. Future map roles
+1. Click a profile mark and context feature; verify bucket-level and entity-level identities,
+   respectively, cross-filter other visuals.
+2. Ctrl/Meta/Shift-click for multi-select and click empty space to clear.
+3. Right-click a feature/mark and empty space; each native context menu appears once.
+4. Verify native tooltip pointer tracking and bound tooltip fields.
+5. Apply slicers, cross-filters, highlights, RLS, and a bookmark; verify host state remains
+   authoritative after resize and refresh.
+6. Exercise local-only, report-selection, and explicit report-filter modes. Confirm the filter mode
+   restores from `jsonFilters` and does not remove unrelated filters.
+7. Disable report interactions and confirm no selection, filter, tooltip, focus mutation, or
+   context-menu host call.
 
-1. Bind `Context value`, `Latitude`, `Longitude` and `Custom geometry text`.
-2. Confirm the profile-only limitation diagnostic appears and no geography is drawn.
-3. Confirm invalid coordinates and oversized geometry produce their diagnostics.
+## Accessibility and semantic parity
 
-## 6. Accessibility
+1. Tab into each surface; use arrows, Home/End, Enter/Space, and Escape.
+2. Verify focus restoration by stable entity key after resize, provider/layout change, and refresh.
+3. With a screen reader, compare SVG and Canvas status, feature label/value/selection state, and the
+   profile table.
+4. Verify Windows high contrast, color-independent selected/focused states, RTL, reduced motion, and
+   the smallest responsive layout.
 
-1. Tab into the visual, move with the arrow keys, select with Enter and Space, leave with Escape.
-2. Confirm focus returns to the same target after a resize or data refresh.
-3. Screen reader: confirm the status message and the profile table are announced.
-4. Windows high contrast themes: confirm foreground, background and selected colours are used.
-5. A right-to-left report locale.
+## Persistence and service boundary
 
-## 7. Export and persistence
+1. Open the generated PBIP sample and verify all five pages offline.
+2. Save manually, close, and reopen; this repository produces and claims no PBIX.
+3. Test PDF/PowerPoint export, service publication, dashboard pinning, and bookmarks separately.
+4. Record Desktop/service versions, modes tested, package SHA-256, pass/fail evidence, and deviations.
 
-1. Export to PDF and PowerPoint.
-2. Pin to a dashboard and confirm the tile renders.
-3. Publish to the service and repeat sections 2 and 3 there.
-4. Open the PBIP sample in Desktop, use *Save As* to create a `.pbix`, close and reopen it, and
-   confirm the visual renders with the same data.
-
-## 8. Record the result
-
-Record, for the exact package hash: the Desktop version, the service tenant, the checklist items
-that passed, and any deviation. A failure here invalidates the release candidate; rebuild and rerun
-the whole automated gate before repeating this checklist.
+Native results establish only the tested host/package combination. They do not constitute Microsoft
+certification, and this project makes no certification claim.

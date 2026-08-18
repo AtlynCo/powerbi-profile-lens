@@ -26,7 +26,7 @@ import { compareDiagnostics, messageKeyFor, severityOf } from "./model/diagnosti
 import { SegmentTracker, withSegmentState } from "./model/segments";
 import { computeProfileLayout } from "./layout/profileLayout";
 import { createSvgTextMeasurer } from "./layout/textFit";
-import { InteractionController, InteractionTarget } from "./interaction/controller";
+import { InteractionController, InteractionTarget, SurfaceInteraction } from "./interaction/controller";
 import { renderAccessibleTable } from "./render/accessibleTable";
 import {
     EntityOption,
@@ -39,6 +39,34 @@ import { renderLanding } from "./render/landing";
 import { RenderedTarget, renderProfiles, targetKey } from "./render/profilesSvg";
 import { renderStatus } from "./render/status";
 import { resolveTheme } from "./render/theme";
+import type {
+    ContextFeature,
+    ContextProviderInput,
+    ContextScene,
+    ContextSelectionIdentity
+} from "./context/contract";
+import { ContextProviderRegistry, ContextRendererRegistry } from "./context/registry";
+import {
+    BoundGeometryContextProvider,
+    NoneContextProvider,
+    OddRHexContextProvider,
+    RectangularGridContextProvider,
+    Wgs84PointContextProvider
+} from "./context/providers";
+import { fitScene } from "./context/projection";
+import { chooseContextRenderer } from "./context/rendererSelection";
+import { computeContextLayout } from "./layout/contextLayout";
+import {
+    ContextSurfaceElements,
+    RenderedContextSurface,
+    createContextSurface,
+    hideContextSurface,
+    renderContextSurface
+} from "./render/contextSurface";
+import { spatialNeighbor } from "./interaction/spatialNavigation";
+import { DetailStrategyRegistry } from "./detail/registry";
+import { createDefaultDetailStrategies } from "./detail/strategies";
+import { createDefaultContextRenderers } from "./context/renderers";
 
 import IVisual = powerbi.extensibility.visual.IVisual;
 import IVisualHost = powerbi.extensibility.visual.IVisualHost;
@@ -58,11 +86,15 @@ export class Visual implements IVisual {
     private readonly localization: Localization;
     private readonly controller: InteractionController;
     private readonly segments = new SegmentTracker();
+    private readonly contextProviders = new ContextProviderRegistry();
+    private readonly detailStrategies = new DetailStrategyRegistry();
+    private readonly contextRenderers = new ContextRendererRegistry();
 
     private readonly root: HTMLElement;
     private readonly headerElement: HTMLElement;
     private readonly chartElement: HTMLElement;
     private readonly svg: SVGSVGElement;
+    private readonly contextSurface: ContextSurfaceElements;
     private readonly legendElement: HTMLElement;
     private readonly entityElement: HTMLElement;
     private readonly periodElement: HTMLElement;
@@ -80,6 +112,8 @@ export class Visual implements IVisual {
     private externalSelection: readonly ISelectionId[] = [];
     private measure: ((text: string, fontSize: number) => number) | undefined;
     private lastViewport = { width: 0, height: 0 };
+    private renderedContext: RenderedContextSurface | null = null;
+    private entityFilterActive = false;
 
     public constructor(options?: VisualConstructorOptions) {
         if (!options) {
@@ -104,7 +138,10 @@ export class Visual implements IVisual {
         const body = appendChild(this.root, "div", "profile-lens-body");
         this.entityElement = appendChild(body, "nav", "profile-lens-entities");
         this.chartElement = appendChild(body, "div", "profile-lens-chart");
+        this.contextSurface = createContextSurface(this.chartElement);
+        this.contextSurface.root.setAttribute("aria-label", this.localization.get("Context_Label"));
         this.svg = document.createElementNS(SVG_NS, "svg");
+        this.svg.classList.add("profile-lens-profile-svg");
         this.chartElement.appendChild(this.svg);
         this.legendElement = appendChild(this.root, "div", "profile-lens-legend");
         this.periodElement = appendChild(this.root, "div", "profile-lens-period");
@@ -120,8 +157,19 @@ export class Visual implements IVisual {
                 this.externalSelection = this.selectionManager.getSelectionIds();
                 this.rerenderFromCache();
             },
-            onFocusChanged: () => undefined
+            onFocusChanged: (key) => this.handleFocusedTarget(key)
         });
+        this.contextProviders.register(new NoneContextProvider());
+        this.contextProviders.register(new Wgs84PointContextProvider());
+        this.contextProviders.register(new BoundGeometryContextProvider());
+        this.contextProviders.register(new RectangularGridContextProvider());
+        this.contextProviders.register(new OddRHexContextProvider());
+        for (const strategy of createDefaultDetailStrategies()) {
+            this.detailStrategies.register(strategy);
+        }
+        for (const renderer of createDefaultContextRenderers()) {
+            this.contextRenderers.register(renderer);
+        }
 
         this.selectionManager.registerOnSelectCallback((ids: ISelectionId[]) => {
             this.externalSelection = ids;
@@ -190,7 +238,16 @@ export class Visual implements IVisual {
             this.lastDataView = dataView;
             this.lastFingerprint = fingerprint;
 
-            if (moreDataAvailable && this.segments.canRequestMore()) {
+            const detailDecision = this.detailStrategies.resolve(this.settings.detailStrategy).evaluate({
+                model: this.model,
+                dataView,
+                operationKind: options.operationKind
+            });
+            if (
+                detailDecision.requestMore
+                && moreDataAvailable
+                && this.segments.canRequestMore()
+            ) {
                 this.host.fetchMoreData(true);
             }
         }
@@ -201,6 +258,7 @@ export class Visual implements IVisual {
             return;
         }
 
+        this.synchronizeFilterState(options.jsonFilters ?? [], model, allowInteractions);
         this.renderModel(model, options, allowInteractions);
     }
 
@@ -262,8 +320,9 @@ export class Visual implements IVisual {
         );
 
         const theme = resolveTheme(this.host.colorPalette, this.settings);
-        const layout = computeProfileLayout({
-            viewport,
+        const scene = this.buildContextScene(model);
+        const hasContext = scene.features.length > 0 && scene.mode !== "none";
+        const commonLayoutRequest = {
             profileCount: model.profiles.length,
             bandCount: model.bands.length,
             seriesCount: Math.max(model.series.length, 1),
@@ -271,13 +330,48 @@ export class Visual implements IVisual {
             armRotationDegrees: this.settings.armRotation,
             requestedBandGap: this.settings.bandGap,
             requestedThickness: this.settings.barThickness,
-            showEntityList: this.settings.showEntityList && model.entities.length > 1,
             showPeriodControl: this.settings.showPeriod && periodIndex !== IMPLICIT_INDEX,
             showLegend: this.settings.showLegend,
             showBandLabels: this.settings.showBandLabels,
             showValueLabels: this.settings.showValueLabels,
             showAxis: this.settings.showAxis,
             showHeader: this.settings.showHeader
+        };
+        const contextBounds = hasContext
+            ? computeProfileLayout({
+                viewport,
+                ...commonLayoutRequest,
+                showEntityList: false
+            }).chart
+            : { x: 0, y: 0, width: viewport.width, height: viewport.height };
+        const localComposite = computeContextLayout(
+            { width: contextBounds.width, height: contextBounds.height },
+            this.settings.contextLayout,
+            hasContext,
+            this.resolveDirection() === "rtl"
+        );
+        const composite = {
+            ...localComposite,
+            context: localComposite.context
+                ? {
+                    ...localComposite.context,
+                    x: localComposite.context.x + contextBounds.x,
+                    y: localComposite.context.y + contextBounds.y
+                }
+                : null,
+            profile: {
+                ...localComposite.profile,
+                x: localComposite.profile.x + contextBounds.x,
+                y: localComposite.profile.y + contextBounds.y
+            }
+        };
+        this.positionProfileSurface(composite.profile);
+        const layout = computeProfileLayout({
+            viewport: { width: composite.profile.width, height: composite.profile.height },
+            ...commonLayoutRequest,
+            showEntityList: !hasContext
+                && this.settings.showEntityList
+                && model.entities.length > 1
         });
 
         if (!this.measure) {
@@ -296,6 +390,7 @@ export class Visual implements IVisual {
         }
 
         const selectedKeys = this.resolveSelectedTargetKeys(model, entityIndex, periodIndex);
+        const selectedEntityKeys = this.resolveSelectedEntityKeys(scene);
         const hadFocus = this.root.contains(document.activeElement);
         const rendered = renderProfiles(this.svg, {
             model,
@@ -348,7 +443,28 @@ export class Visual implements IVisual {
             visible: this.settings.tableVisibility === "visible"
         });
 
-        this.controller.bind(this.buildTargets(rendered, model, frame, entityIndex, periodIndex));
+        const contextInteraction = composite.context
+            ? this.renderContext(
+                scene,
+                composite.context,
+                selectedEntityKeys,
+                allowInteractions,
+                composite.effectiveMode === "focusLens"
+                    ? {
+                        x: composite.profile.x + composite.profile.width / 2 - composite.context.x,
+                        y: composite.profile.y + composite.profile.height / 2 - composite.context.y
+                    }
+                    : undefined
+            )
+            : null;
+        if (!composite.context) {
+            hideContextSurface(this.contextSurface);
+            this.renderedContext = null;
+        }
+        this.controller.bind(
+            this.buildTargets(rendered, model, frame, entityIndex, periodIndex),
+            contextInteraction
+        );
         this.controller.restoreFocus(hadFocus);
 
         const summary = model.segments.partial
@@ -360,6 +476,7 @@ export class Visual implements IVisual {
                 model.entities[entityIndex]?.label ?? ""
             );
         const statusDiagnostics = [...model.diagnostics];
+        statusDiagnostics.push(...scene.diagnostics);
         if (frame.zeroDenominatorCount > 0) {
             statusDiagnostics.push({
                 code: "zeroDenominator",
@@ -368,6 +485,7 @@ export class Visual implements IVisual {
                 rejected: frame.zeroDenominatorCount
             });
         }
+
         if (frame.negativeValueCount > 0) {
             statusDiagnostics.push({
                 code: "negativeProfileValues",
@@ -400,6 +518,253 @@ export class Visual implements IVisual {
         } else {
             this.statusElement.classList.remove("profile-lens-status-sr");
         }
+    }
+
+    private buildContextScene(model: ProfileDataModel): ContextScene {
+        const entityIdentities = new Map<number, ContextSelectionIdentity>(
+            model.entities.map((entity) => [
+                entity.index,
+                { key: entity.key, hostIdentity: entity.identity }
+            ])
+        );
+        const input: ContextProviderInput = {
+            entities: model.entities,
+            entityIdentities,
+            contextValues: new Map(
+                model.extension.contextValues.map((value) => [value.entityIndex, value.value])
+            ),
+            coordinates: model.extension.coordinates,
+            geometryTexts: model.extension.geometry,
+            authorLimits: {
+                maxGeometryCharacters: this.settings.maxGeometryCharacters,
+                maxSceneVertices: this.settings.maxSceneVertices
+            }
+        };
+        const provider = this.contextProviders.resolve(this.settings.contextMode, input);
+        if (provider) {
+            return provider.provide(this.settings.contextMode, input);
+        }
+        return {
+            providerId: "unavailable",
+            mode: this.settings.contextMode,
+            features: [],
+            metrics: { featureCount: 0, ringCount: 0, vertexCount: 0 },
+            partial: true,
+            diagnostics: [{
+                code: "contextProviderUnavailable",
+                severity: "warning",
+                messageKey: messageKeyFor("contextProviderUnavailable")
+            }]
+        };
+    }
+
+    private renderContext(
+        scene: ContextScene,
+        rect: { readonly x: number; readonly y: number; readonly width: number; readonly height: number },
+        selectedKeys: ReadonlySet<string>,
+        allowInteractions: boolean,
+        connectorTarget?: { readonly x: number; readonly y: number }
+    ): SurfaceInteraction {
+        const root = this.contextSurface.root;
+        root.style.inset = "auto";
+        root.style.left = `${rect.x}px`;
+        root.style.top = `${rect.y}px`;
+        root.style.width = `${rect.width}px`;
+        root.style.height = `${rect.height}px`;
+        const viewport = { width: rect.width, height: rect.height };
+        const kind = this.contextRenderers.resolve(chooseContextRenderer(scene, {
+            maxSvgFeatures: this.settings.svgFeatureThreshold,
+            maxSvgVertices: this.settings.svgVertexThreshold
+        })).kind;
+        const contextTheme = resolveTheme(this.host.colorPalette, this.settings);
+        const transform = fitScene(scene, viewport);
+        this.renderedContext = renderContextSurface(
+            this.contextSurface,
+            {
+                scene,
+                viewport,
+                transform,
+                focusedKey: this.focusedEntityKey,
+                selectedKeys,
+                interactive: allowInteractions,
+                connectorTarget,
+                pointSize: this.settings.contextPointSize
+            },
+            kind,
+            {
+                fill: contextTheme.isHighContrast
+                    ? contextTheme.background
+                    : this.settings.contextFillColor,
+                stroke: contextTheme.isHighContrast
+                    ? contextTheme.foreground
+                    : this.settings.contextStrokeColor,
+                selected: contextTheme.isHighContrast
+                    ? contextTheme.foregroundSelected
+                    : this.settings.contextSelectedColor,
+                background: contextTheme.background,
+                pointSize: this.settings.contextPointSize
+            },
+            window.devicePixelRatio || 1
+        );
+        return {
+            element: root,
+            resolve: (x, y) => {
+                const hit = this.renderedContext?.hitTest(x, y);
+                const feature = hit
+                    ? scene.features.find((entry) => entry.index === hit.featureIndex)
+                    : null;
+                return feature ? this.contextTarget(feature) : null;
+            },
+            navigate: (currentKey, direction) => {
+                const feature = spatialNeighbor(
+                    scene.features,
+                    currentKey,
+                    direction,
+                    transform,
+                    this.resolveDirection() === "rtl"
+                );
+                return feature ? this.contextTarget(feature) : null;
+            },
+            targetForKey: (key) => {
+                const entityKey = key?.startsWith("context:")
+                    ? key.slice("context:".length)
+                    : this.focusedEntityKey;
+                const feature = scene.features.find((entry) => entry.key === entityKey)
+                    ?? scene.features[0];
+                return feature ? this.contextTarget(feature) : null;
+            },
+            hasKey: (key) => key.startsWith("context:")
+                && scene.features.some((feature) => `context:${feature.key}` === key)
+        };
+    }
+
+    private contextTarget(feature: ContextFeature): InteractionTarget {
+        const identity = this.settings.interactionMode === "reportSelection"
+            ? feature.selection.hostIdentity as ISelectionId | null
+            : null;
+        return {
+            key: `context:${feature.key}`,
+            element: this.contextSurface.root,
+            identity,
+            tooltip: () => [
+                { displayName: this.localization.get("Tooltip_Entity"), value: feature.label },
+                ...feature.tooltipValues
+            ]
+        };
+    }
+
+    private resolveSelectedEntityKeys(scene: ContextScene): ReadonlySet<string> {
+        const keys = new Set<string>();
+        for (const feature of scene.features) {
+            const identity = feature.selection.hostIdentity as ISelectionId | null;
+            if (identity && this.externalSelection.some((selection) => {
+                const comparable = selection as unknown as powerbi.visuals.ISelectionId;
+                return typeof comparable.equals === "function"
+                    ? comparable.equals(identity as unknown as powerbi.visuals.ISelectionId)
+                    : selection === identity;
+            })) {
+                keys.add(feature.key);
+            }
+        }
+        return keys;
+    }
+
+    private positionProfileSurface(
+        rect: { readonly x: number; readonly y: number; readonly width: number; readonly height: number }
+    ): void {
+        this.svg.style.position = "absolute";
+        this.svg.style.left = `${rect.x}px`;
+        this.svg.style.top = `${rect.y}px`;
+        this.svg.style.width = `${rect.width}px`;
+        this.svg.style.height = `${rect.height}px`;
+    }
+
+    private handleFocusedTarget(key: string | null): void {
+        if (!key?.startsWith("context:") || !this.model) {
+            return;
+        }
+        const entityKey = key.slice("context:".length);
+        const entity = this.model.entities.find((entry) => entry.key === entityKey);
+        if (!entity) {
+            return;
+        }
+        this.focusedEntityKey = entity.key;
+        this.selectedPeriodKey = null;
+        if (this.settings.interactionMode === "reportFilter") {
+            this.applyEntityFilter(entity);
+        }
+        this.rerenderFromCache();
+    }
+
+    private applyEntityFilter(entity: ProfileDataModel["entities"][number]): void {
+        const target = this.entityFilterTarget();
+        if (!target || entity.value === null || entity.value instanceof Date) {
+            return;
+        }
+        const filter = {
+            target,
+            operator: "In",
+            values: [entity.value],
+            filterType: 1
+        } as unknown as powerbi.IFilter;
+        this.host.applyJsonFilter(filter, "general", "filter", 0);
+        this.entityFilterActive = true;
+    }
+
+    private synchronizeFilterState(
+        filters: readonly powerbi.IFilter[],
+        model: ProfileDataModel,
+        allowInteractions: boolean
+    ): void {
+        if (this.settings.interactionMode !== "reportFilter") {
+            if (this.entityFilterActive && allowInteractions) {
+                this.host.applyJsonFilter(
+                    null as unknown as powerbi.IFilter,
+                    "general",
+                    "filter",
+                    1
+                );
+                this.entityFilterActive = false;
+            }
+            return;
+        }
+        const target = this.entityFilterTarget();
+        const filter = filters.find((candidate) => {
+            const actual = candidate as unknown as {
+                target?: { table?: string; column?: string };
+            };
+            return target
+                && actual.target?.table === target.table
+                && actual.target?.column === target.column;
+        });
+        const values = (filter as unknown as { values?: readonly unknown[] } | undefined)?.values;
+        if (!values || values.length !== 1) {
+            if (this.entityFilterActive) {
+                this.focusedEntityKey = model.entities[0]?.key ?? null;
+                this.controller.setFocusKey(
+                    this.focusedEntityKey ? `context:${this.focusedEntityKey}` : null
+                );
+            }
+            this.entityFilterActive = false;
+            return;
+        }
+        this.entityFilterActive = true;
+        const match = model.entities.find((entity) => entity.value === values[0]);
+        if (match) {
+            this.focusedEntityKey = match.key;
+            this.controller.setFocusKey(`context:${match.key}`);
+        }
+    }
+
+    private entityFilterTarget(): { readonly table: string; readonly column: string } | null {
+        const queryName = this.lastDataView?.matrix?.rows?.levels?.[0]?.sources?.[0]?.queryName;
+        const separator = queryName?.lastIndexOf(".") ?? -1;
+        return queryName && separator > 0
+            ? {
+                table: queryName.slice(0, separator),
+                column: queryName.slice(separator + 1)
+            }
+            : null;
     }
 
     private buildTargets(

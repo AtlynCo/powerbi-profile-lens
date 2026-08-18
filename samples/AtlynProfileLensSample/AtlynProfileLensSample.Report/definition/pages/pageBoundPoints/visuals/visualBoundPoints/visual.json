@@ -1,0 +1,202 @@
+{
+  "$schema": "https://developer.microsoft.com/json-schemas/fabric/item/report/definition/visualContainer/2.7.0/schema.json",
+  "name": "visualBoundPoints",
+  "position": {
+    "x": 40,
+    "y": 40,
+    "z": 0,
+    "height": 800,
+    "width": 1520,
+    "tabOrder": 0
+  },
+  "visual": {
+    "visualType": "atlynProfileLens",
+    "query": {
+      "queryState": {
+        "Hierarchy": {
+          "projections": [
+            {
+              "field": {
+                "Column": {
+                  "Expression": {
+                    "SourceRef": {
+                      "Entity": "ProfileFacts"
+                    }
+                  },
+                  "Property": "Entity"
+                }
+              },
+              "queryRef": "ProfileFacts.Entity",
+              "nativeQueryRef": "Entity"
+            },
+            {
+              "field": {
+                "Column": {
+                  "Expression": {
+                    "SourceRef": {
+                      "Entity": "ProfileFacts"
+                    }
+                  },
+                  "Property": "Band"
+                }
+              },
+              "queryRef": "ProfileFacts.Band",
+              "nativeQueryRef": "Band"
+            }
+          ]
+        },
+        "Profiles": {
+          "projections": [
+            {
+              "field": {
+                "Aggregation": {
+                  "Expression": {
+                    "Column": {
+                      "Expression": {
+                        "SourceRef": {
+                          "Entity": "ProfileFacts"
+                        }
+                      },
+                      "Property": "Metric A"
+                    }
+                  },
+                  "Function": 0
+                }
+              },
+              "queryRef": "Sum(ProfileFacts.Metric A)",
+              "nativeQueryRef": "Sum of Metric A"
+            },
+            {
+              "field": {
+                "Aggregation": {
+                  "Expression": {
+                    "Column": {
+                      "Expression": {
+                        "SourceRef": {
+                          "Entity": "ProfileFacts"
+                        }
+                      },
+                      "Property": "Metric B"
+                    }
+                  },
+                  "Function": 0
+                }
+              },
+              "queryRef": "Sum(ProfileFacts.Metric B)",
+              "nativeQueryRef": "Sum of Metric B"
+            }
+          ]
+        },
+        "ContextValue": {
+          "projections": [
+            {
+              "field": {
+                "Measure": {
+                  "Expression": {
+                    "SourceRef": {
+                      "Entity": "ProfileFacts"
+                    }
+                  },
+                  "Property": "Context value"
+                }
+              },
+              "queryRef": "ProfileFacts.Context value",
+              "nativeQueryRef": "Context value"
+            }
+          ]
+        },
+        "Latitude": {
+          "projections": [
+            {
+              "field": {
+                "Measure": {
+                  "Expression": {
+                    "SourceRef": {
+                      "Entity": "ProfileFacts"
+                    }
+                  },
+                  "Property": "Selected latitude"
+                }
+              },
+              "queryRef": "ProfileFacts.Selected latitude",
+              "nativeQueryRef": "Selected latitude"
+            }
+          ]
+        },
+        "Longitude": {
+          "projections": [
+            {
+              "field": {
+                "Measure": {
+                  "Expression": {
+                    "SourceRef": {
+                      "Entity": "ProfileFacts"
+                    }
+                  },
+                  "Property": "Selected longitude"
+                }
+              },
+              "queryRef": "ProfileFacts.Selected longitude",
+              "nativeQueryRef": "Selected longitude"
+            }
+          ]
+        }
+      }
+    },
+    "objects": {
+      "data": [
+        {
+          "properties": {
+            "normalization": {
+              "expr": {
+                "Literal": {
+                  "Value": "'shareOfProfile'"
+                }
+              }
+            }
+          }
+        }
+      ],
+      "layout": [
+        {
+          "properties": {
+            "contextLayout": {
+              "expr": {
+                "Literal": {
+                  "Value": "'locatorInset'"
+                }
+              }
+            }
+          }
+        }
+      ],
+      "context": [
+        {
+          "properties": {
+            "mode": {
+              "expr": {
+                "Literal": {
+                  "Value": "'points'"
+                }
+              }
+            }
+          }
+        }
+      ],
+      "diagnostics": [
+        {
+          "properties": {
+            "showDiagnostics": {
+              "expr": {
+                "Literal": {
+                  "Value": "true"
+                }
+              }
+            }
+          }
+        }
+      ]
+    },
+    "drillFilterOtherVisuals": true
+  }
+}

@@ -137,10 +137,14 @@ describe("capabilities contract", () => {
     it("exposes a formatting card for every object", () => {
         expect(Object.keys(capabilities.objects).sort()).toEqual([
             "accessibility",
+            "context",
             "data",
             "diagnostics",
+            "general",
             "header",
+            "interaction",
             "layout",
+            "loading",
             "period",
             "profiles",
             "series"

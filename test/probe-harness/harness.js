@@ -114,7 +114,17 @@
 
         return {
             metadata: {
-                columns: rowLevels.map(function (level) { return level.sources[0]; }).concat(valueSources)
+                columns: rowLevels.map(function (level) { return level.sources[0]; }).concat(valueSources),
+                objects: {
+                    context: {
+                        mode: config.contextMode || "none",
+                        svgFeatureThreshold: config.svgFeatureThreshold || 500,
+                        svgVertexThreshold: config.svgVertexThreshold || 20000
+                    },
+                    layout: {
+                        contextLayout: config.contextLayout || "split"
+                    }
+                }
             },
             matrix: {
                 rows: { levels: rowLevels, root: { children: entityNodes } },
@@ -137,7 +147,16 @@
 
     function buildHost(options) {
         var highContrast = Boolean(options.highContrast);
-        var calls = { tooltipShow: 0, tooltipHide: 0, contextMenu: 0, select: 0 };
+        var calls = {
+            tooltipShow: 0,
+            tooltipHide: 0,
+            contextMenu: 0,
+            select: 0,
+            filter: 0,
+            lastSelectedKey: null,
+            lastTooltipKey: null,
+            lastContextKey: null
+        };
         var selected = [];
         var counter = 0;
         var palette = {
@@ -185,10 +204,12 @@
                     select: function (id) {
                         calls.select++;
                         selected = Array.isArray(id) ? id : [id];
+                        calls.lastSelectedKey = selected[0] && selected[0].key;
                         return Promise.resolve(selected);
                     },
-                    showContextMenu: function () {
+                    showContextMenu: function (id) {
                         calls.contextMenu++;
+                        calls.lastContextKey = id && id.key;
                         return Promise.resolve({});
                     },
                     hasSelection: function () { return selected.length > 0; },
@@ -217,7 +238,10 @@
             },
             tooltipService: {
                 enabled: function () { return true; },
-                show: function () { calls.tooltipShow++; },
+                show: function (options) {
+                    calls.tooltipShow++;
+                    calls.lastTooltipKey = options.identities[0] && options.identities[0].key;
+                },
                 move: function () { },
                 hide: function () { calls.tooltipHide++; }
             },
@@ -226,7 +250,7 @@
             fetchMoreData: function () { return false; },
             instanceId: "probe",
             refreshHostData: function () { },
-            applyJsonFilter: function () { },
+            applyJsonFilter: function () { calls.filter++; },
             launchUrl: function () { },
             displayWarningIcon: function () { },
             telemetry: { trace: function () { } },
