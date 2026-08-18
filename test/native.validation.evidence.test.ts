@@ -75,6 +75,18 @@ const { manifest: snapshotManifest, verifySnapshot } = require("../scripts/nativ
     manifest(directory: string): { sha256: string };
     verifySnapshot(root: string, token: string, expected: string): { manifest: { sha256: string } };
 };
+const {
+    createPbixSnapshot,
+    verifyPbixSnapshot
+} = require("../scripts/native-pbix-snapshot.cjs") as {
+    createPbixSnapshot(root: string, source: string): {
+        token: string;
+        logicalPath: string;
+        original: { sha256: string };
+        snapshot: { sha256: string };
+    };
+    verifyPbixSnapshot(root: string, token: string): { snapshot: { sha256: string } };
+};
 const JSZip = require("jszip") as {
     loadAsync(bytes: Buffer): Promise<{ files: Record<string, { async(kind: string): Promise<Buffer> }> }>;
     new(): {
@@ -343,15 +355,21 @@ describe("native validation evidence safety", () => {
 
     it("uses OS file sharing to block snapshot writes", () => {
         const temp = fs.mkdtempSync(path.join(os.tmpdir(), "profile-lens-lock-"));
-        const file = path.join(temp, "locked.pbip");
+        const snapshot = path.join(temp, "dist", "release", "native-snapshot", "a".repeat(64));
+        const recovery = path.join(temp, "dist", "release", "native-recovery");
+        fs.mkdirSync(snapshot, { recursive: true });
+        const file = path.join(snapshot, "locked.pbip");
         fs.writeFileSync(file, "locked");
         const escaped = temp.replaceAll("'", "''");
+        const snapshotEscaped = snapshot.replaceAll("'", "''");
+        const recoveryEscaped = recovery.replaceAll("'", "''");
         const command = ". 'scripts\\native-validation\\snapshot-guard.ps1'; "
-            + `$guard = Open-SnapshotReadLocks -SnapshotRoot '${escaped}'; `
+            + `$guard = Open-SnapshotReadLocks -RepoRoot '${escaped}' `
+            + `-SnapshotRoot '${snapshotEscaped}' -RecoveryRoot '${recoveryEscaped}' -RunId 'test'; `
             + "try { "
-            + `try { [IO.File]::Open('${escaped}\\locked.pbip','Open','Write','None').Dispose(); 'writable' } `
+            + `try { [IO.File]::Open('${snapshotEscaped}\\locked.pbip','Open','Write','None').Dispose(); 'writable' } `
             + "catch { 'write-blocked' }; "
-            + `try { [IO.File]::WriteAllText('${escaped}\\added.txt','x'); 'addition-allowed' } `
+            + `try { [IO.File]::WriteAllText('${snapshotEscaped}\\added.txt','x'); 'addition-allowed' } `
             + "catch { 'addition-blocked' } "
             + "} finally { Close-SnapshotReadLocks -Guard $guard }";
         try {
@@ -360,6 +378,97 @@ describe("native validation evidence safety", () => {
             }).toString();
             expect(output).toContain("write-blocked");
             expect(output).toContain("addition-blocked");
+        } finally {
+            fs.rmSync(temp, { recursive: true, force: true });
+        }
+    });
+
+    it("recovers ACL journals after crash and partial restoration", () => {
+        const temp = fs.mkdtempSync(path.join(os.tmpdir(), "profile-lens-recovery-"));
+        const snapshot = path.join(temp, "dist", "release", "native-snapshot", "b".repeat(64));
+        const recovery = path.join(temp, "dist", "release", "native-recovery");
+        fs.mkdirSync(path.join(snapshot, "child"), { recursive: true });
+        fs.writeFileSync(path.join(snapshot, "child", "file.pbip"), "fixture");
+        const command = ". 'scripts\\native-validation\\snapshot-guard.ps1'; "
+            + `$guard = Open-SnapshotReadLocks -RepoRoot '${temp.replaceAll("'", "''")}' `
+            + `-SnapshotRoot '${snapshot.replaceAll("'", "''")}' `
+            + `-RecoveryRoot '${recovery.replaceAll("'", "''")}' -RunId 'crash'; `
+            + "foreach($s in $guard.streams){$s.Dispose()}; "
+            + "$script:first=$true; $partial={param($p,$a) if($script:first){$script:first=$false;throw 'injected'}else{Set-Acl -Path $p -AclObject $a}}; "
+            + "try { Recover-StaleSnapshotAclJournals -RepoRoot $guard.repoRoot "
+            + `-RecoveryRoot '${recovery.replaceAll("'", "''")}' -AclWriter $partial; 'unexpected' } `
+            + "catch { 'partial-preserved' }; "
+            + `if((Get-ChildItem '${recovery.replaceAll("'", "''")}' -Filter '*.json').Count -eq 0){throw 'journal lost'}; `
+            + "Recover-StaleSnapshotAclJournals -RepoRoot $guard.repoRoot "
+            + `-RecoveryRoot '${recovery.replaceAll("'", "''")}' | Out-Null; `
+            + "Recover-StaleSnapshotAclJournals -RepoRoot $guard.repoRoot "
+            + `-RecoveryRoot '${recovery.replaceAll("'", "''")}' | Out-Null; 'recovered-idempotent'`;
+        try {
+            const output = execFileSync("pwsh", ["-NoProfile", "-Command", command], {
+                cwd: root
+            }).toString();
+            expect(output).toContain("partial-preserved");
+            expect(output).toContain("recovered-idempotent");
+            expect(fs.existsSync(recovery) ? fs.readdirSync(recovery) : []).toHaveLength(0);
+        } finally {
+            fs.rmSync(temp, { recursive: true, force: true });
+        }
+    });
+
+    it("cleans an injected owned process failure without masking the original error", () => {
+        const marker = path.join(
+            fs.mkdtempSync(path.join(os.tmpdir(), "profile-lens-process-")),
+            "child.txt"
+        );
+        const launchScript = path.join(path.dirname(marker), "launch.ps1");
+        fs.writeFileSync(
+            launchScript,
+            `$c=Start-Process pwsh -ArgumentList '-NoProfile','-Command','Start-Sleep 60' -PassThru\n`
+                + `Set-Content -Path '${marker.replaceAll("'", "''")}' -Value $c.Id\n`
+                + "Start-Sleep 60\n"
+        );
+        const command = ". 'scripts\\native-validation\\desktop-guard.ps1'; "
+            + `$job=Start-OwnedProcessJob -Executable (Get-Command pwsh).Source `
+            + `-Argument '${launchScript.replaceAll("'", "''")}' -WorkingDirectory '${path.dirname(marker).replaceAll("'", "''")}'; `
+            + `while(-not(Test-Path '${marker.replaceAll("'", "''")}')){Start-Sleep -Milliseconds 100}; `
+            + `$childId=[int](Get-Content '${marker.replaceAll("'", "''")}'); `
+            + "$primary=[Exception]::new('original-post-launch-failure'); "
+            + "$cleanup=Invoke-OwnedProcessCleanup -Job $job; "
+            + "$selected=Select-RunFailure -PrimaryFailure $primary -CleanupFailure ([Exception]::new('cleanup')); "
+            + "if($cleanup.remaining.Count -ne 0 -or (Get-Process -Id $childId -ErrorAction SilentlyContinue)){throw 'leak'}; $selected.Message";
+        try {
+            const output = execFileSync("pwsh", ["-NoProfile", "-Command", command], {
+                cwd: root
+            }).toString();
+            expect(output).toContain("original-post-launch-failure");
+        } finally {
+            fs.rmSync(path.dirname(marker), { recursive: true, force: true });
+        }
+    });
+
+    it("content-addresses and read-locks the PBIX reopen snapshot", () => {
+        const temp = fs.mkdtempSync(path.join(os.tmpdir(), "profile-lens-pbix-lock-"));
+        const source = path.join(temp, "release.pbix");
+        fs.writeFileSync(source, "stable pbix");
+        const snapshot = createPbixSnapshot(temp, source);
+        fs.writeFileSync(source, "replacement");
+        expect(verifyPbixSnapshot(temp, snapshot.token).snapshot.sha256)
+            .toBe(snapshot.snapshot.sha256);
+        const target = path.join(temp, snapshot.logicalPath);
+        const command = ". 'scripts\\native-validation\\snapshot-guard.ps1'; "
+            + `$lock=Open-PbixReadLock -Path '${target.replaceAll("'", "''")}'; `
+            + "try { "
+            + `try {[IO.File]::WriteAllText('${target.replaceAll("'", "''")}','attack');'replaced'}catch{'replace-blocked'}; `
+            + `try {[IO.File]::Delete('${target.replaceAll("'", "''")}');'deleted'}catch{'delete-blocked'} `
+            + "} finally {$lock.Dispose()}";
+        try {
+            const output = execFileSync("pwsh", ["-NoProfile", "-Command", command], {
+                cwd: root
+            }).toString();
+            expect(output).toContain("replace-blocked");
+            expect(output).toContain("delete-blocked");
+            expect(verifyPbixSnapshot(temp, snapshot.token).snapshot.sha256)
+                .toBe(snapshot.snapshot.sha256);
         } finally {
             fs.rmSync(temp, { recursive: true, force: true });
         }
@@ -423,6 +532,48 @@ describe("native validation evidence safety", () => {
             expect(resolved.presenceParity).toBe(true);
             expect(resolved.activeParity).toBe(true);
             expect(resolved.activePointer.status).toBe("resolved");
+
+            const splitBytes = fs.readFileSync(await writePbix("split.pbix", activeLayout));
+            const localSignature = splitBytes.indexOf(Buffer.from([0x50, 0x4b, 0x03, 0x04]));
+            const localNameLength = splitBytes.readUInt16LE(localSignature + 26);
+            expect(localNameLength).toBeGreaterThan(0);
+            splitBytes[localSignature + 30] = "X".charCodeAt(0);
+            const splitPath = path.join(temp, "split-view.pbix");
+            fs.writeFileSync(splitPath, splitBytes);
+            await expect(verifyPbixVisualParity({
+                packagePath,
+                pbixPath: splitPath,
+                guid
+            })).rejects.toThrow(/local and central records disagree/i);
+
+            const validBytes = fs.readFileSync(await writePbix("unmatched-source.pbix", activeLayout));
+            const prefix = Buffer.alloc(30);
+            prefix.writeUInt32LE(0x04034b50, 0);
+            prefix.writeUInt16LE(20, 4);
+            const unmatched = Buffer.concat([prefix, validBytes]);
+            let eocd = unmatched.length - 22;
+            while (eocd >= 0 && unmatched.readUInt32LE(eocd) !== 0x06054b50) eocd--;
+            const entryCount = unmatched.readUInt16LE(eocd + 10);
+            const originalCentralStart = unmatched.readUInt32LE(eocd + 16);
+            const centralStart = originalCentralStart + prefix.length;
+            unmatched.writeUInt32LE(centralStart, eocd + 16);
+            let central = centralStart;
+            for (let index = 0; index < entryCount; index++) {
+                unmatched.writeUInt32LE(
+                    unmatched.readUInt32LE(central + 42) + prefix.length,
+                    central + 42
+                );
+                central += 46 + unmatched.readUInt16LE(central + 28)
+                    + unmatched.readUInt16LE(central + 30)
+                    + unmatched.readUInt16LE(central + 32);
+            }
+            const unmatchedPath = path.join(temp, "unmatched-local.pbix");
+            fs.writeFileSync(unmatchedPath, unmatched);
+            await expect(verifyPbixVisualParity({
+                packagePath,
+                pbixPath: unmatchedPath,
+                guid
+            })).rejects.toThrow(/unmatched local record|data gap/i);
 
             const missing = await verifyPbixVisualParity({
                 packagePath,

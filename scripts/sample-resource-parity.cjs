@@ -7,7 +7,18 @@ function sha256(bytes) {
     return crypto.createHash("sha256").update(bytes).digest("hex");
 }
 
-function centralDirectoryNames(bytes) {
+function parseExtraFields(extra) {
+    for (let offset = 0; offset < extra.length;) {
+        if (offset + 4 > extra.length) throw new Error("ZIP extra field is truncated.");
+        const id = extra.readUInt16LE(offset);
+        const length = extra.readUInt16LE(offset + 2);
+        if (offset + 4 + length > extra.length) throw new Error("ZIP extra field exceeds bounds.");
+        if (id === 0x0001) throw new Error("ZIP64 entries are not supported.");
+        offset += 4 + length;
+    }
+}
+
+function parseCanonicalZipRecords(bytes) {
     let eocd = -1;
     const minimum = Math.max(0, bytes.length - 65_557);
     for (let offset = bytes.length - 22; offset >= minimum; offset--) {
@@ -36,7 +47,8 @@ function centralDirectoryNames(bytes) {
     if (start + size !== eocd || start > bytes.length) {
         throw new Error("ZIP central-directory bounds are invalid.");
     }
-    const names = [];
+    const records = [];
+    const localOffsets = new Set();
     let offset = start;
     for (let index = 0; index < entries; index++) {
         if (offset + 46 > start + size || bytes.readUInt32LE(offset) !== 0x02014b50) {
@@ -48,11 +60,82 @@ function centralDirectoryNames(bytes) {
         if (offset + 46 + nameLength + extraLength + commentLength > start + size) {
             throw new Error("ZIP central-directory entry exceeds its declared bounds.");
         }
-        names.push(bytes.subarray(offset + 46, offset + 46 + nameLength).toString("utf8"));
+        const flags = bytes.readUInt16LE(offset + 8);
+        const method = bytes.readUInt16LE(offset + 10);
+        const crc32 = bytes.readUInt32LE(offset + 16);
+        const compressedSize = bytes.readUInt32LE(offset + 20);
+        const uncompressedSize = bytes.readUInt32LE(offset + 24);
+        const localOffset = bytes.readUInt32LE(offset + 42);
+        const name = bytes.subarray(offset + 46, offset + 46 + nameLength).toString("utf8");
+        const extra = bytes.subarray(
+            offset + 46 + nameLength,
+            offset + 46 + nameLength + extraLength
+        );
+        assertCanonicalArchiveName(name);
+        parseExtraFields(extra);
+        if ((flags & 0x0001) !== 0) throw new Error("Encrypted ZIP entries are not supported.");
+        if ((flags & 0x0008) !== 0) throw new Error("ZIP data descriptors are not supported.");
+        if (![0, 8].includes(method)) throw new Error(`Unsupported ZIP compression method: ${method}`);
+        if (localOffsets.has(localOffset)) throw new Error("ZIP entries share a local-header offset.");
+        localOffsets.add(localOffset);
+        if (localOffset + 30 > start || bytes.readUInt32LE(localOffset) !== 0x04034b50) {
+            throw new Error("ZIP local header is missing or outside the data region.");
+        }
+        const localFlags = bytes.readUInt16LE(localOffset + 6);
+        const localMethod = bytes.readUInt16LE(localOffset + 8);
+        const localCrc32 = bytes.readUInt32LE(localOffset + 14);
+        const localCompressedSize = bytes.readUInt32LE(localOffset + 18);
+        const localUncompressedSize = bytes.readUInt32LE(localOffset + 22);
+        const localNameLength = bytes.readUInt16LE(localOffset + 26);
+        const localExtraLength = bytes.readUInt16LE(localOffset + 28);
+        const localNameStart = localOffset + 30;
+        const localNameEnd = localNameStart + localNameLength;
+        const localExtraEnd = localNameEnd + localExtraLength;
+        if (localExtraEnd > start) throw new Error("ZIP local header exceeds the data region.");
+        const localName = bytes.subarray(localNameStart, localNameEnd).toString("utf8");
+        const localExtra = bytes.subarray(localNameEnd, localExtraEnd);
+        assertCanonicalArchiveName(localName);
+        parseExtraFields(localExtra);
+        if (localName !== name || localFlags !== flags || localMethod !== method ||
+            localCrc32 !== crc32 || localCompressedSize !== compressedSize ||
+            localUncompressedSize !== uncompressedSize) {
+            throw new Error("ZIP local and central records disagree.");
+        }
+        const dataEnd = localExtraEnd + compressedSize;
+        if (dataEnd > start) throw new Error("ZIP entry data overlaps the central directory.");
+        records.push({
+            name,
+            localOffset,
+            dataStart: localExtraEnd,
+            dataEnd,
+            flags,
+            method,
+            crc32,
+            compressedSize,
+            uncompressedSize
+        });
         offset += 46 + nameLength + extraLength + commentLength;
     }
     if (offset !== start + size) throw new Error("ZIP central-directory size does not match entries.");
-    return names;
+    const ranges = records
+        .map((record) => [record.localOffset, record.dataEnd, record.name])
+        .sort((left, right) => left[0] - right[0]);
+    for (let index = 1; index < ranges.length; index++) {
+        if (ranges[index][0] < ranges[index - 1][1]) {
+            throw new Error(`ZIP local entry ranges overlap: ${ranges[index - 1][2]} and ${ranges[index][2]}`);
+        }
+    }
+    let localCursor = 0;
+    for (const record of [...records].sort((left, right) => left.localOffset - right.localOffset)) {
+        if (record.localOffset !== localCursor) {
+            throw new Error("ZIP contains an unmatched local record or data gap.");
+        }
+        localCursor = record.dataEnd;
+    }
+    if (localCursor !== start) {
+        throw new Error("ZIP local records do not exactly cover the data region.");
+    }
+    return records;
 }
 
 function assertCanonicalArchiveName(name) {
@@ -195,7 +278,8 @@ async function packagePayload(packagePath, guid) {
 async function verifyPbixVisualParity({ packagePath, pbixPath, guid }) {
     const { packageBytes, archivePath, payload } = await packagePayload(packagePath, guid);
     const pbixBytes = fs.readFileSync(pbixPath);
-    const rawNames = centralDirectoryNames(pbixBytes);
+    const records = parseCanonicalZipRecords(pbixBytes);
+    const rawNames = records.map((record) => record.name);
     const pbix = await JSZip.loadAsync(pbixBytes);
     const canonical = requireCanonicalPbixResource(rawNames, guid);
     const resource = pbix.files[canonical];
@@ -225,6 +309,7 @@ async function verifyPbixVisualParity({ packagePath, pbixPath, guid }) {
 
 module.exports = {
     requireCanonicalPbixResource,
+    parseCanonicalZipRecords,
     resolveActiveResourcePointer,
     verifyPbixVisualParity,
     verifySampleResourceParity

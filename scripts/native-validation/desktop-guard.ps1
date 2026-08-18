@@ -43,6 +43,127 @@ public static class NativeDesktopGuard {
 }
 '@ -ErrorAction SilentlyContinue
 
+Add-Type @'
+using System;
+using System.Diagnostics;
+using System.Text;
+using System.Runtime.InteropServices;
+public static class OwnedProcessJob {
+    const uint CREATE_SUSPENDED = 0x00000004;
+    const uint JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE = 0x00002000;
+    const int JobObjectExtendedLimitInformation = 9;
+    const int JobObjectBasicAccountingInformation = 1;
+    [StructLayout(LayoutKind.Sequential, CharSet=CharSet.Unicode)]
+    public struct STARTUPINFO {
+        public int cb; public string lpReserved; public string lpDesktop; public string lpTitle;
+        public int dwX, dwY, dwXSize, dwYSize, dwXCountChars, dwYCountChars, dwFillAttribute;
+        public int dwFlags; public short wShowWindow; public short cbReserved2; public IntPtr lpReserved2;
+        public IntPtr hStdInput, hStdOutput, hStdError;
+    }
+    [StructLayout(LayoutKind.Sequential)]
+    public struct PROCESS_INFORMATION {
+        public IntPtr hProcess, hThread; public int dwProcessId, dwThreadId;
+    }
+    [StructLayout(LayoutKind.Sequential)]
+    public struct IO_COUNTERS {
+        public ulong ReadOperationCount, WriteOperationCount, OtherOperationCount;
+        public ulong ReadTransferCount, WriteTransferCount, OtherTransferCount;
+    }
+    [StructLayout(LayoutKind.Sequential)]
+    public struct BASIC_LIMIT {
+        public long PerProcessUserTimeLimit, PerJobUserTimeLimit;
+        public uint LimitFlags;
+        public UIntPtr MinimumWorkingSetSize, MaximumWorkingSetSize;
+        public uint ActiveProcessLimit;
+        public UIntPtr Affinity;
+        public uint PriorityClass, SchedulingClass;
+    }
+    [StructLayout(LayoutKind.Sequential)]
+    public struct EXTENDED_LIMIT {
+        public BASIC_LIMIT BasicLimitInformation;
+        public IO_COUNTERS IoInfo;
+        public UIntPtr ProcessMemoryLimit, JobMemoryLimit, PeakProcessMemoryUsed, PeakJobMemoryUsed;
+    }
+    [StructLayout(LayoutKind.Sequential)]
+    public struct BASIC_ACCOUNTING {
+        public long TotalUserTime, TotalKernelTime, ThisPeriodTotalUserTime, ThisPeriodTotalKernelTime;
+        public uint TotalPageFaultCount, TotalProcesses, ActiveProcesses, TotalTerminatedProcesses;
+    }
+    public sealed class Launch {
+        public IntPtr Job;
+        public int ProcessId;
+    }
+    [DllImport("kernel32.dll", CharSet=CharSet.Unicode, SetLastError=true)]
+    static extern bool CreateProcess(string app, StringBuilder command, IntPtr pa, IntPtr ta,
+        bool inherit, uint flags, IntPtr env, string cwd, ref STARTUPINFO si, out PROCESS_INFORMATION pi);
+    [DllImport("kernel32.dll", CharSet=CharSet.Unicode, SetLastError=true)]
+    public static extern IntPtr CreateJobObject(IntPtr attributes, string name);
+    [DllImport("kernel32.dll", SetLastError=true)]
+    public static extern bool AssignProcessToJobObject(IntPtr job, IntPtr process);
+    [DllImport("kernel32.dll", SetLastError=true)]
+    public static extern bool TerminateJobObject(IntPtr job, uint exitCode);
+    [DllImport("kernel32.dll", SetLastError=true)]
+    static extern bool SetInformationJobObject(IntPtr job, int infoClass, IntPtr info, uint length);
+    [DllImport("kernel32.dll", SetLastError=true)]
+    static extern bool QueryInformationJobObject(IntPtr job, int infoClass, IntPtr info,
+        uint length, out uint returned);
+    [DllImport("kernel32.dll", SetLastError=true)]
+    public static extern bool IsProcessInJob(IntPtr process, IntPtr job, out bool result);
+    [DllImport("kernel32.dll", SetLastError=true)]
+    static extern uint ResumeThread(IntPtr thread);
+    [DllImport("kernel32.dll", SetLastError=true)]
+    static extern bool TerminateProcess(IntPtr process, uint code);
+    [DllImport("kernel32.dll", SetLastError=true)]
+    public static extern bool CloseHandle(IntPtr handle);
+
+    public static Launch Start(string executable, string argument, string cwd) {
+        IntPtr job = CreateJobObject(IntPtr.Zero, null);
+        if (job == IntPtr.Zero) throw new InvalidOperationException("CreateJobObject failed");
+        var limits = new EXTENDED_LIMIT();
+        limits.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
+        int size = Marshal.SizeOf<EXTENDED_LIMIT>();
+        IntPtr limitPtr = Marshal.AllocHGlobal(size);
+        try {
+            Marshal.StructureToPtr(limits, limitPtr, false);
+            if (!SetInformationJobObject(job, JobObjectExtendedLimitInformation, limitPtr, (uint)size))
+                throw new InvalidOperationException("SetInformationJobObject failed");
+        } finally { Marshal.FreeHGlobal(limitPtr); }
+        var si = new STARTUPINFO { cb = Marshal.SizeOf<STARTUPINFO>() };
+        PROCESS_INFORMATION pi;
+        var command = new StringBuilder("\"" + executable + "\" \"" + argument + "\"");
+        if (!CreateProcess(executable, command, IntPtr.Zero, IntPtr.Zero, false,
+            CREATE_SUSPENDED, IntPtr.Zero, cwd, ref si, out pi)) {
+            CloseHandle(job); throw new InvalidOperationException("CreateProcess failed");
+        }
+        try {
+            if (!AssignProcessToJobObject(job, pi.hProcess)) {
+                TerminateProcess(pi.hProcess, 1);
+                throw new InvalidOperationException("AssignProcessToJobObject failed");
+            }
+            if (ResumeThread(pi.hThread) == 0xffffffff) {
+                TerminateJobObject(job, 1);
+                throw new InvalidOperationException("ResumeThread failed");
+            }
+            return new Launch { Job = job, ProcessId = pi.dwProcessId };
+        } catch {
+            CloseHandle(job); throw;
+        } finally {
+            CloseHandle(pi.hThread); CloseHandle(pi.hProcess);
+        }
+    }
+    public static uint ActiveProcesses(IntPtr job) {
+        int size = Marshal.SizeOf<BASIC_ACCOUNTING>();
+        IntPtr ptr = Marshal.AllocHGlobal(size);
+        try {
+            uint returned;
+            if (!QueryInformationJobObject(job, JobObjectBasicAccountingInformation, ptr,
+                (uint)size, out returned)) return uint.MaxValue;
+            return Marshal.PtrToStructure<BASIC_ACCOUNTING>(ptr).ActiveProcesses;
+        } finally { Marshal.FreeHGlobal(ptr); }
+    }
+}
+'@ -ErrorAction SilentlyContinue
+
 function Get-OwnedDesktop {
     param(
         [Parameter(Mandatory)][int]$ProcessId,
@@ -325,4 +446,84 @@ function Get-AllowlistedControlProbe {
         enabled = $Element.Current.IsEnabled
         offscreen = $Element.Current.IsOffscreen
     }
+}
+
+function Start-OwnedProcessJob {
+    param([string]$Executable, [string]$Argument, [string]$WorkingDirectory)
+    $launch = [OwnedProcessJob]::Start($Executable, $Argument, $WorkingDirectory)
+    $process = Get-Process -Id $launch.ProcessId -ErrorAction Stop
+    return [ordered]@{
+        handle = $launch.Job
+        rootProcessId = $process.Id
+        rootStartTimeUtcTicks = $process.StartTime.ToUniversalTime().Ticks
+        closed = $false
+    }
+}
+
+function Test-OwnedJobMembership {
+    param([System.Diagnostics.Process]$Process, $Job)
+    [bool]$belongs = $false
+    if (-not [OwnedProcessJob]::IsProcessInJob($Process.Handle, $Job.handle, [ref]$belongs)) {
+        throw "Could not verify owned job membership"
+    }
+    return $belongs
+}
+
+function Invoke-OwnedProcessCleanup {
+    param($Job)
+    $result = [ordered]@{
+        graceful = $false
+        forced = $false
+        remaining = @()
+        errors = @()
+    }
+    if ($Job.closed) {
+        $result.graceful = $true
+        return $result
+    }
+    try {
+        $root = Get-Process -Id $Job.rootProcessId -ErrorAction SilentlyContinue
+        if ($root -and
+            $root.StartTime.ToUniversalTime().Ticks -eq $Job.rootStartTimeUtcTicks -and
+            $root.CloseMainWindow()) {
+            $result.graceful = $root.WaitForExit(15000)
+        }
+    } catch {
+        $result.errors += "graceful close failed"
+    }
+    try {
+        if (-not [OwnedProcessJob]::TerminateJobObject($Job.handle, 1)) {
+            throw "job termination failed"
+        }
+        $result.forced = $true
+        $deadline = (Get-Date).AddSeconds(15)
+        while ((Get-Date) -lt $deadline -and
+            [OwnedProcessJob]::ActiveProcesses($Job.handle) -ne 0) {
+            Start-Sleep -Milliseconds 200
+        }
+        if ([OwnedProcessJob]::ActiveProcesses($Job.handle) -ne 0) {
+            throw "owned job still has active processes"
+        }
+    } catch {
+        $result.errors += "owned job cleanup failed"
+    } finally {
+        if ($result.errors.Count -eq 0) {
+            [OwnedProcessJob]::CloseHandle($Job.handle) | Out-Null
+            $Job.closed = $true
+        }
+    }
+    $root = Get-Process -Id $Job.rootProcessId -ErrorAction SilentlyContinue
+    if ($root -and $root.StartTime.ToUniversalTime().Ticks -eq $Job.rootStartTimeUtcTicks) {
+        $result.remaining += $Job.rootProcessId
+    }
+    if ($result.errors.Count -gt 0 -and $result.remaining.Count -eq 0) {
+        $result.remaining = @(-1)
+    }
+    return $result
+}
+
+function Select-RunFailure {
+        param($PrimaryFailure, $CleanupFailure)
+        if ($PrimaryFailure) { return $PrimaryFailure }
+        return $CleanupFailure
 }

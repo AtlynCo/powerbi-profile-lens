@@ -9,6 +9,7 @@ const { assertEvidenceSafe } = require("./native-evidence-sanitize.cjs");
 const { verifyPbixVisualParity } = require("./sample-resource-parity.cjs");
 const { deriveScenarioOutcomes } = require("./native-observations.cjs");
 const { verifySnapshot } = require("./native-snapshot.cjs");
+const { verifyPbixSnapshot } = require("./native-pbix-snapshot.cjs");
 
 const REQUIRED_SCENARIOS = [
     "fieldWells",
@@ -43,15 +44,27 @@ async function finalizeNativeEvidence(root) {
     if (run.outcome !== "native-run-completed") {
         throw new Error("The native runner did not complete.");
     }
+    if (run.cleanup?.allExited !== true || run.guardsRestored !== true) {
+        throw new Error("Owned-process cleanup or snapshot-guard restoration is incomplete.");
+    }
+    const recoveryJournal = run.snapshot?.lock?.recoveryJournal;
+    if (typeof recoveryJournal !== "string" ||
+        !recoveryJournal.startsWith("dist/release/native-recovery/") ||
+        fs.existsSync(path.join(root, recoveryJournal))) {
+        throw new Error("Snapshot ACL recovery journal is missing or still active.");
+    }
     const snapshot = verifySnapshot(
         root,
         run.snapshot?.token,
         run.snapshot?.manifest?.sha256
     );
-    if (run.snapshot?.lock?.mode !== "os-file-share-and-directory-deny-acl" ||
+    if (run.snapshot?.lock?.mode !== "os-file-share-and-journaled-directory-deny-acl" ||
         run.snapshot?.lock?.writesDeletesAndAdditionsDenied !== true ||
         run.snapshot?.lock?.lockedFiles !== snapshot.manifest.files ||
-        !(run.snapshot?.lock?.guardedDirectories > 0)) {
+        !(run.snapshot?.lock?.guardedDirectories > 0) ||
+        !/^[0-9a-f]{32}$/.test(run.snapshot?.lock?.runId ?? "") ||
+        run.snapshot?.lock?.recoveryJournal !==
+            `dist/release/native-recovery/${run.snapshot.token}-${run.snapshot.lock.runId}.json`) {
         throw new Error("Snapshot lock evidence is incomplete.");
     }
     const nativeScenarios = deriveScenarioOutcomes(run.observations, {
@@ -68,9 +81,15 @@ async function finalizeNativeEvidence(root) {
     if (run.automation?.sha256 !== automation.sha256) {
         throw new Error("Native automation differs from the completed run.");
     }
+    const pbixSnapshot = verifyPbixSnapshot(root, run.pbixSnapshot?.token);
+    if (pbixSnapshot.snapshot.sha256 !== run.pbixSnapshot?.snapshot?.sha256 ||
+        pbixSnapshot.snapshot.sha256 !== run.pbixSnapshot?.original?.sha256) {
+        throw new Error("PBIX snapshot does not match the stable release PBIX.");
+    }
+    const pbixSnapshotPath = path.join(root, pbixSnapshot.logicalPath);
     const pbixParity = await verifyPbixVisualParity({
         packagePath,
-        pbixPath,
+        pbixPath: pbixSnapshotPath,
         guid: visualManifest.visual.guid
     });
     if (pbixParity.activeParity !== true) {
@@ -119,6 +138,7 @@ async function finalizeNativeEvidence(root) {
             embeddedVisualParity: true,
             parity: pbixParity
         },
+        pbixSnapshot: run.pbixSnapshot,
         nativeScenarios,
         boundaries: run.boundaries ?? []
     };
