@@ -84,6 +84,33 @@ test.describe("packaged visual in a real browser", () => {
         await expect(page.locator(".profile-lens-table table")).toHaveCount(1);
     });
 
+    test("preserves rejected raw values in packaged nonvisual representations", async ({ page }) => {
+        await mount(page, {
+            entities: ["Entity A"],
+            periods: [],
+            bands: ["Negative", "Infinite", "Text"],
+            series: [],
+            profiles: ["Metric A"],
+            negativeFirstValue: true,
+            nonFiniteSecondValue: true,
+            nonNumericThirdValue: true
+        });
+
+        await expect(page.locator(".profile-lens-target").first())
+            .toHaveAttribute("aria-label", /negative value -1,234\.5 unsupported/);
+        await expect(page.locator(".profile-lens-table tbody tr").first().locator("td"))
+            .toHaveText("negative value unsupported, raw -1,234.5");
+        await expect(page.locator(".profile-lens-target").nth(1))
+            .toHaveAttribute("aria-label", /non-finite value \u221e unsupported/);
+        await expect(page.locator(".profile-lens-table tbody tr").nth(1).locator("td"))
+            .toHaveText("non-finite value \u221e unsupported");
+        await expect(page.locator(".profile-lens-target").nth(2))
+            .toHaveAttribute("aria-label", /non-numeric value unsupported/);
+        await expect(page.locator(".profile-lens-table tbody tr").nth(2).locator("td"))
+            .toHaveText("non-numeric value unsupported");
+        await expect(page.locator('[data-code="negativeProfileValues"]')).toContainText("1");
+    });
+
     test("keeps every rendered element inside the visual root at each tile size", async ({ page }) => {
         await mount(page);
         for (const size of SIZES) {
@@ -166,6 +193,89 @@ test.describe("packaged visual in a real browser", () => {
         const afterEscape = await page.evaluate(() =>
             document.activeElement?.className ?? "");
         expect(String(afterEscape)).toContain("profile-lens");
+    });
+
+    test("removes disabled controls from keyboard navigation and exposes ARIA state", async ({ page }) => {
+        await mount(page, { allowInteractions: false });
+        const targets = page.locator(".profile-lens-target");
+        await expect(targets.first()).toHaveAttribute("role", "button");
+        await expect(targets.first()).toHaveAttribute("aria-disabled", "true");
+        await expect(targets.locator('[tabindex="0"]')).toHaveCount(0);
+        await expect(page.locator('.profile-lens-entity-option[tabindex="0"]')).toHaveCount(0);
+        await expect(page.locator(".profile-lens-period-slider")).toHaveAttribute("tabindex", "-1");
+
+        await targets.first().dispatchEvent("keydown", { key: "Enter" });
+        const calls = await page.evaluate(() => (window as unknown as {
+            profileLensHost: { calls: Record<string, number> };
+        }).profileLensHost.calls);
+        expect(calls.select).toBe(0);
+    });
+
+    test("redirects pointer focus away from disabled chart targets", async ({ page }) => {
+        await mount(page, { allowInteractions: false });
+        const targets = page.locator(".profile-lens-target");
+
+        await targets.nth(1).click({ force: true });
+
+        await expect(targets.locator('[tabindex="0"]')).toHaveCount(0);
+        const activeClass = await page.evaluate(() =>
+            document.activeElement?.getAttribute("class") ?? "");
+        expect(activeClass).toBe("profile-lens");
+        const calls = await page.evaluate(() => (window as unknown as {
+            profileLensHost: { calls: Record<string, number> };
+        }).profileLensHost.calls);
+        expect(calls.select).toBe(0);
+    });
+
+    test("redirects physical pointer focus away from disabled entity and period controls", async ({ page }) => {
+        await mount(page, {
+            allowInteractions: false,
+            entities: Array.from({ length: 100 }, (_unused, index) => `Entity ${index + 1}`)
+        });
+        const entity = page.locator('.profile-lens-entity-option[data-entity-index="1"]');
+        const entityContainer = page.locator(".profile-lens-entities");
+        const period = page.locator(".profile-lens-period-slider");
+
+        await entity.click({ force: true });
+        let activeClass = await page.evaluate(() =>
+            document.activeElement?.getAttribute("class") ?? "");
+        expect(activeClass).toBe("profile-lens");
+        await expect(entity).toHaveAttribute("tabindex", "-1");
+
+        const entityBounds = await entityContainer.boundingBox();
+        expect(entityBounds).not.toBeNull();
+        await page.mouse.click(
+            (entityBounds?.x ?? 0) + (entityBounds?.width ?? 0) - 2,
+            (entityBounds?.y ?? 0) + (entityBounds?.height ?? 0) / 2
+        );
+        activeClass = await page.evaluate(() =>
+            document.activeElement?.getAttribute("class") ?? "");
+        expect(activeClass).toBe("profile-lens");
+
+        await period.click({ force: true });
+        activeClass = await page.evaluate(() =>
+            document.activeElement?.getAttribute("class") ?? "");
+        expect(activeClass).toBe("profile-lens");
+        await expect(period).toHaveAttribute("tabindex", "-1");
+    });
+
+    test("keeps every disabled interactive surface out of sequential keyboard focus", async ({ page }) => {
+        await mount(page, {
+            allowInteractions: false,
+            entities: Array.from({ length: 100 }, (_unused, index) => `Entity ${index + 1}`)
+        });
+        const root = page.locator(".profile-lens");
+        await root.focus();
+        await page.keyboard.press("Tab");
+
+        const activeClass = await page.evaluate(() =>
+            document.activeElement?.getAttribute("class") ?? "");
+        expect([
+            "profile-lens-target",
+            "profile-lens-entity-option",
+            "profile-lens-entities",
+            "profile-lens-period-slider"
+        ]).not.toContain(activeClass);
     });
 
     test("uses the host high contrast colors", async ({ page }) => {

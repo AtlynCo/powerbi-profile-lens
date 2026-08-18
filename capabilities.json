@@ -16,19 +16,6 @@
     },
     "supportEnhancedTooltips": true
   },
-  "expandCollapse": {
-    "roles": [
-      "Hierarchy"
-    ],
-    "addDataViewFlags": {
-      "defaultValue": true
-    }
-  },
-  "drilldown": {
-    "roles": [
-      "Hierarchy"
-    ]
-  },
   "dataRoles": [
     {
       "name": "Hierarchy",

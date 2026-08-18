@@ -29,7 +29,7 @@ One matrix mapping, in this order:
 |---|---|---:|---|
 | `Entity > Period > Band` | Grouping | 0-3 | Entity first, an optional period second, the ordered band last |
 | `Series` | Grouping | 0-1 | Optional split; at most two values are rendered |
-| `Profile measures` | Measure (numeric) | 0-6 | Each measure becomes one profile arm |
+| `Profile measures` | Measure (numeric) | 0-6 | Each nonnegative measure becomes one profile arm |
 | `Context value (future map value)` | Measure (numeric) | 0-1 | Entity-level value for a future map or context extension |
 | `Latitude (future map role)` | Measure (numeric) | 0-1 | Reserved for a future point extension |
 | `Longitude (future map role)` | Measure (numeric) | 0-1 | Reserved for a future point extension |
@@ -90,6 +90,10 @@ Responsive behaviour is deterministic and is verified against the packaged bundl
 Explicit modes only. There is no heuristic auto-detection, because a plausible-looking but wrongly
 normalized profile is worse than a visible error.
 
+Profile measures must be zero or greater. Negative values are rejected before rendering and reported
+by the `negativeProfileValues` diagnostic in every layout and normalization mode; they are never
+silently converted to magnitudes.
+
 | Mode | Formula |
 |---|---|
 | Raw value | the bound value |
@@ -149,7 +153,8 @@ they drift apart.
 - Reduced motion setting; the visual renders one deterministic frame per update and never animates
   continuously.
 - When the host sets `allowInteractions = false`, the visual still renders and still describes
-  itself, but performs no selection, tooltip or context-menu call.
+  itself, but marks controls disabled, removes them from keyboard navigation, and performs no
+  selection, tooltip or context-menu call.
 
 ## Diagnostics and limits
 
@@ -159,7 +164,7 @@ information). They report received, retained and rejected counts instead of hidi
 `needsEntity`, `needsBand`, `needsProfile`, `hierarchyDepthUnsupported`, `profilesOverLimit`,
 `seriesOverLimit`, `entitiesOverLimit`, `periodsOverLimit`, `bandsOverLimit`,
 `tooltipFieldsOverLimit`, `cellsOverLimit`, `duplicateCells`, `blankValues`, `nonNumericValues`,
-`nonFiniteValues`, `zeroDenominator`, `partialData`, `segmentLimitReached`, `highlightActive`,
+`nonFiniteValues`, `negativeProfileValues`, `zeroDenominator`, `partialData`, `segmentLimitReached`, `highlightActive`,
 `interactionsDisabled`, `extensionRolesProfileOnly`, `invalidCoordinates`,
 `conflictingCoordinates`, `incompleteCoordinates`, `oversizedGeometry`, `emptyGeometry`,
 `nonFiniteContextValue`.
@@ -261,17 +266,17 @@ Proven here, by automated checks in this repository:
 - deterministic parsing, ordering, bounding and diagnostics;
 - exactly one `renderingStarted` and exactly one `renderingFinished` or `renderingFailed` per update,
   including empty, partial, cached lifecycle-only and failed updates;
-- selection, bookmark callback, native tooltip lifecycle and both context-menu modes with exact call
-  counts, and no host mutation when interactions are disabled;
+- selection callback synchronization, native tooltip lifecycle and both context-menu modes with exact
+  call counts, and disabled/nonfocusable semantics with no host mutation when interactions are disabled;
 - keyboard focus, focus restoration, semantic table, high contrast, RTL and 80x80 layout;
 - no external request from the packaged bundle in a real browser.
 
 Still requires Power BI Desktop and the Power BI service, and is **not** claimed here:
 
 - field-well drop behaviour for every order of assignment in the real host;
-- matrix expand/collapse, drilldown and host segmentation behaviour;
+- host segmentation behaviour;
 - parent-node values for the context role in Import, DirectQuery and Direct Lake;
-- bookmarks, cross-report interactions, export, subscriptions and dashboard pinning;
+- native bookmark creation/restoration, cross-report interactions, export, subscriptions and dashboard pinning;
 - native tooltip rendering and touch long-press behaviour;
 - opening, saving and reopening a `.pbix` built from the PBIP sample.
 

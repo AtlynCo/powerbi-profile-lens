@@ -214,6 +214,7 @@ export type DiagnosticCode =
     | "blankValues"
     | "nonNumericValues"
     | "nonFiniteValues"
+    | "negativeProfileValues"
     | "zeroDenominator"
     | "partialData"
     | "segmentLimitReached"

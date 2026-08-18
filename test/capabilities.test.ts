@@ -19,6 +19,8 @@ const capabilities = JSON.parse(
     supportsMultiVisualSelection?: boolean;
     supportsOnObjectFormatting?: boolean;
     tooltips?: { roles?: string[] };
+    expandCollapse?: unknown;
+    drilldown?: unknown;
 };
 
 const ROLE_CEILINGS: Record<string, number> = {
@@ -128,6 +130,8 @@ describe("capabilities contract", () => {
         expect(capabilities.supportsEmptyDataView).toBe(true);
         expect(capabilities.supportsMultiVisualSelection).toBe(true);
         expect(capabilities.tooltips?.roles).toEqual(["Tooltips"]);
+        expect(capabilities.expandCollapse).toBeUndefined();
+        expect(capabilities.drilldown).toBeUndefined();
     });
 
     it("exposes a formatting card for every object", () => {

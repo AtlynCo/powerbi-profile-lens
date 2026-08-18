@@ -12,7 +12,13 @@ export interface NormalizationSettings {
     readonly blankPolicy: BlankPolicy;
 }
 
-export type NormalizationState = "value" | "missing" | "zeroDenominator";
+export type NormalizationState =
+    | "value"
+    | "missing"
+    | "nonNumeric"
+    | "nonFinite"
+    | "negativeValue"
+    | "zeroDenominator";
 
 export interface NormalizedCell {
     readonly profileIndex: number;
@@ -39,6 +45,7 @@ export interface NormalizedFrame {
     readonly isProportional: boolean;
     readonly profiles: readonly NormalizedProfile[];
     readonly zeroDenominatorCount: number;
+    readonly negativeValueCount: number;
     readonly missingCount: number;
 }
 
@@ -81,6 +88,7 @@ export function normalizeFrame(
 ): NormalizedFrame {
     const profiles: NormalizedProfile[] = [];
     let zeroDenominatorCount = 0;
+    let negativeValueCount = 0;
     let missingCount = 0;
 
     for (const profileIndex of profileIndexes) {
@@ -97,10 +105,10 @@ export function normalizeFrame(
             const current = seriesTotals.get(seriesIndex) ?? 0;
             seriesTotals.set(seriesIndex, current + positivePart(entry.value));
         }
-        const profileMaximum = resolved.reduce((maximum, entry) => {
-            const value = entry.value;
-            return value === null ? maximum : Math.max(maximum, Math.abs(value));
-        }, 0);
+        const profileMaximum = resolved.reduce(
+            (maximum, entry) => Math.max(maximum, positivePart(entry.value)),
+            0
+        );
 
         const cells: NormalizedCell[] = [];
         let zeroDenominator = false;
@@ -112,6 +120,36 @@ export function normalizeFrame(
                 && entry.cell.highlight !== 0;
             const dimmed = hasAnyHighlight && !highlighted;
 
+            if (entry.cell.state === "nonNumeric") {
+                cells.push({
+                    profileIndex,
+                    seriesIndex: entry.cell.seriesIndex,
+                    bandIndex: entry.cell.bandIndex,
+                    raw: null,
+                    display: null,
+                    denominator: null,
+                    state: "nonNumeric",
+                    highlighted,
+                    dimmed
+                });
+                continue;
+            }
+
+            if (entry.cell.state === "nonFinite") {
+                cells.push({
+                    profileIndex,
+                    seriesIndex: entry.cell.seriesIndex,
+                    bandIndex: entry.cell.bandIndex,
+                    raw: entry.cell.value,
+                    display: null,
+                    denominator: null,
+                    state: "nonFinite",
+                    highlighted,
+                    dimmed
+                });
+                continue;
+            }
+
             if (raw === null) {
                 missingCount++;
                 cells.push({
@@ -122,6 +160,22 @@ export function normalizeFrame(
                     display: null,
                     denominator: null,
                     state: "missing",
+                    highlighted,
+                    dimmed
+                });
+                continue;
+            }
+
+            if (raw < 0) {
+                negativeValueCount++;
+                cells.push({
+                    profileIndex,
+                    seriesIndex: entry.cell.seriesIndex,
+                    bandIndex: entry.cell.bandIndex,
+                    raw,
+                    display: null,
+                    denominator: null,
+                    state: "negativeValue",
                     highlighted,
                     dimmed
                 });
@@ -167,7 +221,7 @@ export function normalizeFrame(
         }
 
         const axisMaximum = cells.reduce((maximum, cell) => {
-            return cell.display === null ? maximum : Math.max(maximum, Math.abs(cell.display));
+            return cell.display === null ? maximum : Math.max(maximum, cell.display);
         }, 0);
 
         profiles.push({
@@ -183,6 +237,7 @@ export function normalizeFrame(
         isProportional: isProportionalMode(settings.mode),
         profiles,
         zeroDenominatorCount,
+        negativeValueCount,
         missingCount
     };
 }

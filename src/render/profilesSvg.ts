@@ -22,6 +22,7 @@ export interface RenderInput {
     readonly localization: Localization;
     readonly entityIndex: number;
     readonly periodIndex: number;
+    readonly interactive: boolean;
     readonly focusKey: string | null;
     readonly selectedKeys: ReadonlySet<string>;
     readonly measure?: TextMeasurer;
@@ -104,7 +105,7 @@ export function renderProfiles(svg: SVGSVGElement, input: RenderInput): readonly
             const seriesSlot = cell.seriesIndex === IMPLICIT_INDEX ? 0 : cell.seriesIndex;
             const magnitude = cell.display === null
                 ? 0
-                : Math.min(Math.abs(cell.display) / profile.axisMaximum, 1);
+                : Math.min(cell.display / profile.axisMaximum, 1);
             const geometry = bandSegment(
                 arm,
                 cell.bandIndex,
@@ -117,8 +118,14 @@ export function renderProfiles(svg: SVGSVGElement, input: RenderInput): readonly
             group.setAttribute("class", "profile-lens-target");
             group.setAttribute("data-key", key);
             group.setAttribute("role", "button");
-            group.setAttribute("tabindex", input.focusKey === key ? "0" : "-1");
+            group.setAttribute(
+                "tabindex",
+                input.interactive && input.focusKey === key ? "0" : "-1"
+            );
             group.setAttribute("aria-label", describeCell(input, cell, arm.profileIndex));
+            if (!input.interactive) {
+                group.setAttribute("aria-disabled", "true");
+            }
             if (input.selectedKeys.has(key)) {
                 group.setAttribute("aria-pressed", "true");
             }
@@ -229,9 +236,30 @@ function describeCell(input: RenderInput, cell: NormalizedCell, profileIndex: nu
     const series = cell.seriesIndex === IMPLICIT_INDEX
         ? input.localization.get("Legend_SingleSeries")
         : input.model.series[cell.seriesIndex]?.label ?? "";
-    const value = cell.state === "value" && cell.display !== null
-        ? formatDisplayValue(cell.display, input.frame.mode, input.localization.currentLocale)
-        : input.localization.get("Aria_MissingValue");
+    const value = cell.state === "nonNumeric"
+        ? input.localization.get("Aria_NonNumericUnsupported")
+        : cell.state === "nonFinite"
+            ? input.localization.format(
+                "Aria_NonFiniteUnsupported",
+                input.localization.formatNumber(cell.raw ?? Number.NaN)
+            )
+            : cell.state === "negativeValue"
+        ? input.localization.format(
+            "Aria_NegativeUnsupported",
+            input.localization.formatNumber(cell.raw ?? 0)
+        )
+            : cell.state === "zeroDenominator"
+                ? input.localization.format(
+                    "Aria_ZeroDenominator",
+                    input.localization.formatNumber(cell.raw ?? 0)
+                )
+                : cell.state === "value" && cell.display !== null
+                    ? formatDisplayValue(
+                        cell.display,
+                        input.frame.mode,
+                        input.localization.currentLocale
+                    )
+                    : input.localization.get("Aria_MissingValue");
     return input.localization.format(
         "Aria_Segment",
         profile?.label ?? "",

@@ -106,6 +106,7 @@ export function renderEntityList(
 ): readonly EntityOption[] {
     clear(container);
     container.className = "profile-lens-entities";
+    container.setAttribute("tabindex", "-1");
     if (!input.visible) {
         container.setAttribute("hidden", "hidden");
         return [];
@@ -131,7 +132,10 @@ export function renderEntityList(
         option.setAttribute("role", "option");
         option.setAttribute("data-entity-index", String(entity.index));
         option.setAttribute("aria-selected", entity.index === input.entityIndex ? "true" : "false");
-        option.setAttribute("tabindex", entity.index === input.entityIndex ? "0" : "-1");
+        option.setAttribute(
+            "tabindex",
+            input.interactive && entity.index === input.entityIndex ? "0" : "-1"
+        );
         option.textContent = entity.label;
         if (!input.interactive) {
             option.setAttribute("aria-disabled", "true");
