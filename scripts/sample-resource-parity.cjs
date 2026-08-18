@@ -74,12 +74,18 @@ function validateZipPayloads(bytes, records) {
             if (record.method === 0) {
                 actual = compressed;
             } else {
+                let inflated;
                 try {
-                    actual = zlib.inflateRawSync(compressed, {
-                        maxOutputLength: MAX_ENTRY_UNCOMPRESSED + 1
+                    inflated = zlib.inflateRawSync(compressed, {
+                        maxOutputLength: MAX_ENTRY_UNCOMPRESSED + 1,
+                        info: true
                     });
                 } catch {
                     throw new Error(`ZIP entry decompression failed: ${record.name}`);
+                }
+                actual = inflated.buffer;
+                if (inflated.engine.bytesWritten !== compressed.length) {
+                    throw new Error(`ZIP entry has trailing compressed bytes: ${record.name}`);
                 }
             }
             if (actual.length !== record.uncompressedSize ||
@@ -400,6 +406,7 @@ async function verifyPbixVisualParity({ packagePath, pbixPath, guid }) {
 
 module.exports = {
     assertUniqueArchiveNames,
+    crc32,
     parseExtraFields,
     validateZipPayloads,
     requireCanonicalPbixResource,

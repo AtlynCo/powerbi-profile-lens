@@ -2,6 +2,7 @@
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
+import * as zlib from "node:zlib";
 import { createRequire } from "node:module";
 import { execFileSync } from "node:child_process";
 import { describe, expect, it } from "vitest";
@@ -47,11 +48,14 @@ const { verifySampleResourceParity } = require("../scripts/sample-resource-parit
 };
 const {
     assertUniqueArchiveNames,
+    crc32,
     parseExtraFields,
     requireCanonicalPbixResource,
+    validateZipPayloads,
     verifyPbixVisualParity
 } = require("../scripts/sample-resource-parity.cjs") as {
     assertUniqueArchiveNames(records: Array<{ name: string }>): void;
+    crc32(bytes: Buffer): number;
     parseExtraFields(extra: Buffer): void;
     requireCanonicalPbixResource(names: string[], guid: string): string;
     verifyPbixVisualParity(options: {
@@ -63,6 +67,15 @@ const {
         activeParity: boolean;
         activePointer: { status: string };
     }>;
+    validateZipPayloads(bytes: Buffer, records: Array<{
+        name: string;
+        method: number;
+        dataStart: number;
+        dataEnd: number;
+        compressedSize: number;
+        uncompressedSize: number;
+        crc32: number;
+    }>): void;
 };
 const {
     SCENARIO_REQUIREMENTS,
@@ -567,6 +580,51 @@ describe("native validation evidence safety", () => {
         await expect(lock.release()).resolves.toBeDefined();
         await expect(lock.release()).resolves.toBeDefined();
         fs.rmSync(temp, { recursive: true, force: true });
+    });
+
+    it("requires exact DEFLATE stream consumption for every ZIP entry", () => {
+        const payload = Buffer.from("canonical deflate payload");
+        const compressed = zlib.deflateRawSync(payload);
+        const record = (bytes: Buffer) => [{
+            name: "entry.bin",
+            method: 8,
+            dataStart: 0,
+            dataEnd: bytes.length,
+            compressedSize: bytes.length,
+            uncompressedSize: payload.length,
+            crc32: crc32(payload)
+        }];
+        expect(() => validateZipPayloads(compressed, record(compressed))).not.toThrow();
+
+        const trailing = Buffer.concat([compressed, Buffer.from([0x42])]);
+        expect(() => validateZipPayloads(trailing, record(trailing)))
+            .toThrow(/trailing compressed bytes/i);
+
+        const zeroPadded = Buffer.concat([compressed, Buffer.alloc(4)]);
+        expect(() => validateZipPayloads(zeroPadded, record(zeroPadded)))
+            .toThrow(/trailing compressed bytes/i);
+
+        const concatenated = Buffer.concat([
+            compressed,
+            zlib.deflateRawSync(Buffer.from("second stream"))
+        ]);
+        expect(() => validateZipPayloads(concatenated, record(concatenated)))
+            .toThrow(/trailing compressed bytes/i);
+
+        const truncated = compressed.subarray(0, compressed.length - 1);
+        expect(() => validateZipPayloads(truncated, record(truncated)))
+            .toThrow(/decompression failed/i);
+
+        const storedRecord = [{
+            name: "stored.bin",
+            method: 0,
+            dataStart: 0,
+            dataEnd: payload.length,
+            compressedSize: payload.length,
+            uncompressedSize: payload.length,
+            crc32: crc32(payload)
+        }];
+        expect(() => validateZipPayloads(payload, storedRecord)).not.toThrow();
     });
 
     it("requires one exact canonical PBIX resource and an active metadata pointer", async () => {
