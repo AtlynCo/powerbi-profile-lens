@@ -43,6 +43,60 @@ const COUNTY_KEYS = packKeys("us-counties-2025-5m.pack.json");
 const STATE_KEYS = packKeys("us-states-2025-5m.pack.json");
 const WORLD_50_KEYS = packKeys("world-countries-50m.pack.json");
 
+interface PickingMetrics {
+    readonly elapsed: number;
+    readonly mountElapsed: number;
+    readonly moves: number;
+    readonly sceneFeatures: number;
+    readonly pickingReads: number;
+    readonly candidateValidations: number;
+    readonly targetMapLookups: number;
+    readonly targetMapMisses: number;
+    readonly resolvedHits: number;
+    readonly pickedCandidatesDecoded: number;
+    readonly localizedQueries: number;
+    readonly localizedCandidateValidations: number;
+    readonly maxLocalizedCandidatesExamined: number;
+    readonly spatialBucketEntries: number;
+    readonly spatialGlobalCandidates: number;
+    readonly maxBucketOccupancy: number;
+    readonly maxBucketsPerFeature: number;
+    readonly scaled: boolean;
+}
+
+function assertCoherentPickingMetrics(metrics: PickingMetrics): void {
+    if (metrics.pickingReads !== metrics.moves) {
+        throw new Error("pickingReads must equal dispatched pointer moves");
+    }
+    if (metrics.targetMapLookups !== metrics.resolvedHits) {
+        throw new Error("targetMapLookups must equal resolved hits");
+    }
+    if (metrics.targetMapMisses !== 0) {
+        throw new Error("every resolved feature must have a precomputed target");
+    }
+    if (metrics.localizedQueries !== metrics.pickingReads) {
+        throw new Error("every picking read must use the localized candidate index");
+    }
+    if (metrics.localizedCandidateValidations !== metrics.candidateValidations) {
+        throw new Error("candidate validation counters must describe real localized work");
+    }
+    if (metrics.candidateValidations > metrics.pickingReads * 32) {
+        throw new Error("candidate validation exceeded the strict fallback bound");
+    }
+    if (metrics.maxLocalizedCandidatesExamined > 32) {
+        throw new Error("localized fallback examined too many candidates");
+    }
+    if (metrics.maxBucketOccupancy > 32 || metrics.spatialGlobalCandidates > 32) {
+        throw new Error("spatial index candidate storage exceeded its fixed bound");
+    }
+    if (metrics.maxBucketsPerFeature !== 256) {
+        throw new Error("spatial index per-feature expansion bound changed");
+    }
+    if (metrics.spatialBucketEntries > metrics.sceneFeatures * metrics.maxBucketsPerFeature) {
+        throw new Error("spatial index storage exceeded its scene-derived bound");
+    }
+}
+
 const SIZES = [
     { width: 1280, height: 620 },
     { width: 398, height: 298 },
@@ -480,6 +534,88 @@ test.describe("packaged visual in a real browser", () => {
         expect(canvas.elapsed).toBeLessThan(750);
     });
 
+    test("keeps adversarial boundaries, holes, and overlaps in SVG/Canvas parity", async ({ page }) => {
+        const geometries = [
+            "POLYGON ((0 0,10 0,10 10,0 10,0 0))",
+            "POLYGON ((10 0,20 0,20 10,10 10,10 0))",
+            "POLYGON ((2 2,8 2,8 8,2 8,2 2),(4 4,6 4,6 6,4 6,4 4))",
+            "POLYGON ((7 2,12 2,12 8,7 8,7 2))"
+        ];
+        const points = [
+            { x: 9.9, y: 9, name: "under adjacent stroke" },
+            { x: 5, y: 5, name: "inside overlay hole" },
+            { x: 8, y: 5, name: "inside later overlap" },
+            { x: 15, y: 5, name: "inside adjacent polygon" },
+            { x: 10, y: 9, name: "on shared edge" }
+        ];
+        const exercise = async (
+            svgFeatureThreshold: number,
+            width: number,
+            height: number,
+            devicePixelRatio: number
+        ): Promise<string[]> => {
+            await mount(page, {
+                contextMode: "boundGeometry",
+                svgFeatureThreshold,
+                entities: ["Base", "Adjacent", "Holed", "Overlap"],
+                geometryTexts: geometries,
+                periods: [],
+                bands: ["Band 1"],
+                series: [],
+                profiles: ["Metric A"],
+                width,
+                height,
+                devicePixelRatio
+            });
+            return page.locator(".profile-lens-context").evaluate((node, testPoints) => {
+                const root = node as HTMLElement;
+                const bounds = root.getBoundingClientRect();
+                const innerWidth = Math.max(bounds.width - 16, 1);
+                const innerHeight = Math.max(bounds.height - 16, 1);
+                const scale = Math.min(innerWidth / 20, innerHeight / 10);
+                const translateX = 8 + (innerWidth - 20 * scale) / 2;
+                const translateY = 8 + (innerHeight - 10 * scale) / 2 + 10 * scale;
+                const keys: string[] = [];
+                for (const point of testPoints) {
+                    const clientX = bounds.left + point.x * scale + translateX;
+                    const clientY = bounds.top + translateY - point.y * scale;
+                    root.dispatchEvent(new PointerEvent("pointermove", {
+                        bubbles: true,
+                        clientX,
+                        clientY,
+                        pointerType: "mouse"
+                    }));
+                    keys.push((window as unknown as {
+                        profileLensHost: { calls: { lastTooltipKey: string } };
+                    }).profileLensHost.calls.lastTooltipKey);
+                    root.dispatchEvent(new PointerEvent("pointerout", {
+                        bubbles: true,
+                        clientX,
+                        clientY,
+                        pointerType: "mouse"
+                    }));
+                }
+                return keys;
+            }, points);
+        };
+
+        const svg = await exercise(500, 1280, 620, 1);
+        expect(svg.slice(0, 4)).toEqual([
+            "|node:entity:0",
+            "|node:entity:0",
+            "|node:entity:3",
+            "|node:entity:1"
+        ]);
+        for (const value of [
+            { threshold: 1, width: 1280, height: 620, dpr: 1 },
+            { threshold: 1, width: 1280, height: 620, dpr: 2 },
+            { threshold: 1, width: 10000, height: 2000, dpr: 2 }
+        ]) {
+            const canvas = await exercise(value.threshold, value.width, value.height, value.dpr);
+            expect(canvas, `Canvas parity at DPR ${value.dpr}, width ${value.width}`).toEqual(svg);
+        }
+    });
+
     test("keeps SVG and Canvas context semantics and host identities identical", async ({ page }) => {
         const exercise = async (threshold: number): Promise<{
             selected: string | null;
@@ -602,14 +738,19 @@ test.describe("packaged visual in a real browser", () => {
         await expect(page.locator(".profile-lens-context-semantic [role='option']")).toHaveCount(100);
     });
 
-    test("bounds full-county Canvas picking to one candidate at DPR and scaled backing", async ({ page }) => {
+    test("bounds full-county Canvas picking candidates at DPR and scaled backing", async ({ page }) => {
         const cases = [
             { width: 1280, height: 620, devicePixelRatio: 1, scaled: false },
             { width: 1280, height: 620, devicePixelRatio: 2, scaled: false },
             { width: 10000, height: 2000, devicePixelRatio: 2, scaled: true }
         ];
-        const observed: Array<Record<string, number | boolean>> = [];
+        const observed: Array<PickingMetrics & {
+            readonly width: number;
+            readonly height: number;
+            readonly devicePixelRatio: number;
+        }> = [];
         for (const value of cases) {
+            const mountStarted = Date.now();
             await mount(page, {
                 contextMode: "builtInPack",
                 contextPack: "usCounties",
@@ -622,13 +763,23 @@ test.describe("packaged visual in a real browser", () => {
                 height: value.height,
                 devicePixelRatio: value.devicePixelRatio
             });
-            const result = await page.locator(".profile-lens-context").evaluate((node) => {
+            const mountElapsed = Date.now() - mountStarted;
+            const interaction = await page.locator(".profile-lens-context").evaluate((node) => {
                 type Metrics = {
                     sceneFeatures: number;
                     pickingReads: number;
                     candidateValidations: number;
-                    fullSceneScans: number;
                     targetMapLookups: number;
+                    targetMapMisses: number;
+                    resolvedHits: number;
+                    pickedCandidatesDecoded: number;
+                    localizedQueries: number;
+                    localizedCandidateValidations: number;
+                    maxLocalizedCandidatesExamined: number;
+                    spatialBucketEntries: number;
+                    spatialGlobalCandidates: number;
+                    maxBucketOccupancy: number;
+                    maxBucketsPerFeature: number;
                     pickingScaleX: number;
                     pickingScaleY: number;
                 };
@@ -654,20 +805,40 @@ test.describe("packaged visual in a real browser", () => {
                     pickingReads: after.pickingReads - before.pickingReads,
                     candidateValidations:
                         after.candidateValidations - before.candidateValidations,
-                    fullSceneScans: after.fullSceneScans,
                     targetMapLookups: after.targetMapLookups - before.targetMapLookups,
+                    targetMapMisses: after.targetMapMisses - before.targetMapMisses,
+                    resolvedHits: after.resolvedHits - before.resolvedHits,
+                    pickedCandidatesDecoded:
+                        after.pickedCandidatesDecoded - before.pickedCandidatesDecoded,
+                    localizedQueries: after.localizedQueries - before.localizedQueries,
+                    localizedCandidateValidations:
+                        after.localizedCandidateValidations
+                        - before.localizedCandidateValidations,
+                    maxLocalizedCandidatesExamined: after.maxLocalizedCandidatesExamined,
+                    spatialBucketEntries: after.spatialBucketEntries,
+                    spatialGlobalCandidates: after.spatialGlobalCandidates,
+                    maxBucketOccupancy: after.maxBucketOccupancy,
+                    maxBucketsPerFeature: after.maxBucketsPerFeature,
                     scaled: after.pickingScaleX < 1 || after.pickingScaleY < 1
                 };
             });
+            const result = { ...interaction, mountElapsed };
             expect(result.sceneFeatures).toBe(3235);
-            expect(result.pickingReads).toBe(result.moves);
-            expect(result.candidateValidations).toBeLessThanOrEqual(result.moves);
-            expect(result.fullSceneScans).toBe(0);
-            expect(result.targetMapLookups).toBe(result.pickingReads);
+            assertCoherentPickingMetrics(result);
+            expect(result.targetMapLookups).toBeGreaterThan(0);
             expect(result.scaled).toBe(value.scaled);
             expect(result.elapsed).toBeLessThan(250);
+            expect(result.mountElapsed).toBeLessThan(750);
             observed.push({ ...value, ...result });
         }
+        expect(() => assertCoherentPickingMetrics({
+            ...observed[0],
+            targetMapLookups: 0
+        })).toThrow(/targetMapLookups/);
+        expect(() => assertCoherentPickingMetrics({
+            ...observed[0],
+            pickingReads: 0
+        })).toThrow(/pickingReads/);
         console.log(`Full-county picking metrics: ${JSON.stringify(observed)}`);
     });
 

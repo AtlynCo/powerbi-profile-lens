@@ -62,6 +62,7 @@ import {
     RenderedContextSurface,
     createContextSurface,
     hideContextSurface,
+    recordCanvasTargetMapLookup,
     renderContextSurface
 } from "./render/contextSurface";
 import { spatialNeighbor } from "./interaction/spatialNavigation";
@@ -634,8 +635,12 @@ export class Visual implements IVisual {
             element: root,
             resolve: (x, y) => {
                 const hit = this.renderedContext?.hitTest(x, y);
-                recordCanvasTargetLookup(root);
-                return hit ? targetsByIndex.get(hit.featureIndex) ?? null : null;
+                if (!hit) {
+                    return null;
+                }
+                const target = targetsByIndex.get(hit.featureIndex) ?? null;
+                recordCanvasTargetMapLookup(root, target !== null);
+                return target;
             },
             navigate: (currentKey, direction) => {
                 const feature = spatialNeighbor(
@@ -1070,15 +1075,6 @@ function resolvePackKeyMode(
         return selected;
     }
     return pack === "worldCountries" ? "canonical" : pack === "usStates" ? "geoid2" : "geoid5";
-}
-
-function recordCanvasTargetLookup(root: HTMLElement): void {
-    const instrumented = root as HTMLElement & {
-        __profileLensCanvasHitMetrics?: { targetMapLookups: number } | null;
-    };
-    if (instrumented.__profileLensCanvasHitMetrics) {
-        instrumented.__profileLensCanvasHitMetrics.targetMapLookups++;
-    }
 }
 
 function appendChild(parent: HTMLElement, tag: string, className: string): HTMLElement {

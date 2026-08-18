@@ -61,6 +61,15 @@ Both renderers use the same transform, selection identities, hit-test target key
 tooltip content, and accessible descriptions. Canvas is a rendering optimization, not a reduced
 semantic mode.
 
+Canvas hit testing reads the color-picking pixel before geometry work, performs O(1) feature and
+interaction-target lookups, and validates at most one picked feature plus 32 reverse-scene candidates
+from a 32-pixel spatial bucket. The picking buffer uses fills without inflated strokes, so shared
+boundaries do not overwrite neighboring interiors. A bounded localized fallback preserves underlying
+feature, hole, overlap, and shared-edge parity without an all-scene pointer scan. Buckets retain at
+most 32 highest-render-order features; a picked feature always keeps one validation slot. Features
+covering more than 256 picking buckets move to a 32-entry global large-feature list, bounding index
+construction and storage at large viewports.
+
 ## Detail loading
 
 `auto`, `eager`, `segmented`, and `external` are user-selectable. Auto chooses segmented when the

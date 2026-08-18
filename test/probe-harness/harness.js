@@ -38,6 +38,11 @@
         var valueSources = profiles.map(function (profile) {
             return metadata(profile, "Profiles", { numeric: true });
         });
+        var geometryIndex = -1;
+        if (config.geometryTexts) {
+            geometryIndex = valueSources.length;
+            valueSources.push(metadata("Geometry", "Geometry", { text: true }));
+        }
         var valueCount = Math.max(valueSources.length, 1);
         var seriesCount = Math.max(series.length, 1);
 
@@ -85,6 +90,11 @@
                             magnitude = "not a number";
                         }
                         values[seriesIndex * valueCount + profileIndex] = { value: magnitude };
+                    }
+                    if (geometryIndex >= 0) {
+                        values[seriesIndex * valueCount + geometryIndex] = {
+                            value: config.geometryTexts[entityIndex]
+                        };
                     }
                 }
                 return {
