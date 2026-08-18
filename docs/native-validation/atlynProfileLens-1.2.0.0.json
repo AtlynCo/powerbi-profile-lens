@@ -20,13 +20,31 @@
     "openedByDesktop": true,
     "fixtureIdentityAtLaunch": "not-recorded",
     "currentPreparedFixture": {
-      "sourceCommit": "0fd0bda805c34d0a2b26c2c5d6714de62cfba3b8",
+      "sourceCommit": "aaf47ea67f5e5ee5d47ca2ed750bffd1bc94dc94",
       "projectTreeSha256": "b287ce8bbd5c5192940c78ca653373abe9f2a99c02788c2efae4bae564818e3f",
       "reportDefinitionTreeSha256": "c7b5e4f05b4e86b2d7e3854ef7590ac0ce3570f37b46152c59a5fdae53e6b710",
       "modelDefinitionTreeSha256": "407a94d172ea8ef05797a2856a96dc49d9aa76046b5ade4210d5417e4518db9c",
-      "generatorSha256": "f340fffa53db6fc6d6b488b967f9d1ea2e61978457a7d2f07361356c628c2a38",
+      "generatorSha256": "66598035e64943289175d6e7aefb5b1ee8821ad8439c3607e99e6dcb3a003e6f",
       "pbipSha256": "b8bd879c17924ff02f4a81e864b86f9fbb8668025e25747e34198f3fe024c4b9",
-      "embeddedVisualResourceSha256": "19bbf6ffbdfe10c67707dff348879570a7b0e9234fd00973a22bedc2e92c91f7"
+      "embeddedVisualResourceSha256": "19bbf6ffbdfe10c67707dff348879570a7b0e9234fd00973a22bedc2e92c91f7",
+      "automation": {
+        "paths": [
+          "scripts/native-validation",
+          "scripts/native-evidence-sanitize.cjs",
+          "scripts/native-source-integrity.cjs",
+          "scripts/finalize-native-evidence.cjs",
+          "scripts/sample-integrity.cjs",
+          "scripts/sample-resource-parity.cjs"
+        ],
+        "files": 7,
+        "sha256": "58464937e83e74b0d2741b9f79245bd53a651d67ecbd5ef0267923573ea6e644"
+      },
+      "resourceParity": {
+        "packageSha256": "83f85fcf44c5e1b49ea22f657bd980f7c408370d1267cd91291de81b2e30db56",
+        "payloadSha256": "19bbf6ffbdfe10c67707dff348879570a7b0e9234fd00973a22bedc2e92c91f7",
+        "embeddedCopies": 1,
+        "byteIdentical": true
+      }
     }
   },
   "pbix": null,
