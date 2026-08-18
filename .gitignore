@@ -1,6 +1,7 @@
 node_modules/
 dist/
 .tmp/
+context-packs/cache/
 test-results/
 playwright-report/
 webpack.statistics.prod.html

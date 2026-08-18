@@ -369,6 +369,52 @@ describe("interaction", () => {
         expect(identity.getKey()).toContain("entity:0");
     });
 
+    it("renders exact built-in pack joins with cartographic attribution", () => {
+        const { mock, visual } = mount();
+        visual.update(updateOptions(buildMatrixDataView({
+            entities: ["USA", "NE:KOS", " usa"],
+            bands: ["Band 1"],
+            profiles: ["Metric A"],
+            objects: {
+                context: {
+                    mode: "builtInPack",
+                    pack: "worldCountries",
+                    worldDetail: "110m",
+                    packKeyMode: "canonical"
+                }
+            }
+        })));
+        const surface = mock.element.querySelector<HTMLElement>(".profile-lens-context");
+        expect(surface?.getAttribute("aria-setsize")).toBe("2");
+        expect(surface?.getAttribute("aria-description")).toContain("Natural Earth 5.1.1");
+        const options = [...mock.element.querySelectorAll("[role='option']")];
+        expect(options.map((entry) => entry.getAttribute("aria-label"))).toEqual([
+            expect.stringContaining("United States of America"),
+            expect.stringContaining("Kosovo")
+        ]);
+        expect(mock.element.querySelector('[data-code="malformedPackKey"]')?.textContent)
+            .toContain(" usa");
+    });
+
+    it("keeps Census pack keys as exact text without numeric coercion", () => {
+        const { mock, visual } = mount();
+        visual.update(updateOptions(buildMatrixDataView({
+            entities: ["06", "60", "6"],
+            bands: ["Band 1"],
+            profiles: ["Metric A"],
+            objects: {
+                context: {
+                    mode: "builtInPack",
+                    pack: "usStates",
+                    packKeyMode: "auto"
+                }
+            }
+        })));
+        expect(mock.element.querySelector(".profile-lens-context")?.getAttribute("aria-setsize"))
+            .toBe("2");
+        expect(mock.element.querySelector('[data-code="malformedPackKey"]')).not.toBeNull();
+    });
+
     it.each([
         ["localOnly", "pointer", 0, 0],
         ["reportSelection", "pointer", 0, 1],

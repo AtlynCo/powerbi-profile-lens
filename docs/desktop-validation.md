@@ -22,10 +22,19 @@ candidate; record the package name and SHA-256 from `dist/release-manifest.json`
 5. Confirm only the documented exact WGS84 CRS names are accepted; exercise arbitrary prefixes,
    suffixes, surrounding whitespace, unsupported URNs, and URL forms as visible rejections.
 6. Exercise exact safety bounds: 32,000 UTF-16 characters/value, 2,000,000 characters/update, depth 12,
-   256 rings/feature, 4,096 vertices/feature, 100,000 vertices/scene, 16,384 WKT tokens, and 1,000
-   entities/features. Confirm visible diagnostics at each exceeded bound.
+   256 rings/feature, 4,096 vertices/feature, 100,000 vertices/scene, 16,384 WKT tokens, 4,000
+   entities/trusted pack features, and 1,000 untrusted bound features. Confirm visible diagnostics at
+   each exceeded bound.
 7. Use browser/proxy monitoring to confirm no upload, file access, network request, tile lookup, or
    geocoding.
+8. Exercise world `USA`, `CAN`, `MEX`, and one manifest-listed `NE:` fallback; state/equivalent text
+   keys `11`, `60`, `66`, `69`, `72`, and `78`; and five-digit county/equivalent text keys from
+   CONUS, Puerto Rico, and every island area.
+9. Confirm malformed whitespace, numeric Census columns, unmatched keys, and duplicate keys are
+   visibly rejected. The visual must not trim, pad, coerce, or match names.
+10. Switch pack and world detail while confirming report selection identities and profile values do
+    not change. Inspect every territory inset, attribution, semantic source name, Canvas county
+    picking, selected outline, tooltip, both context menus, and adjacency navigation.
 
 ## Layout and rendering
 

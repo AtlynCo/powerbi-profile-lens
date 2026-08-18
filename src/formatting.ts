@@ -136,6 +136,24 @@ export class ContextCard extends Card {
         value: "none"
     });
 
+    public pack = new formattingSettings.AutoDropdown({
+        name: "pack",
+        displayNameKey: "Format_ContextPack",
+        value: "worldCountries"
+    });
+
+    public worldDetail = new formattingSettings.AutoDropdown({
+        name: "worldDetail",
+        displayNameKey: "Format_WorldDetail",
+        value: "110m"
+    });
+
+    public packKeyMode = new formattingSettings.AutoDropdown({
+        name: "packKeyMode",
+        displayNameKey: "Format_PackKeyMode",
+        value: "auto"
+    });
+
     public svgFeatureThreshold = new formattingSettings.NumUpDown({
         name: "svgFeatureThreshold",
         displayNameKey: "Format_SvgFeatureThreshold",
@@ -191,6 +209,9 @@ export class ContextCard extends Card {
 
     public override slices = [
         this.mode,
+        this.pack,
+        this.worldDetail,
+        this.packKeyMode,
         this.svgFeatureThreshold,
         this.svgVertexThreshold,
         this.pointSize,
@@ -439,6 +460,9 @@ export interface ResolvedSettings {
     readonly arrangement: Arrangement;
     readonly contextLayout: ContextLayoutMode;
     readonly contextMode: ContextMode;
+    readonly contextPack: "worldCountries" | "usStates" | "usCounties";
+    readonly worldDetail: "110m" | "50m";
+    readonly packKeyMode: "auto" | "canonical" | "isoAlpha3CaseFold" | "geoid2" | "geoid5";
     readonly svgFeatureThreshold: number;
     readonly svgVertexThreshold: number;
     readonly contextPointSize: number;
@@ -498,8 +522,19 @@ export function resolveSettings(model: ProfileLensFormattingModel): ResolvedSett
         ),
         contextMode: enumValue(
             model.context.mode.value,
-            ["none", "points", "boundGeometry", "grid", "hex"],
+            ["none", "points", "boundGeometry", "grid", "hex", "builtInPack"],
             "none"
+        ),
+        contextPack: enumValue(
+            model.context.pack.value,
+            ["worldCountries", "usStates", "usCounties"],
+            "worldCountries"
+        ),
+        worldDetail: enumValue(model.context.worldDetail.value, ["110m", "50m"], "110m"),
+        packKeyMode: enumValue(
+            model.context.packKeyMode.value,
+            ["auto", "canonical", "isoAlpha3CaseFold", "geoid2", "geoid5"],
+            "auto"
         ),
         svgFeatureThreshold: clamp(
             model.context.svgFeatureThreshold.value,

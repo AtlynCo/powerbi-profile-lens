@@ -1,6 +1,7 @@
 import { expect, test, Page } from "@playwright/test";
 import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
+import { feature } from "topojson-client";
 
 const root = resolve(__dirname, "..");
 const probeDirectory = resolve(root, ".tmp", "probe");
@@ -9,6 +10,26 @@ const stylePath = resolve(probeDirectory, "visual.css");
 const metaPath = resolve(probeDirectory, "bundle-meta.json");
 const harnessPath = resolve(__dirname, "probe-harness", "harness.js");
 const resourcesPath = resolve(root, "stringResources", "en-US", "resources.resjson");
+const generatedPacks = resolve(root, "src", "context", "packs", "generated");
+
+function packKeys(filename: string): string[] {
+    const artifact = JSON.parse(readFileSync(resolve(generatedPacks, filename), "utf8")) as {
+        topology: {
+            objects: { features: unknown };
+        };
+    };
+    const collection = feature(
+        artifact.topology as never,
+        artifact.topology.objects.features as never
+    ) as unknown as {
+        features: Array<{ properties: { canonicalKey: string } }>;
+    };
+    return collection.features.map((entry) => entry.properties.canonicalKey);
+}
+
+const COUNTY_KEYS = packKeys("us-counties-2025-5m.pack.json");
+const STATE_KEYS = packKeys("us-states-2025-5m.pack.json");
+const WORLD_50_KEYS = packKeys("world-countries-50m.pack.json");
 
 const SIZES = [
     { width: 1280, height: 620 },
@@ -327,13 +348,22 @@ test.describe("packaged visual in a real browser", () => {
 
     test("makes no external network request and no recurring work after settling", async ({ page }) => {
         externalRequests.length = 0;
-        await mount(page);
+        await mount(page, {
+            contextMode: "builtInPack",
+            contextPack: "worldCountries",
+            entities: ["USA", "CAN", "MEX"],
+            periods: [],
+            bands: ["Band 1"],
+            series: [],
+            profiles: ["Metric A"]
+        });
         const mutations = await page.evaluate(async () => {
             const container = document.getElementById("visual-root") as HTMLElement;
             let count = 0;
             const observer = new MutationObserver((records) => {
                 count += records.length;
             });
+
             observer.observe(container, { childList: true, subtree: true, attributes: true });
             await new Promise((done) => setTimeout(done, 1200));
             observer.disconnect();
@@ -341,6 +371,93 @@ test.describe("packaged visual in a real browser", () => {
         });
         expect(mutations).toBe(0);
         expect(externalRequests).toEqual([]);
+    });
+
+    test("renders exact world and complete state-equivalent pack semantics", async ({ page }) => {
+        await mount(page, {
+            contextMode: "builtInPack",
+            contextPack: "worldCountries",
+            entities: ["USA", "NE:KOS", " usa"],
+            periods: [],
+            bands: ["Band 1"],
+            series: [],
+            profiles: ["Metric A"]
+        });
+        await expect(page.locator(".profile-lens-context")).toHaveAttribute("aria-setsize", "2");
+        await expect(page.locator(".profile-lens-context-attribution"))
+            .toContainText("Made with Natural Earth");
+        await expect(page.locator(".profile-lens-context-semantic [role='option']").first())
+            .toHaveAttribute("aria-label", /United States of America, cartographic key USA/);
+        await expect(page.locator('[data-code="malformedPackKey"]')).toContainText(" usa");
+
+        await mount(page, {
+            contextMode: "builtInPack",
+            contextPack: "usStates",
+            entities: STATE_KEYS,
+            periods: [],
+            bands: ["Band 1"],
+            series: [],
+            profiles: ["Metric A"]
+        });
+        await expect(page.locator(".profile-lens-context")).toHaveAttribute("aria-setsize", "56");
+        await expect(page.locator(".profile-lens-context-attribution"))
+            .toContainText("U.S. Census Bureau");
+        const pathsAreFinite = await page.locator(".profile-lens-context-svg path").evaluateAll(
+            (paths) => paths.every((path) => {
+                const data = path.getAttribute("d") ?? "";
+                return data.length > 0 && !/NaN|Infinity/.test(data);
+            })
+        );
+        expect(pathsAreFinite).toBe(true);
+    });
+
+    test("keeps optional world 50m within timing, parity, and small-tile gates", async ({ page }) => {
+        const exercise = async (threshold: number): Promise<{
+            renderer: "svg" | "canvas";
+            names: string[];
+            elapsed: number;
+        }> => {
+            const started = Date.now();
+            await mount(page, {
+                contextMode: "builtInPack",
+                contextPack: "worldCountries",
+                worldDetail: "50m",
+                svgFeatureThreshold: threshold,
+                entities: WORLD_50_KEYS,
+                periods: [],
+                bands: ["Band 1"],
+                series: [],
+                profiles: ["Metric A"]
+            });
+            const elapsed = Date.now() - started;
+            const renderer = await page.locator(".profile-lens-context-canvas").evaluate(
+                (canvas) => (canvas as HTMLCanvasElement).width > 1 ? "canvas" : "svg"
+            );
+            const names = await page.locator(
+                ".profile-lens-context-semantic [role='option']"
+            ).evaluateAll((options) => options.map((entry) => entry.getAttribute("aria-label") ?? ""));
+            await page.evaluate(() => (window as unknown as {
+                resizeProfileLens: (width: number, height: number) => boolean;
+            }).resizeProfileLens(80, 80));
+            const bounded = await page.locator(".profile-lens-context").evaluate((node) => {
+                const root = document.getElementById("visual-root")!.getBoundingClientRect();
+                const bounds = node.getBoundingClientRect();
+                return bounds.left >= root.left - 1
+                    && bounds.top >= root.top - 1
+                    && bounds.right <= root.right + 1
+                    && bounds.bottom <= root.bottom + 1;
+            });
+            expect(bounded).toBe(true);
+            return { renderer, names, elapsed };
+        };
+
+        const svg = await exercise(500);
+        const canvas = await exercise(1);
+        expect(svg.renderer).toBe("svg");
+        expect(canvas.renderer).toBe("canvas");
+        expect(canvas.names).toEqual(svg.names);
+        expect(svg.elapsed).toBeLessThan(750);
+        expect(canvas.elapsed).toBeLessThan(750);
     });
 
     test("keeps SVG and Canvas context semantics and host identities identical", async ({ page }) => {
@@ -421,11 +538,13 @@ test.describe("packaged visual in a real browser", () => {
     });
 
     test("bounds Canvas and redirects disabled physical context focus", async ({ page }) => {
+        const started = Date.now();
         await mount(page, {
-            contextMode: "grid",
+            contextMode: "builtInPack",
+            contextPack: "usCounties",
             svgFeatureThreshold: 1,
             allowInteractions: false,
-            entities: Array.from({ length: 600 }, (_unused, index) => `Entity ${index + 1}`),
+            entities: COUNTY_KEYS,
             periods: [],
             bands: ["Band 1"],
             series: [],
@@ -433,6 +552,7 @@ test.describe("packaged visual in a real browser", () => {
             width: 1280,
             height: 620
         });
+        expect(Date.now() - started).toBeLessThan(750);
         const canvas = page.locator(".profile-lens-context-canvas");
         const allocation = await canvas.evaluate((node) => ({
             width: (node as HTMLCanvasElement).width,
@@ -459,6 +579,7 @@ test.describe("packaged visual in a real browser", () => {
         expect(calls.tooltipShow).toBe(0);
         expect(calls.contextMenu).toBe(0);
         expect(calls.filter).toBe(0);
+        await expect(page.locator(".profile-lens-context-semantic [role='option']")).toHaveCount(100);
     });
 
     test("bounds the semantic entity list while preserving host order", async ({ page }) => {

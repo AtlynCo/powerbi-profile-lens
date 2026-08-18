@@ -52,6 +52,16 @@ export function renderLanding(container: HTMLElement, input: LandingInput): void
     dataSource.className = "profile-lens-landing-note";
     dataSource.textContent = input.localization.get("Landing_Note_DataSource");
     container.appendChild(dataSource);
+
+    const packKeys = document.createElement("p");
+    packKeys.className = "profile-lens-landing-note";
+    packKeys.textContent = input.localization.get("Landing_Note_PackKeys");
+    container.appendChild(packKeys);
+
+    const packPolicy = document.createElement("p");
+    packPolicy.className = "profile-lens-landing-note";
+    packPolicy.textContent = input.localization.get("Landing_Note_PackPolicy");
+    container.appendChild(packPolicy);
 }
 
 function completedSteps(stage: AuthoringStage, model: ProfileDataModel): number {

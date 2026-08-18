@@ -118,6 +118,9 @@
                 objects: {
                     context: {
                         mode: config.contextMode || "none",
+                        pack: config.contextPack || "worldCountries",
+                        worldDetail: config.worldDetail || "110m",
+                        packKeyMode: config.packKeyMode || "auto",
                         svgFeatureThreshold: config.svgFeatureThreshold || 500,
                         svgVertexThreshold: config.svgVertexThreshold || 20000
                     },

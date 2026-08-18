@@ -39,6 +39,11 @@ const CODE_ORDER: readonly DiagnosticCode[] = [
     "geometryVertexLimit",
     "contextProviderUnavailable",
     "contextScenePartial",
+    "packArtifactInvalid",
+    "malformedPackKey",
+    "unsupportedPackKey",
+    "unmatchedPackKey",
+    "duplicatePackKey",
     "highlightActive",
     "interactionsDisabled"
 ];
@@ -84,7 +89,12 @@ const SEVERITY_BY_CODE: Record<DiagnosticCode, DiagnosticSeverity> = {
     geometryRingLimit: "warning",
     geometryVertexLimit: "warning",
     contextProviderUnavailable: "warning",
-    contextScenePartial: "warning"
+    contextScenePartial: "warning",
+    malformedPackKey: "warning",
+    unsupportedPackKey: "warning",
+    unmatchedPackKey: "warning",
+    duplicatePackKey: "warning",
+    packArtifactInvalid: "error"
 };
 
 export interface DiagnosticInput {

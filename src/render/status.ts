@@ -102,6 +102,11 @@ export function describe(diagnostic: Diagnostic, localization: Localization): st
         || diagnostic.code === "geometryVertexLimit"
         || diagnostic.code === "geometryUpdateBudgetExceeded"
         || diagnostic.code === "geometryFeatureLimit"
+        || diagnostic.code === "malformedPackKey"
+        || diagnostic.code === "unsupportedPackKey"
+        || diagnostic.code === "unmatchedPackKey"
+        || diagnostic.code === "duplicatePackKey"
+        || diagnostic.code === "packArtifactInvalid"
     )
         ? `${message} ${diagnostic.detail}`
         : message;

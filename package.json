@@ -1,7 +1,7 @@
 {
   "name": "profile-lens-visual",
   "description": "Atlyn Profile Lens for Power BI: a generic report-bound profile and context explorer",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "private": false,
   "repository": {
     "type": "git",
@@ -31,14 +31,24 @@
     "release:manifest": "node scripts/release-manifest.cjs",
     "sample:pbip": "node scripts/build-sample-report.cjs",
     "assets:brand": "node scripts/generate-brand-assets.cjs",
-    "validate:certification": "npm run audit:npm && npm run lint && npm run typecheck && npm test && npm run package && npm run sample:pbip && npm run audit:certification && npm run probe:browser && npm run release:manifest"
+    "packs:fetch": "node scripts/context-packs.mjs fetch",
+    "packs:build": "node scripts/context-packs.mjs build",
+    "packs:validate": "node scripts/context-packs.mjs validate",
+    "packs:verify": "node scripts/context-packs.mjs verify",
+    "packs:repro": "node scripts/context-packs.mjs repro",
+    "validate:certification": "npm run audit:npm && npm run packs:fetch && npm run packs:validate && npm run packs:verify && npm run packs:repro && npm run lint && npm run typecheck && npm test && npm run package && npm run sample:pbip && npm run audit:certification && npm run probe:browser && npm run audit:reproducible && npm run release:manifest"
   },
   "dependencies": {
+    "d3-geo": "3.1.1",
     "powerbi-visuals-api": "5.11.0",
-    "powerbi-visuals-utils-formattingmodel": "7.1.0"
+    "powerbi-visuals-utils-formattingmodel": "7.1.0",
+    "topojson-client": "3.1.0"
   },
   "devDependencies": {
     "@playwright/test": "1.61.1",
+    "@types/d3-geo": "3.1.0",
+    "@types/topojson-client": "3.1.5",
+    "@types/topojson-specification": "1.0.5",
     "esbuild": "0.28.1",
     "eslint": "10.8.0",
     "eslint-plugin-powerbi-visuals": "1.1.1",
@@ -46,6 +56,9 @@
     "jszip": "3.10.1",
     "less": "4.8.1",
     "powerbi-visuals-tools": "7.2.1",
+    "shapefile": "0.6.6",
+    "topojson-server": "3.0.1",
+    "topojson-simplify": "3.0.3",
     "typescript": "5.9.3",
     "vitest": "4.1.10",
     "write-file-atomic": "6.0.0"

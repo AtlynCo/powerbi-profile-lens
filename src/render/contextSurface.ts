@@ -16,6 +16,7 @@ export interface ContextSurfaceElements {
     readonly canvas: HTMLCanvasElement;
     readonly svg: SVGSVGElement;
     readonly semantic: HTMLElement;
+    readonly attribution: HTMLElement;
 }
 
 export interface ContextSurfaceStyle {
@@ -43,9 +44,11 @@ export function createContextSurface(parent: HTMLElement): ContextSurfaceElement
     svg.classList.add("profile-lens-context-svg");
     const semantic = document.createElement("div");
     semantic.className = "profile-lens-context-semantic";
-    root.append(canvas, svg, semantic);
+    const attribution = document.createElement("div");
+    attribution.className = "profile-lens-context-attribution";
+    root.append(canvas, svg, semantic, attribution);
     parent.insertBefore(root, parent.firstChild);
-    return { root, canvas, svg, semantic };
+    return { root, canvas, svg, semantic, attribution };
 }
 
 export function renderContextSurface(
@@ -57,6 +60,7 @@ export function renderContextSurface(
 ): RenderedContextSurface {
     elements.root.removeAttribute("hidden");
     elements.root.setAttribute("aria-setsize", String(request.scene.features.length));
+    renderAttribution(elements, request.scene);
     renderSemanticOptions(elements, request);
     if (kind === "svg") {
         renderSvg(elements, request, style);
@@ -98,6 +102,21 @@ export function hideContextSurface(elements: ContextSurfaceElements): void {
     clearCanvas(elements.canvas);
     clearSvg(elements.svg);
     clearElement(elements.semantic);
+    clearElement(elements.attribution);
+}
+
+function renderAttribution(elements: ContextSurfaceElements, scene: ContextScene): void {
+    const metadata = scene.metadata;
+    if (!metadata) {
+        elements.attribution.setAttribute("hidden", "hidden");
+        elements.attribution.textContent = "";
+        elements.root.removeAttribute("aria-description");
+        return;
+    }
+    const text = `${metadata.displayName}; ${metadata.vintage}; ${metadata.attribution}`;
+    elements.attribution.textContent = text;
+    elements.attribution.removeAttribute("hidden");
+    elements.root.setAttribute("aria-description", text);
 }
 
 function renderSemanticOptions(

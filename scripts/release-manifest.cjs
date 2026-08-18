@@ -62,6 +62,27 @@ function walk(relativeDirectory, sink) {
 const sampleRoot = path.join("samples", "AtlynProfileLensSample");
 const sampleFiles = [];
 walk(sampleRoot, sampleFiles);
+const packRoot = path.join("src", "context", "packs", "generated");
+const contextPacks = fs.existsSync(path.join(root, packRoot))
+    ? fs.readdirSync(path.join(root, packRoot))
+        .filter((entry) => entry.endsWith(".pack.json"))
+        .sort()
+        .map((entry) => {
+            const relativePath = path.join(packRoot, entry);
+            const metadata = fileMetadata(relativePath);
+            const artifact = JSON.parse(fs.readFileSync(path.join(root, relativePath), "utf8"));
+            return {
+                ...metadata,
+                id: artifact.manifest.id,
+                vintage: artifact.manifest.vintage,
+                detail: artifact.manifest.detail,
+                featureCount: artifact.manifest.featureCount,
+                sourceArchiveSha256: artifact.manifest.sourceArchiveSha256,
+                payloadSha256: artifact.manifest.artifactSha256,
+                policyId: artifact.manifest.policyId
+            };
+        })
+    : [];
 
 let sourceCommit = "unknown";
 try {
@@ -103,6 +124,7 @@ const releaseManifest = {
         visualIcon: fileMetadata(manifest.assets.icon),
         partnerCenterLogo300x300: fileMetadata(path.join("assets", "partner-center-logo-300x300.png"))
     },
+    contextPacks,
     contract: {
         dataViewMappings: 1,
         mappingKind: "matrix",
@@ -112,7 +134,7 @@ const releaseManifest = {
             .map((role) => role.name)
     },
     hashPolicy: "PBIVIZ ZIP entries are sorted and normalized to a fixed UTC anchored DOS timestamp, DEFLATE level 9, and DOS platform metadata before hashing, so the hash does not depend on the build machine's timezone or platform.",
-    proofBoundary: "Automated unit and packaged-browser probes prove strict bounded parsing, deterministic point/grid/hex/bound-geometry providers, SVG/Canvas semantic and host-identity parity, physical hit testing, bounded Canvas surfaces, responsive layout through 80x80, disabled physical focus, high contrast, RTL, reduced motion and network abstinence. Native Desktop/Service field wells, segmentation, bookmarks, DirectQuery/Direct Lake, export, pinning, native tooltip rendering and matrix expand/collapse remain unproven. expandCollapse and drilldown are intentionally undeclared. This artifact is not Partner Center submission-ready or certification-complete: a native offline PBIX embedding the exact PBIVIZ hash must be created in Desktop, closed, reopened, validated, and added before submission."
+    proofBoundary: "Automated unit, pack-pipeline and packaged-browser probes prove strict bounded parsing, exact offline world/state/county joins, deterministic source hashes and generated packs, complete declared territory coverage, point/grid/hex/bound-geometry providers, SVG/Canvas semantic and host-identity parity, physical hit testing, bounded Canvas surfaces, responsive layout through 80x80, disabled physical focus, high contrast, RTL, reduced motion and runtime network abstinence. Native Desktop/Service field wells, segmentation, bookmarks, DirectQuery/Direct Lake, export, pinning, native tooltip rendering and matrix expand/collapse remain unproven. expandCollapse and drilldown are intentionally undeclared. This artifact is not Partner Center submission-ready or certification-complete: a native offline PBIX embedding the exact PBIVIZ hash must be created in Desktop, closed, reopened, validated, and added before submission."
 };
 
 fs.writeFileSync(

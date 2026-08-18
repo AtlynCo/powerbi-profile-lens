@@ -31,7 +31,7 @@ export const LIMITS = {
     maxProfiles: 6,
     maxSeries: 2,
     maxHierarchyDepth: 3,
-    maxEntities: 1000,
+    maxEntities: 4000,
     maxPeriods: 100,
     maxBands: 100,
     maxTooltipFields: 10,
@@ -40,6 +40,7 @@ export const LIMITS = {
     maxGeometryCharacters: 32000,
     maxGeometryCharactersPerUpdate: 2000000,
     maxContextFeatures: 1000,
+    maxBuiltInPackFeatures: 4000,
     maxGeometryNesting: 12,
     maxRingsPerFeature: 256,
     maxVerticesPerFeature: 4096,
@@ -248,7 +249,12 @@ export type DiagnosticCode =
     | "geometryRingLimit"
     | "geometryVertexLimit"
     | "contextProviderUnavailable"
-    | "contextScenePartial";
+    | "contextScenePartial"
+    | "malformedPackKey"
+    | "unsupportedPackKey"
+    | "unmatchedPackKey"
+    | "duplicatePackKey"
+    | "packArtifactInvalid";
 
 export interface Diagnostic {
     readonly code: DiagnosticCode;

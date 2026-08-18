@@ -21,6 +21,9 @@ const modelRoot = path.join(sampleRoot, `${sampleName}.SemanticModel`);
 const table = "ProfileFacts";
 
 const ENTITIES = ["Product A", "Team B", "Facility C", "Seat 04"];
+const WORLD_KEYS = ["USA", "CAN", "MEX", "NE:KOS"];
+const STATE_KEYS = ["06", "60", "72", "78"];
+const COUNTY_KEYS = ["06037", "60010", "72001", "78010"];
 const PERIODS = ["Period 1", "Period 2"];
 const BANDS = ["Band 1", "Band 2", "Band 3", "Band 4", "Band 5"];
 const SERIES = ["Series X", "Series Y"];
@@ -61,7 +64,9 @@ function buildRows() {
                     const values = METRICS.map((unused, metricIndex) =>
                         syntheticValue(entityIndex, periodIndex, bandIndex, seriesIndex, metricIndex));
                     rows.push(
-                        `        {"${entity}", "${period}", "${band}", ${bandIndex + 1}, "${series}", `
+                        `        {"${entity}", "${WORLD_KEYS[entityIndex]}", `
+                        + `"${STATE_KEYS[entityIndex]}", "${COUNTY_KEYS[entityIndex]}", `
+                        + `"${period}", "${band}", ${bandIndex + 1}, "${series}", `
                         + `${values[0]}, ${values[1]}, ${values[2]}, `
                         + `${LATITUDES[entityIndex]}, ${LONGITUDES[entityIndex]}, `
                         + `"${GEOMETRIES[entityIndex]}"}`
@@ -85,6 +90,27 @@ function tableTmdl() {
         "\t\tsummarizeBy: none",
         "\t\tisNameInferred",
         "\t\tsourceColumn: [Entity]",
+        "",
+        "\t\tannotation SummarizationSetBy = Automatic",
+        "",
+        "\tcolumn WorldKey",
+        "\t\tsummarizeBy: none",
+        "\t\tisNameInferred",
+        "\t\tsourceColumn: [WorldKey]",
+        "",
+        "\t\tannotation SummarizationSetBy = Automatic",
+        "",
+        "\tcolumn StateKey",
+        "\t\tsummarizeBy: none",
+        "\t\tisNameInferred",
+        "\t\tsourceColumn: [StateKey]",
+        "",
+        "\t\tannotation SummarizationSetBy = Automatic",
+        "",
+        "\tcolumn CountyKey",
+        "\t\tsummarizeBy: none",
+        "\t\tisNameInferred",
+        "\t\tsourceColumn: [CountyKey]",
         "",
         "\t\tannotation SummarizationSetBy = Automatic",
         "",
@@ -160,6 +186,9 @@ function tableTmdl() {
         "\t\tsource =",
         "\t\t\t\tDATATABLE(",
         '\t\t\t\t    "Entity", STRING,',
+        '\t\t\t\t    "WorldKey", STRING,',
+        '\t\t\t\t    "StateKey", STRING,',
+        '\t\t\t\t    "CountyKey", STRING,',
         '\t\t\t\t    "Period", STRING,',
         '\t\t\t\t    "Band", STRING,',
         '\t\t\t\t    "BandOrder", INTEGER,',
@@ -261,6 +290,15 @@ function visualJson(name, hierarchyProperties, withSeries, metrics, options = {}
                     properties: {
                         mode: { expr: {
                             Literal: { Value: `'${options.contextMode ?? "none"}'` }
+                        } },
+                        pack: { expr: {
+                            Literal: { Value: `'${options.contextPack ?? "worldCountries"}'` }
+                        } },
+                        worldDetail: { expr: {
+                            Literal: { Value: `'${options.worldDetail ?? "110m"}'` }
+                        } },
+                        packKeyMode: { expr: {
+                            Literal: { Value: `'${options.packKeyMode ?? "auto"}'` }
                         } }
                     }
                 }],
@@ -355,6 +393,55 @@ const pages = [
                 contextLayout: "focusLens"
             }
         }]
+    },
+    {
+        name: "pageWorldPack",
+        displayName: "6 - World countries (synthetic)",
+        visuals: [{
+            name: "visualWorldPack",
+            hierarchy: ["WorldKey", "Band"],
+            series: false,
+            metrics: ["Metric A", "Metric B"],
+            options: {
+                contextMode: "builtInPack",
+                contextPack: "worldCountries",
+                worldDetail: "110m",
+                packKeyMode: "canonical",
+                contextValue: true
+            }
+        }]
+    },
+    {
+        name: "pageStatePack",
+        displayName: "7 - US states and equivalents (synthetic)",
+        visuals: [{
+            name: "visualStatePack",
+            hierarchy: ["StateKey", "Band"],
+            series: false,
+            metrics: ["Metric A", "Metric B"],
+            options: {
+                contextMode: "builtInPack",
+                contextPack: "usStates",
+                packKeyMode: "geoid2",
+                contextValue: true
+            }
+        }]
+    },
+    {
+        name: "pageCountyPack",
+        displayName: "8 - US counties and equivalents (synthetic)",
+        visuals: [{
+            name: "visualCountyPack",
+            hierarchy: ["CountyKey", "Band"],
+            series: false,
+            metrics: ["Metric A", "Metric B"],
+            options: {
+                contextMode: "builtInPack",
+                contextPack: "usCounties",
+                packKeyMode: "geoid5",
+                contextValue: true
+            }
+        }]
     }
 ];
 
@@ -362,11 +449,13 @@ fs.rmSync(sampleRoot, { recursive: true, force: true });
 
 writeText(path.join(sampleRoot, "README.md"), `# Atlyn Profile Lens offline PBIP sample
 
-Generated by \`npm run sample:pbip\`. The five pages retain the two profile examples and add
-nongeographic grid and hex layouts, bound WGS84 points, and strict WKT polygons.
+Generated by \`npm run sample:pbip\`. The eight pages retain the two profile examples and add
+nongeographic grid and hex layouts, bound WGS84 points, strict WKT polygons, and offline world,
+US state/equivalent, and US county/equivalent pack examples.
 
 The semantic model contains only a synthetic DAX \`DATATABLE\` with generic product, team, facility,
-seat, period, band, series, and metric labels. It has no data source, credentials, refresh, file
+seat, exact cartographic text keys, period, band, series, and metric labels. Every metric is
+synthetic. The project has no data source, credentials, refresh, file
 access, or network dependency. Latitude, longitude, geometry, and context measures are projections
 over the same synthetic rows.
 

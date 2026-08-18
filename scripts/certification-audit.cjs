@@ -70,6 +70,10 @@ const packages = fs.readdirSync(packageDirectory).filter((entry) => entry.endsWi
 assert(packages.length === 1, "dist must contain exactly one freshly generated PBIVIZ");
 assert(packages[0] === packageName, `package filename must be ${packageName}`);
 assert(fs.statSync(packagePath).size > 0, "generated PBIVIZ is empty");
+assert(
+    fs.statSync(packagePath).size <= 2 * 1024 * 1024,
+    "generated PBIVIZ exceeds the 2 MiB context-pack release budget"
+);
 
 const generatedMetadata = readJson(path.join("dist", "package.json"));
 assert(

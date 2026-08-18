@@ -11,7 +11,7 @@ values, coordinate pairs, and geometry text. Context preprocessing then:
 4. rejects unknown CRS, `GeometryCollection`, malformed rings, non-finite values, and out-of-range
    coordinates;
 5. enforces depth 12, 256 rings/feature, 4,096 vertices/feature, 100,000 vertices/scene, 16,384 WKT
-   tokens, and 1,000 entities/features.
+   tokens, 4,000 entities/trusted built-in pack features, and 1,000 untrusted bound features.
 
 No preprocessing reads files, uploads data, calls a network service, evaluates source text, applies a
 projection, guesses a CRS, or loads a geography pack.
@@ -39,9 +39,17 @@ bounded geometry text. A scene contains provider/mode IDs, `ContextFeature` valu
 metrics, diagnostics, and partial state. Each feature carries a stable entity key, host identity,
 normalized geometry, context value, and tooltip values.
 
-The shipped registry resolves `none`, `points`, `boundGeometry`, `grid`, and `hex`. A provider must not
+The shipped registry resolves `none`, `points`, `boundGeometry`, `grid`, `hex`, and one generic
+`builtInPack` provider backed by a separate artifact registry. A provider must not
 touch the DOM, Power BI host, storage, files, or network. Renderers depend only on `ContextScene`, so a
 new provider cannot bypass shared rendering, interaction, diagnostics, and accessibility behavior.
+
+Built-in pack artifacts are generated before packaging from pinned, hash-verified public-domain
+sources. Runtime decoding and projection produce the same generic point/polygon scene geometry as
+other providers. Pack canonical keys are lookup-only; `ContextFeature.key` and selection identity
+remain the report entity's stable key and matrix identity. Exact key modes reject coercion, fuzzy
+names, unmatched values, and ambiguous duplicate normalized keys. See
+[context-packs.md](context-packs.md).
 
 ## Layout and rendering
 

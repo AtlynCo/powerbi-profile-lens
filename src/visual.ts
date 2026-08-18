@@ -51,6 +51,7 @@ import {
     NoneContextProvider,
     OddRHexContextProvider,
     RectangularGridContextProvider,
+    StaticContextPackProvider,
     Wgs84PointContextProvider
 } from "./context/providers";
 import { fitScene } from "./context/projection";
@@ -163,6 +164,7 @@ export class Visual implements IVisual {
         this.contextProviders.register(new BoundGeometryContextProvider());
         this.contextProviders.register(new RectangularGridContextProvider());
         this.contextProviders.register(new OddRHexContextProvider());
+        this.contextProviders.register(new StaticContextPackProvider());
         for (const strategy of createDefaultDetailStrategies()) {
             this.detailStrategies.register(strategy);
         }
@@ -536,7 +538,16 @@ export class Visual implements IVisual {
             authorLimits: {
                 maxGeometryCharacters: this.settings.maxGeometryCharacters,
                 maxSceneVertices: this.settings.maxSceneVertices
-            }
+            },
+            pack: this.settings.contextMode === "builtInPack"
+                ? {
+                    id: resolvePackId(this.settings.contextPack, this.settings.worldDetail),
+                    keyMode: resolvePackKeyMode(
+                        this.settings.contextPack,
+                        this.settings.packKeyMode
+                    )
+                }
+                : undefined
         };
         const provider = this.contextProviders.resolve(this.settings.contextMode, input);
         if (provider) {
@@ -1026,6 +1037,26 @@ function rememberedFocusKey(model: ProfileDataModel): string | null {
 
 function emptyModelShim(): ProfileDataModel {
     return parseMatrix(undefined);
+}
+
+function resolvePackId(
+    pack: "worldCountries" | "usStates" | "usCounties",
+    worldDetail: "110m" | "50m"
+): string {
+    if (pack === "worldCountries") {
+        return `world-countries-${worldDetail}`;
+    }
+    return pack === "usStates" ? "us-states-2025-5m" : "us-counties-2025-5m";
+}
+
+function resolvePackKeyMode(
+    pack: "worldCountries" | "usStates" | "usCounties",
+    selected: "auto" | "canonical" | "isoAlpha3CaseFold" | "geoid2" | "geoid5"
+): string {
+    if (selected !== "auto") {
+        return selected;
+    }
+    return pack === "worldCountries" ? "canonical" : pack === "usStates" ? "geoid2" : "geoid5";
 }
 
 function appendChild(parent: HTMLElement, tag: string, className: string): HTMLElement {

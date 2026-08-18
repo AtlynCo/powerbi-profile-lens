@@ -21,7 +21,11 @@ export function spatialNeighbor(
             : direction;
     const current = features.find((feature) => `context:${feature.key}` === currentKey) ?? features[0];
     const origin = projectedCenter(current, transform);
-    const candidates = features
+    const adjacent = current.navigationKeys?.length
+        ? features.filter((feature) => current.navigationKeys?.includes(feature.key))
+        : [];
+    const pool = adjacent.length > 0 ? adjacent : features;
+    const candidates = pool
         .filter((feature) => feature !== current)
         .map((feature) => {
             const point = projectedCenter(feature, transform);
@@ -42,5 +46,14 @@ export function spatialNeighbor(
         .filter((candidate) => candidate.directional)
         .sort((left, right) =>
             left.score - right.score || compareStableKeys(left.feature.key, right.feature.key));
-    return candidates[0]?.feature ?? current;
+    if (candidates[0]) {
+        return candidates[0].feature;
+    }
+    if (pool !== features) {
+        return spatialNeighbor(features.map((feature) => ({
+            ...feature,
+            navigationKeys: undefined
+        })), currentKey, direction, transform, rtl);
+    }
+    return current;
 }
