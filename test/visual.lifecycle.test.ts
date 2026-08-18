@@ -81,6 +81,14 @@ function contextMetrics(root: HTMLElement): {
     }).__profileLensContextMetrics;
 }
 
+function cameraValues(root: HTMLElement): readonly number[] {
+    const transform = root.querySelector(".profile-lens-context-outline-layer")
+        ?.getAttribute("transform") ?? "";
+    const values = transform.match(/-?\d+(?:\.\d+)?(?:e[+-]?\d+)?/gi)?.map(Number) ?? [];
+    expect(values).toHaveLength(6);
+    return values;
+}
+
 describe("visual lifecycle", () => {
     beforeEach(() => {
         resetDocument();
@@ -904,6 +912,137 @@ describe("interaction", () => {
         }
     });
 
+    it("rebases two-pointer pinch to one-pointer pan without a camera jump", () => {
+        const { mock, visual } = mount();
+        visual.update(updateOptions(buildMatrixDataView({
+            entities: ["Entity A", "Entity B"],
+            bands: ["Band 1"],
+            profiles: ["Metric A"],
+            objects: {
+                context: { mode: "grid" },
+                navigation: { enabled: true }
+            }
+        })));
+        const surface = mock.element.querySelector<HTMLElement>(".profile-lens-context")!;
+        setSurfaceBounds(surface, 320, 300);
+        surface.dispatchEvent(pointer("pointerdown", {
+            pointerId: 21,
+            pointerType: "touch",
+            button: 0,
+            clientX: 100,
+            clientY: 150
+        }));
+        surface.dispatchEvent(pointer("pointerdown", {
+            pointerId: 22,
+            pointerType: "touch",
+            button: 0,
+            clientX: 200,
+            clientY: 150
+        }));
+        surface.dispatchEvent(pointer("pointermove", {
+            pointerId: 22,
+            pointerType: "touch",
+            clientX: 240,
+            clientY: 170
+        }));
+        const pinched = cameraValues(surface);
+        surface.dispatchEvent(pointer("pointerup", {
+            pointerId: 22,
+            pointerType: "touch",
+            clientX: 240,
+            clientY: 170
+        }));
+        expect(cameraValues(surface)).toEqual(pinched);
+
+        surface.dispatchEvent(pointer("pointermove", {
+            pointerId: 21,
+            pointerType: "touch",
+            clientX: 110,
+            clientY: 155
+        }));
+        const rebased = cameraValues(surface);
+        expect(rebased[0]).toBeCloseTo(pinched[0], 12);
+        expect(rebased[3]).toBeCloseTo(pinched[3], 12);
+        expect(rebased[4] - pinched[4]).toBeGreaterThanOrEqual(0);
+        expect(rebased[4] - pinched[4]).toBeLessThanOrEqual(10);
+        expect(rebased[5] - pinched[5]).toBeGreaterThanOrEqual(0);
+        expect(rebased[5] - pinched[5]).toBeLessThanOrEqual(5);
+        surface.dispatchEvent(pointer("pointerup", {
+            pointerId: 21,
+            pointerType: "touch",
+            clientX: 110,
+            clientY: 155
+        }));
+        expect(mock.selection.select).not.toHaveBeenCalled();
+        expect(contextMetrics(surface).moveEnds).toBe(1);
+    });
+
+    it("contains finite nonzero wheel gestures at min/max zoom with one settle", () => {
+        vi.useFakeTimers();
+        try {
+            const { mock, visual } = mount();
+            visual.update(updateOptions(buildMatrixDataView({
+                entities: ["Entity A", "Entity B"],
+                bands: ["Band 1"],
+                profiles: ["Metric A"],
+                objects: {
+                    context: { mode: "grid" },
+                    navigation: { enabled: true, minZoom: 7.3, maxZoom: 7.3 }
+                }
+            })));
+            const surface = mock.element.querySelector<HTMLElement>(".profile-lens-context")!;
+            setSurfaceBounds(surface, 320, 300);
+            let bubbled = 0;
+            mock.element.addEventListener("wheel", () => {
+                bubbled++;
+            });
+            const before = { ...contextMetrics(surface) };
+            const atMinimum = pointer("wheel", {
+                deltaY: 120,
+                deltaMode: 0,
+                clientX: 160,
+                clientY: 150
+            });
+            const atMaximum = pointer("wheel", {
+                deltaY: -120,
+                deltaMode: 0,
+                clientX: 160,
+                clientY: 150
+            });
+            surface.dispatchEvent(atMinimum);
+            surface.dispatchEvent(atMaximum);
+            expect(atMinimum.defaultPrevented).toBe(true);
+            expect(atMaximum.defaultPrevented).toBe(true);
+            expect(bubbled).toBe(0);
+            expect(contextMetrics(surface).cameraFrames).toBe(before.cameraFrames);
+            expect(vi.getTimerCount()).toBe(1);
+            vi.advanceTimersByTime(120);
+            expect(contextMetrics(surface).moveEnds - before.moveEnds).toBe(1);
+            expect(vi.getTimerCount()).toBe(0);
+
+            const zero = pointer("wheel", {
+                deltaY: 0,
+                deltaMode: 0,
+                clientX: 160,
+                clientY: 150
+            });
+            const invalid = pointer("wheel", {
+                deltaY: Number.NaN,
+                deltaMode: 0,
+                clientX: 160,
+                clientY: 150
+            });
+            surface.dispatchEvent(zero);
+            surface.dispatchEvent(invalid);
+            expect(zero.defaultPrevented).toBe(false);
+            expect(invalid.defaultPrevented).toBe(false);
+            expect(bubbled).toBe(2);
+            expect(vi.getTimerCount()).toBe(0);
+        } finally {
+            vi.useRealTimers();
+        }
+    });
+
     it("does not capture or prevent navigation input when interactions are disabled", () => {
         const { mock, visual } = mount({ allowInteractions: false });
         visual.update(updateOptions(buildMatrixDataView({
@@ -1031,9 +1170,22 @@ describe("accessibility and theming", () => {
 
     it("uses the host high contrast colors and pattern differentiation", () => {
         const { mock, visual } = mount({ highContrast: true });
-        visual.update(updateOptions(dataView()));
-        const root = mock.element.querySelector(".profile-lens");
+        visual.update(updateOptions(buildMatrixDataView({
+            entities: ["Entity A", "Entity B"],
+            bands: ["Band 1"],
+            profiles: ["Metric A"],
+            objects: {
+                context: { mode: "grid" },
+                navigation: { enabled: true }
+            }
+        })));
+        const root = mock.element.querySelector<HTMLElement>(".profile-lens");
         expect(root?.classList.contains("profile-lens-high-contrast")).toBe(true);
+        expect(root?.style.getPropertyValue("--profile-lens-foreground")).toBe("#FFFFFF");
+        expect(root?.style.getPropertyValue("--profile-lens-background")).toBe("#000000");
+        expect(root?.style.getPropertyValue("--profile-lens-selected")).toBe("#00FF00");
+        expect(root?.style.getPropertyValue("--profile-lens-muted")).toBe("#FFFFFF");
+        expect(root?.style.getPropertyValue("--profile-lens-border")).toBe("#FFFFFF");
         const rect = mock.element.querySelector(".profile-lens-target rect");
         expect(rect?.getAttribute("fill")).toBe("#FFFFFF");
         expect(rect?.getAttribute("stroke")).toBe("#FFFFFF");

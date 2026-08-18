@@ -114,10 +114,13 @@ The only v1 modes are local focus and host report selection; neither writes an o
 
 Viewport navigation is a separate, opt-in local state transition. A pointer-captured primary drag
 owns the gesture after four CSS pixels and consumes its click. Wheel/trackpad zoom uses a non-passive
-listener only on the active viewport and one 120 ms settle timeout. One touch pointer pans and two
-touch pointers pinch around their midpoint. Pointer cancel/lost capture is idempotent. Plain Arrow
-retains entity navigation; Shift+Arrow pans, `+`/`-` zooms, and Home resets. Camera movement and
-move-end make no host selection or filter call in 1.3.0.
+listener only on the active viewport and one 120 ms settle timeout. Finite nonzero wheel gestures are
+contained even when zoom is already clamped; zero/invalid or disabled input is not consumed. One touch
+pointer pans. Two touch pointers snapshot the starting camera and scene anchor, then solve zoom plus
+midpoint translation from that snapshot and clamp the complete camera once. Returning from two
+pointers to one rebases pan without changing the camera. Pointer cancel/lost capture is idempotent.
+Plain Arrow retains entity navigation; Shift+Arrow pans, `+`/`-` zooms, and Home resets. Camera
+movement and move-end make no host selection or filter call in 1.3.0.
 
 The fixed center probe is descriptive only in this release. It does not resolve an entity or change
 the profile. Built-in pack scenes remain report-bound; full-pack backdrop/data separation and
@@ -126,6 +129,10 @@ probe-driven focus are later layers.
 The semantic status and profile table remain available at every responsive size. Feature descriptions,
 focus order, selected state, tooltip text, high-contrast cues, RTL, and reduced-motion behavior are
 kept equivalent between SVG and Canvas.
+
+Resolved theme colors are also published as CSS variables. Navigation help, attribution, reset
+control, focus outlines, context background, and disabled chrome use the host high-contrast
+foreground/background/selected palette rather than fixed light-theme colors.
 
 When host interactions are disabled, camera listeners, capture, wheel prevention, controls, focus
 chrome, tooltip resolution during gestures, and every host call are disabled. The current camera is

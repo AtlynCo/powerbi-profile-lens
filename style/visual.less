@@ -12,7 +12,7 @@
     overflow: hidden;
     font-family: @font-stack;
     font-size: 12px;
-    color: @text-color;
+    color: var(--profile-lens-foreground, @text-color);
     background: transparent;
 
     *,
@@ -22,7 +22,7 @@
     }
 
     &:focus-visible {
-        outline: 2px solid @text-color;
+        outline: 2px solid var(--profile-lens-foreground, @text-color);
         outline-offset: -2px;
     }
 
@@ -64,7 +64,7 @@
     max-height: 100%;
 
     &:focus-visible {
-        outline: 2px solid @text-color;
+        outline: 2px solid var(--profile-lens-foreground, @text-color);
         outline-offset: -2px;
     }
 
@@ -100,12 +100,12 @@
 
 .profile-lens-context-attribution {
     position: absolute;
-    right: 4px;
+    inset-inline-end: 4px;
     bottom: 2px;
     z-index: 2;
     max-width: calc(100% - 8px);
     overflow: hidden;
-    color: #605e5c;
+    color: var(--profile-lens-muted, @muted-color);
     font-size: 8px;
     line-height: 10px;
     text-overflow: ellipsis;
@@ -120,7 +120,7 @@
     z-index: 2;
     max-width: calc(100% - 96px);
     overflow: hidden;
-    color: @muted-color;
+    color: var(--profile-lens-muted, @muted-color);
     font-size: 9px;
     line-height: 11px;
     text-overflow: ellipsis;
@@ -135,13 +135,23 @@
     z-index: 3;
     min-width: 28px;
     min-height: 24px;
+    max-width: calc(100% - 8px);
     padding: 2px 6px;
-    border: 1px solid @border-color;
+    overflow: hidden;
+    border: 1px solid var(--profile-lens-border, @border-color);
     border-radius: 2px;
-    color: @text-color;
-    background: #FFF;
+    color: var(--profile-lens-foreground, @text-color);
+    background: var(--profile-lens-background, #FFF);
     font: inherit;
+    text-overflow: ellipsis;
+    white-space: nowrap;
     cursor: pointer;
+
+    &:focus,
+    &:focus-visible {
+        outline: 2px solid var(--profile-lens-selected, @text-color);
+        outline-offset: 1px;
+    }
 
     &:disabled {
         cursor: default;
@@ -365,10 +375,27 @@
         border-width: 2px;
     }
 
+    .profile-lens-context {
+        color: var(--profile-lens-foreground);
+        background: var(--profile-lens-background);
+    }
+
+    .profile-lens-context-help,
+    .profile-lens-context-attribution {
+        color: var(--profile-lens-foreground);
+        background: var(--profile-lens-background);
+    }
+
     .profile-lens-context-reset {
         border-width: 2px;
-        color: inherit;
-        background: transparent;
+        border-color: var(--profile-lens-foreground);
+        color: var(--profile-lens-foreground);
+        background: var(--profile-lens-background);
+
+        &:disabled {
+            opacity: 1;
+            border-style: dashed;
+        }
     }
 }
 

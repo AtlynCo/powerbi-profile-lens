@@ -27,6 +27,9 @@ export interface MockSelectionId {
 export interface MockHostOptions {
     readonly allowInteractions?: boolean;
     readonly highContrast?: boolean;
+    readonly highContrastForeground?: string;
+    readonly highContrastBackground?: string;
+    readonly highContrastSelected?: string;
     readonly locale?: string;
     readonly tooltipsEnabled?: boolean;
     readonly moreDataAvailable?: boolean;
@@ -122,16 +125,16 @@ export function createMockHost(options: MockHostOptions = {}): MockHost {
 
     const colorPalette = {
         isHighContrast: Boolean(options.highContrast),
-        foreground: { value: "#FFFFFF" },
+        foreground: { value: options.highContrastForeground ?? "#FFFFFF" },
         foregroundLight: { value: "#FFFFFF" },
         foregroundDark: { value: "#000000" },
         foregroundNeutralLight: { value: "#FFFFFF" },
         foregroundNeutralDark: { value: "#000000" },
         foregroundNeutralSecondary: { value: "#FFFFFF" },
         foregroundNeutralSecondaryAlt: { value: "#FFFFFF" },
-        foregroundSelected: { value: "#00FF00" },
+        foregroundSelected: { value: options.highContrastSelected ?? "#00FF00" },
         foregroundButton: { value: "#FFFFFF" },
-        background: { value: "#000000" },
+        background: { value: options.highContrastBackground ?? "#000000" },
         backgroundLight: { value: "#000000" },
         backgroundNeutral: { value: "#000000" },
         backgroundDark: { value: "#000000" },

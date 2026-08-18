@@ -47,6 +47,13 @@ range is 1 through 8, bounded pan keeps the scene from being lost, and valid res
 viewed scene center. Enabling it is recommended for authored geographic pack pages, but the choice is
 an ordinary compatible setting rather than provider-specific core behavior.
 
+Pinch uses one gesture-start camera snapshot: zoom and midpoint translation are solved together and
+clamped once, so reaching an edge or zoom limit does not introduce an incremental jump. While
+navigation is active, finite nonzero wheel input is contained inside the viewport even when the camera
+is already at minimum or maximum zoom; zero, invalid, disabled, and navigation-off input is left to the
+host. High-contrast probe, help, focus, and reset chrome use the host foreground, background, and
+selected colors through resolved theme variables.
+
 The fixed center probe is visual and descriptive in 1.3.0. It does **not** change the focused Entity,
 header, profile, or host selection; click and keyboard entity selection remain authoritative.
 Built-in packs still render only report-bound entities, not a full-pack backdrop. Inertia, rotation,

@@ -6,6 +6,11 @@ export interface ContextCamera {
     readonly panY: number;
 }
 
+export interface ContextPinchSnapshot {
+    readonly baseAnchor: ScenePoint;
+    readonly zoom: number;
+}
+
 export interface CameraLimits {
     readonly minZoom: number;
     readonly maxZoom: number;
@@ -32,4 +37,3 @@ export interface ContextViewportSession {
     readonly viewport: Viewport;
     readonly invalidResize: boolean;
 }
-

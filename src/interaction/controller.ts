@@ -10,6 +10,7 @@ import {
     wheelZoomFactor
 } from "../context/viewport/gestureState";
 import type { GesturePointer } from "../context/viewport/gestureState";
+import type { ContextPinchSnapshot } from "../context/viewport/contract";
 
 type ISelectionId = powerbi.extensibility.ISelectionId;
 type ISelectionManager = powerbi.extensibility.ISelectionManager;
@@ -42,12 +43,13 @@ export interface SurfaceNavigation {
     readonly rtl: boolean;
     readonly panBy: (deltaX: number, deltaY: number) => boolean;
     readonly zoomAt: (factor: number, x: number, y: number) => boolean;
-    readonly pinchBy: (
-        factor: number,
-        anchorX: number,
-        anchorY: number,
-        deltaX: number,
-        deltaY: number
+    readonly beginPinch: (midpointX: number, midpointY: number) =>
+        ContextPinchSnapshot | null;
+    readonly pinchTo: (
+        snapshot: ContextPinchSnapshot,
+        distanceRatio: number,
+        midpointX: number,
+        midpointY: number
     ) => boolean;
     readonly reset: () => boolean;
     readonly moveEnd: () => void;
@@ -83,8 +85,8 @@ export class InteractionController {
     private gesturePhase: "idle" | "pressed" | "panning" | "pinching" = "idle";
     private gestureStart: GesturePointer | null = null;
     private gestureLast: GesturePointer | null = null;
-    private pinchMidpoint: { readonly x: number; readonly y: number } | null = null;
-    private pinchDistance = 0;
+    private pinchSnapshot: ContextPinchSnapshot | null = null;
+    private pinchStartDistance = 0;
     private suppressSurfaceClick = false;
     private wheelSettleTimer: ReturnType<typeof setTimeout> | null = null;
     private gestureElement: HTMLElement | null = null;
@@ -412,10 +414,16 @@ export class InteractionController {
             return;
         }
         const [first, second] = [...this.gesturePointers.values()];
+        const midpoint = pointerMidpoint(first, second);
+        const snapshot = navigation.beginPinch(midpoint.x, midpoint.y);
+        if (!snapshot) {
+            this.gesturePointers.delete(second.id);
+            return;
+        }
         this.gesturePhase = "pinching";
         surface.element.classList.add("profile-lens-context-panning");
-        this.pinchMidpoint = pointerMidpoint(first, second);
-        this.pinchDistance = pointerDistance(first, second);
+        this.pinchSnapshot = snapshot;
+        this.pinchStartDistance = pointerDistance(first, second);
         this.suppressSurfaceClick = true;
         this.hideTooltip();
         event.preventDefault();
@@ -433,20 +441,17 @@ export class InteractionController {
         this.gesturePointers.set(pointer.id, pointer);
         if (this.gesturePhase === "pinching") {
             const [first, second] = [...this.gesturePointers.values()];
-            if (!first || !second || !this.pinchMidpoint || this.pinchDistance <= 0) {
+            if (!first || !second || !this.pinchSnapshot || this.pinchStartDistance <= 0) {
                 return true;
             }
             const midpoint = pointerMidpoint(first, second);
             const distance = pointerDistance(first, second);
-            navigation.pinchBy(
-                distance / this.pinchDistance,
-                this.pinchMidpoint.x,
-                this.pinchMidpoint.y,
-                midpoint.x - this.pinchMidpoint.x,
-                midpoint.y - this.pinchMidpoint.y
+            navigation.pinchTo(
+                this.pinchSnapshot,
+                distance / this.pinchStartDistance,
+                midpoint.x,
+                midpoint.y
             );
-            this.pinchMidpoint = midpoint;
-            this.pinchDistance = distance;
             this.suppressSurfaceClick = true;
             this.hideTooltip();
             event.preventDefault();
@@ -501,8 +506,8 @@ export class InteractionController {
             this.gesturePhase = moved ? "panning" : "pressed";
             this.gestureStart = remaining;
             this.gestureLast = remaining;
-            this.pinchMidpoint = null;
-            this.pinchDistance = 0;
+            this.pinchSnapshot = null;
+            this.pinchStartDistance = 0;
             this.suppressSurfaceClick ||= moved || cancelled;
             return;
         }
@@ -519,21 +524,28 @@ export class InteractionController {
             return;
         }
         const bounds = surface.element.getBoundingClientRect();
-        const delta = normalizeWheelDelta(event.deltaY, event.deltaMode, bounds.height);
-        if (delta === 0) {
+        if (
+            !Number.isFinite(event.deltaY)
+            || !Number.isFinite(event.deltaMode)
+            || !Number.isFinite(event.clientX)
+            || !Number.isFinite(event.clientY)
+            || !Number.isFinite(bounds.height)
+            || bounds.height <= 0
+        ) {
             return;
         }
-        const changed = navigation.zoomAt(
-            wheelZoomFactor(delta, navigation.wheelSensitivity),
-            (event.clientX ?? 0) - bounds.left,
-            (event.clientY ?? 0) - bounds.top
-        );
-        if (!changed) {
+        const delta = normalizeWheelDelta(event.deltaY, event.deltaMode, bounds.height);
+        if (delta === 0) {
             return;
         }
         event.preventDefault();
         event.stopPropagation();
         this.hideTooltip();
+        navigation.zoomAt(
+            wheelZoomFactor(delta, navigation.wheelSensitivity),
+            event.clientX - bounds.left,
+            event.clientY - bounds.top
+        );
         this.clearWheelSettle();
         this.wheelSettleTimer = setTimeout(() => {
             this.wheelSettleTimer = null;
@@ -646,8 +658,8 @@ export class InteractionController {
         this.gesturePhase = "idle";
         this.gestureStart = null;
         this.gestureLast = null;
-        this.pinchMidpoint = null;
-        this.pinchDistance = 0;
+        this.pinchSnapshot = null;
+        this.pinchStartDistance = 0;
         if (!preserveSuppression) {
             this.suppressSurfaceClick = false;
         }

@@ -505,7 +505,8 @@ function renderNavigationChrome(
         elements.resetButton.setAttribute("hidden", "hidden");
     }
     elements.help.textContent = request.navigation.gestureHelp;
-    if (request.navigation.enabled && request.navigation.showGestureHelp) {
+    const helpFits = request.viewport.width >= 120 && request.viewport.height >= 120;
+    if (request.navigation.enabled && request.navigation.showGestureHelp && helpFits) {
         elements.help.removeAttribute("hidden");
     } else {
         elements.help.setAttribute("hidden", "hidden");

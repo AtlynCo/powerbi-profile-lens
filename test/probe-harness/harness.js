@@ -173,6 +173,9 @@
 
     function buildHost(options) {
         var highContrast = Boolean(options.highContrast);
+        var highContrastForeground = options.highContrastForeground || "#FFFFFF";
+        var highContrastBackground = options.highContrastBackground || "#000000";
+        var highContrastSelected = options.highContrastSelected || "#00FF00";
         var calls = {
             tooltipShow: 0,
             tooltipHide: 0,
@@ -187,16 +190,16 @@
         var counter = 0;
         var palette = {
             isHighContrast: highContrast,
-            foreground: { value: highContrast ? "#FFFFFF" : "#252423" },
+            foreground: { value: highContrast ? highContrastForeground : "#252423" },
             foregroundLight: { value: "#FFFFFF" },
             foregroundDark: { value: "#000000" },
             foregroundNeutralLight: { value: "#FFFFFF" },
             foregroundNeutralDark: { value: "#000000" },
             foregroundNeutralSecondary: { value: "#FFFFFF" },
             foregroundNeutralSecondaryAlt: { value: "#FFFFFF" },
-            foregroundSelected: { value: highContrast ? "#00FF00" : "#000000" },
+            foregroundSelected: { value: highContrast ? highContrastSelected : "#000000" },
             foregroundButton: { value: "#FFFFFF" },
-            background: { value: highContrast ? "#000000" : "#FFFFFF" },
+            background: { value: highContrast ? highContrastBackground : "#FFFFFF" },
             backgroundLight: { value: "#FFFFFF" },
             backgroundNeutral: { value: "#FFFFFF" },
             backgroundDark: { value: "#000000" },
