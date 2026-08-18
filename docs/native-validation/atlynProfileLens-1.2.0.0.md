@@ -6,8 +6,9 @@ The exact release candidate at source commit `15721d6b90b4793728d01c30b0ac582a9d
 was packaged as `dist/atlynProfileLens.1.2.0.0.pbiviz` (472,353 bytes,
 SHA-256 `83f85fcf44c5e1b49ea22f657bd980f7c408370d1267cd91291de81b2e30db56`).
 Power BI Desktop `2.156.951.0 (26.07)+c9381f8e5efc99c8de04425f1572e841914690d8`
-opened the exact generated PBIP and exposed a responsive owned window titled
-`AtlynProfileLensSample`.
+opened a PBIP at the intended logical sample path and exposed a responsive owned report window.
+The generated project was not contemporaneously hashed before that blocked launch, so this record
+does **not** claim that the current 12-page fixture tree was the exact opened bytes.
 
 The execution context then reported foreground window handle `0`. The approved safety guard could
 not prove that the owned report window was foreground, so it refused all UI Automation, keyboard,
@@ -15,12 +16,22 @@ pointer, Save As, and close/reopen input. The first bounded diagnostic establish
 title used by this Desktop build; the second established the unavailable foreground desktop. No
 blind retry or input to an unproven window occurred.
 
+The current prepared fixture is now reproducibly bound by
+`samples/AtlynProfileLensSample/sample-integrity.json`: project tree
+`b287ce8bbd5c5192940c78ca653373abe9f2a99c02788c2efae4bae564818e3f`, report definition
+`c7b5e4f05b4e86b2d7e3854ef7590ac0ce3570f37b46152c59a5fdae53e6b710`, model definition
+`407a94d172ea8ef05797a2856a96dc49d9aa76046b5ade4210d5417e4518db9c`, generator
+`f340fffa53db6fc6d6b488b967f9d1ea2e61978457a7d2f07361356c628c2a38`, PBIP entry point
+`b8bd879c17924ff02f4a81e864b86f9fbb8668025e25747e34198f3fe024c4b9`, and embedded visual
+resource `19bbf6ffbdfe10c67707dff348879570a7b0e9234fd00973a22bedc2e92c91f7`.
+These hashes prepare a future run; they are not retroactive native evidence.
+
 Consequently, no genuine PBIX was produced. Field-well progression, profile and context behavior,
 native selection, context menus, tooltips, keyboard interaction, lifecycle surfaces, Save As,
 offline PBIX reopen, PBIX hash stability, and PBIX embedded-resource parity remain **unproven**.
 PBIP structure and automated Chromium coverage are not substitutes for those observations.
 
-The clean automated baseline passed 180 unit tests, 21 packaged-browser probes, four deterministic
+The clean automated baseline passed 183 unit tests, 21 packaged-browser probes, four deterministic
 context-pack validations and opposite-timezone rebuilds, and `npm audit` with zero vulnerabilities.
 Those results prove only their documented automated boundary.
 

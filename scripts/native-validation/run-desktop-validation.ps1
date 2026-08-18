@@ -12,8 +12,58 @@ $root = (Resolve-Path (Join-Path $PSScriptRoot "..\..")).Path
 $pbipPath = (Resolve-Path (Join-Path $root $Pbip)).Path
 $pbixPath = [System.IO.Path]::GetFullPath((Join-Path $root $Pbix))
 $evidencePath = [System.IO.Path]::GetFullPath((Join-Path $root $EvidenceDirectory))
+$expectedPbipRelative = "samples\AtlynProfileLensSample\AtlynProfileLensSample.pbip"
+$expectedPbixRelative = "dist\release\AtlynProfileLensSample-1.2.0.0.pbix"
+$pbipRelative = [System.IO.Path]::GetRelativePath($root, $pbipPath)
+$pbixRelative = [System.IO.Path]::GetRelativePath($root, $pbixPath)
+$evidenceRelative = [System.IO.Path]::GetRelativePath($root, $evidencePath)
+if ($pbipRelative -ne $expectedPbipRelative -or $pbixRelative -ne $expectedPbixRelative -or
+    $evidenceRelative -ne "dist\release\native-evidence" -or
+    [System.IO.Path]::IsPathRooted($pbipRelative) -or
+    [System.IO.Path]::IsPathRooted($pbixRelative) -or
+    [System.IO.Path]::IsPathRooted($evidenceRelative) -or
+    $pbipRelative.StartsWith("..") -or $pbixRelative.StartsWith("..") -or
+    $evidenceRelative.StartsWith("..")) {
+    throw "Native validation accepts only the exact repository PBIP, PBIX, and evidence paths"
+}
 $reportName = [System.IO.Path]::GetFileNameWithoutExtension($pbipPath)
 $expectedTitle = "*$reportName*"
+
+function Get-VerifiedSampleIntegrity {
+    $recorded = Get-Content (
+        Join-Path $root "samples\AtlynProfileLensSample\sample-integrity.json"
+    ) -Raw | ConvertFrom-Json
+    $computedJson = & node (Join-Path $root "scripts\sample-integrity.cjs")
+    if ($LASTEXITCODE -ne 0) {
+        throw "Sample integrity computation failed"
+    }
+    $computed = $computedJson | ConvertFrom-Json
+    if (($recorded | ConvertTo-Json -Depth 8 -Compress) -ne
+        ($computed | ConvertTo-Json -Depth 8 -Compress)) {
+        throw "The exact PBIP project differs from its deterministic integrity manifest"
+    }
+    return $computed
+}
+$computedSampleIntegrity = Get-VerifiedSampleIntegrity
+$boundPaths = @(
+    "package.json", "package-lock.json", "pbiviz.json", "capabilities.json",
+    "assets/icon.png", "src", "style", "stringResources",
+    "scripts/build-sample-report.cjs", "scripts/sample-integrity.cjs",
+    "samples/AtlynProfileLensSample"
+)
+$dirty = @(& git -C $root status --porcelain --untracked-files=all -- @boundPaths)
+if ($LASTEXITCODE -ne 0) {
+    throw "Git cleanliness verification failed"
+}
+if ($dirty.Count -gt 0) {
+    throw "Native validation requires clean tracked and untracked package and fixture paths"
+}
+$sourceCommit = (& git -C $root rev-parse HEAD)
+if ($LASTEXITCODE -ne 0 -or $sourceCommit.Count -ne 1 -or
+    $sourceCommit.Trim() -notmatch "^[0-9a-f]{40}$") {
+    throw "Git source commit verification failed"
+}
+$sourceCommit = $sourceCommit.Trim()
 $pages = @(
     "1 - Entity and band",
     "2 - Entity, period, band with series",
@@ -33,7 +83,21 @@ function Start-OwnedReport {
     param([string]$Path)
     $existing = @(Get-Process -Name PBIDesktop -ErrorAction SilentlyContinue)
     if ($existing.Count -gt 0) {
-        throw "Desktop ownership blocker: existing PBIDesktop processes: $($existing.Id -join ', ')"
+        throw "Desktop ownership blocker: an existing Power BI Desktop process is present"
+    }
+    if ($Path -eq $pbipPath) {
+        $script:computedSampleIntegrity = Get-VerifiedSampleIntegrity
+        $launchDirty = @(
+            & git -C $root status --porcelain --untracked-files=all -- @boundPaths
+        )
+        if ($LASTEXITCODE -ne 0 -or $launchDirty.Count -gt 0) {
+            throw "Package or fixture paths changed at the launch boundary"
+        }
+        $launchCommit = (& git -C $root rev-parse HEAD)
+        if ($LASTEXITCODE -ne 0 -or $launchCommit.Count -ne 1 -or
+            $launchCommit.Trim() -ne $sourceCommit) {
+            throw "Source commit changed at the launch boundary"
+        }
     }
     $known = @($existing.Id)
     Start-Process $desktopExe -ArgumentList "`"$Path`""
@@ -53,7 +117,7 @@ function Start-OwnedReport {
 }
 
 function Invoke-PagePass {
-    param([int]$ProcessId, [string]$Pass)
+    param([int]$ProcessId)
     $observations = @()
     foreach ($page in $pages) {
         $element = Find-OwnedElement -ProcessId $ProcessId -ExpectedTitle $expectedTitle `
@@ -64,10 +128,11 @@ function Invoke-PagePass {
         }
         Invoke-OwnedElement -ProcessId $ProcessId -ExpectedTitle $expectedTitle -Element $element
         Start-Sleep -Seconds 5
-        $fileName = ($page -replace "[^A-Za-z0-9]+", "-").Trim("-").ToLowerInvariant()
-        $capture = Capture-OwnedWindow -ProcessId $ProcessId -ExpectedTitle $expectedTitle `
-            -Path (Join-Path $evidencePath "$Pass-$fileName.png")
-        $observations += [ordered]@{ page = $page; outcome = "observed"; screenshot = $capture }
+        $observations += [ordered]@{
+            page = $page
+            outcome = "page-control-invoked-render-unproven"
+            control = Get-AllowlistedControlProbe -LogicalName "report-page-tab" -Element $element
+        }
     }
     return $observations
 }
@@ -90,12 +155,13 @@ function Invoke-SaveAs {
         Invoke-OwnedElement -ProcessId $ProcessId -ExpectedTitle $expectedTitle -Element $browse
         Start-Sleep -Seconds 3
     }
-    Assert-OwnedDialogForeground -ProcessId $ProcessId -ExpectedDialogTitle "*Save As*"
-    [System.Windows.Forms.SendKeys]::SendWait("^a")
-    Assert-OwnedDialogForeground -ProcessId $ProcessId -ExpectedDialogTitle "*Save As*"
-    [System.Windows.Forms.SendKeys]::SendWait($pbixPath)
-    Assert-OwnedDialogForeground -ProcessId $ProcessId -ExpectedDialogTitle "*Save As*"
-    [System.Windows.Forms.SendKeys]::SendWait("{ENTER}")
+    $filename = Find-OwnedDialogControl -ProcessId $ProcessId -ExpectedDialogTitle "*Save As*" `
+        -ControlType Edit -AutomationId "1001" -RequireValuePattern
+    Set-OwnedDialogValue -ProcessId $ProcessId -ExpectedDialogTitle "*Save As*" `
+        -Target $filename -Value $pbixPath
+    $save = Find-OwnedDialogControl -ProcessId $ProcessId -ExpectedDialogTitle "*Save As*" `
+        -Name "Save" -ControlType Button -RequireInvokePattern
+    Invoke-OwnedDialogControl -ProcessId $ProcessId -ExpectedDialogTitle "*Save As*" -Target $save
     $deadline = (Get-Date).AddMinutes(5)
     $lastLength = -1
     $stable = 0
@@ -108,7 +174,7 @@ function Invoke-SaveAs {
             $lastLength = $length
         }
     }
-    throw "Desktop did not produce a stable PBIX at '$pbixPath'"
+    throw "Desktop did not produce a stable PBIX at the configured release path"
 }
 
 function Close-OwnedReport {
@@ -116,8 +182,6 @@ function Close-OwnedReport {
     $process = Get-OwnedDesktop -ProcessId $ProcessId -ExpectedTitle $expectedTitle
     $process.CloseMainWindow() | Out-Null
     if (-not $process.WaitForExit(30000)) {
-        $probe = Get-OwnedUiaProbe -ProcessId $ProcessId -ExpectedTitle $expectedTitle
-        $probe | ConvertTo-Json -Depth 5 | Set-Content (Join-Path $evidencePath "close-blocker-uia.json")
         Stop-Process -Id $ProcessId
         (Get-Process -Id $ProcessId).WaitForExit(10000)
     }
@@ -128,10 +192,19 @@ if (Test-Path $pbixPath) { Remove-Item $pbixPath -Force }
 
 $record = [ordered]@{
     schemaVersion = 1
+    sourceCommit = $sourceCommit
     startedAt = (Get-Date).ToUniversalTime().ToString("o")
     desktop = (Get-Item $desktopExe).VersionInfo.ProductVersion
-    pbip = $pbipPath
-    pbix = $pbixPath
+    pbip = ($pbipRelative -replace "\\", "/")
+    pbix = ($pbixRelative -replace "\\", "/")
+    sample = [ordered]@{
+        projectTreeSha256 = $computedSampleIntegrity.projectTree.sha256
+        reportDefinitionTreeSha256 = $computedSampleIntegrity.reportDefinitionTree.sha256
+        modelDefinitionTreeSha256 = $computedSampleIntegrity.modelDefinitionTree.sha256
+        generatorSha256 = $computedSampleIntegrity.generator.sha256
+        pbipSha256 = $computedSampleIntegrity.pbip.sha256
+        embeddedVisualResourceSha256 = $computedSampleIntegrity.embeddedVisualResource.sha256
+    }
     passes = @()
     unavailable = @(
         "touch input: no touch capability was established",
@@ -144,10 +217,8 @@ try {
     $process = Start-OwnedReport -Path $pbipPath
     $record.passes += [ordered]@{
         kind = "pbip"
-        processId = $process.Id
-        title = [NativeDesktopGuard]::Title($process.MainWindowHandle)
-        pages = Invoke-PagePass -ProcessId $process.Id -Pass "pbip"
-        uiaProbe = Get-OwnedUiaProbe -ProcessId $process.Id -ExpectedTitle $expectedTitle
+        report = $reportName
+        pages = Invoke-PagePass -ProcessId $process.Id
     }
     Invoke-SaveAs -ProcessId $process.Id
     $record.pbixBeforeReopen = [ordered]@{
@@ -159,10 +230,8 @@ try {
     $process = Start-OwnedReport -Path $pbixPath
     $record.passes += [ordered]@{
         kind = "pbix-reopen"
-        processId = $process.Id
-        title = [NativeDesktopGuard]::Title($process.MainWindowHandle)
-        pages = Invoke-PagePass -ProcessId $process.Id -Pass "pbix"
-        uiaProbe = Get-OwnedUiaProbe -ProcessId $process.Id -ExpectedTitle $expectedTitle
+        report = $reportName
+        pages = Invoke-PagePass -ProcessId $process.Id
     }
     Close-OwnedReport -ProcessId $process.Id
     $record.pbixAfterReopen = [ordered]@{
@@ -175,10 +244,9 @@ try {
 } catch {
     $record.outcome = "blocked"
     $record.error = $_.Exception.Message
-    $remaining = @(Get-Process -Name PBIDesktop -ErrorAction SilentlyContinue)
-    $record.remainingDesktopProcesses = @($remaining | ForEach-Object {
-        [ordered]@{ id = $_.Id; title = $_.MainWindowTitle }
-    })
+    $record.remainingOwnedDesktopProcessCount = @(
+        Get-Process -Name PBIDesktop -ErrorAction SilentlyContinue
+    ).Count
     throw
 } finally {
     $record.completedAt = (Get-Date).ToUniversalTime().ToString("o")

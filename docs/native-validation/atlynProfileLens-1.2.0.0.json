@@ -18,25 +18,33 @@
   "pbip": {
     "path": "samples/AtlynProfileLensSample/AtlynProfileLensSample.pbip",
     "openedByDesktop": true,
-    "observedWindowTitle": "AtlynProfileLensSample"
+    "fixtureIdentityAtLaunch": "not-recorded",
+    "currentPreparedFixture": {
+      "projectTreeSha256": "b287ce8bbd5c5192940c78ca653373abe9f2a99c02788c2efae4bae564818e3f",
+      "reportDefinitionTreeSha256": "c7b5e4f05b4e86b2d7e3854ef7590ac0ce3570f37b46152c59a5fdae53e6b710",
+      "modelDefinitionTreeSha256": "407a94d172ea8ef05797a2856a96dc49d9aa76046b5ade4210d5417e4518db9c",
+      "generatorSha256": "f340fffa53db6fc6d6b488b967f9d1ea2e61978457a7d2f07361356c628c2a38",
+      "pbipSha256": "b8bd879c17924ff02f4a81e864b86f9fbb8668025e25747e34198f3fe024c4b9",
+      "embeddedVisualResourceSha256": "19bbf6ffbdfe10c67707dff348879570a7b0e9234fd00973a22bedc2e92c91f7"
+    }
   },
   "pbix": null,
   "blocker": {
     "stage": "foreground-ownership-proof",
     "message": "The execution context reported foreground handle 0 while the newly owned Power BI Desktop process was responsive with title AtlynProfileLensSample. The approved guard therefore refused all keyboard, pointer, UI Automation, Save As, and close/reopen interactions.",
     "ownedProcessEvidence": {
-      "executable": "C:\\Program Files\\Microsoft Power BI Desktop\\bin\\PBIDesktop.exe",
-      "title": "AtlynProfileLensSample",
+      "product": "Power BI Desktop",
+      "report": "AtlynProfileLensSample",
       "responding": true
     },
     "diagnosticFallbacks": [
-      "The first bounded probe established that this Desktop build omits the Power BI Desktop suffix from MainWindowTitle.",
+      "The first bounded probe established that this Desktop build omits the Power BI Desktop suffix from its window title.",
       "The second bounded probe established foreground handle 0 and did not send input."
     ]
   },
   "automatedBaseline": {
     "cleanInstall": "passed",
-    "unitTests": 180,
+    "unitTests": 183,
     "packagedBrowserTests": 21,
     "contextPacks": 4,
     "npmAuditVulnerabilities": 0,
@@ -59,6 +67,7 @@
   },
   "boundaries": [
     "No native scenario is marked passed.",
+    "The exact generated fixture tree opened in the blocked launch was not contemporaneously hashed, so the current 12-page fixture is not claimed as the launched bytes.",
     "PBIP structural generation and a responsive Desktop window are not PBIX validation.",
     "Touch, Power BI Service publication, dashboard pinning, and Partner Center submission were not attempted.",
     "This is not Microsoft certification, approval, or submission evidence."

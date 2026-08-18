@@ -11,6 +11,7 @@ const fs = require("node:fs");
 const path = require("node:path");
 const { execFileSync } = require("node:child_process");
 const { portablePath } = require("./portable-path.cjs");
+const { computeSampleIntegrity } = require("./sample-integrity.cjs");
 
 const root = path.resolve(__dirname, "..");
 const packageDirectory = path.join(root, "dist");
@@ -87,6 +88,19 @@ function walk(relativeDirectory, sink) {
 const sampleRoot = path.join("samples", "AtlynProfileLensSample");
 const sampleFiles = [];
 walk(sampleRoot, sampleFiles);
+const sampleIntegrityPath = path.join(sampleRoot, "sample-integrity.json");
+const recordedSampleIntegrity = JSON.parse(
+    fs.readFileSync(path.join(root, sampleIntegrityPath), "utf8")
+);
+const computedSampleIntegrity = computeSampleIntegrity({
+    root,
+    sampleRoot: path.join(root, sampleRoot),
+    generatorPath: path.join(root, "scripts", "build-sample-report.cjs"),
+    guid: manifest.visual.guid
+});
+if (JSON.stringify(recordedSampleIntegrity) !== JSON.stringify(computedSampleIntegrity)) {
+    throw new Error('Sample integrity is stale; run "npm run sample:pbip" after package generation.');
+}
 const packRoot = path.join("src", "context", "packs", "generated");
 const contextPacks = fs.existsSync(path.join(root, packRoot))
     ? fs.readdirSync(path.join(root, packRoot))
@@ -130,6 +144,11 @@ if (nativeValidated) {
         "style",
         "stringResources"
     ];
+    const fixtureSourcePaths = [
+        "scripts/build-sample-report.cjs",
+        "scripts/sample-integrity.cjs",
+        "samples/AtlynProfileLensSample"
+    ];
     try {
         const resolvedEvidenceCommit = execFileSync(
             "git",
@@ -141,9 +160,31 @@ if (nativeValidated) {
         } else {
             execFileSync(
                 "git",
-                ["diff", "--quiet", nativeEvidence.sourceCommit, "--", ...packageSourcePaths],
+                [
+                    "diff",
+                    "--quiet",
+                    nativeEvidence.sourceCommit,
+                    "--",
+                    ...packageSourcePaths,
+                    ...fixtureSourcePaths
+                ],
                 { cwd: root }
             );
+            const dirtyBoundPaths = execFileSync(
+                "git",
+                [
+                    "status",
+                    "--porcelain",
+                    "--untracked-files=all",
+                    "--",
+                    ...packageSourcePaths,
+                    ...fixtureSourcePaths
+                ],
+                { cwd: root, encoding: "utf8" }
+            ).trim();
+            if (dirtyBoundPaths) {
+                mismatches.push("dirty package or fixture paths");
+            }
         }
     } catch {
         mismatches.push("package source tree");
@@ -152,6 +193,22 @@ if (nativeValidated) {
     if (nativeEvidence.visual?.version !== manifest.visual.version) mismatches.push("visual version");
     if (nativeEvidence.visual?.apiVersion !== manifest.apiVersion) mismatches.push("API version");
     if (nativeEvidence.pbiviz?.sha256 !== packageSha256) mismatches.push("PBIVIZ SHA-256");
+    for (const [label, actual, expected] of [
+        ["sample project tree", nativeEvidence.sample?.projectTreeSha256,
+            computedSampleIntegrity.projectTree.sha256],
+        ["sample report definition", nativeEvidence.sample?.reportDefinitionTreeSha256,
+            computedSampleIntegrity.reportDefinitionTree.sha256],
+        ["sample model definition", nativeEvidence.sample?.modelDefinitionTreeSha256,
+            computedSampleIntegrity.modelDefinitionTree.sha256],
+        ["sample generator", nativeEvidence.sample?.generatorSha256,
+            computedSampleIntegrity.generator.sha256],
+        ["sample PBIP", nativeEvidence.sample?.pbipSha256,
+            computedSampleIntegrity.pbip.sha256],
+        ["sample embedded visual", nativeEvidence.sample?.embeddedVisualResourceSha256,
+            computedSampleIntegrity.embeddedVisualResource.sha256]
+    ]) {
+        if (actual !== expected) mismatches.push(label);
+    }
     if (!pbixMetadata) mismatches.push("PBIX file");
     if (nativeEvidence.pbix?.sha256 !== pbixMetadata?.sha256) mismatches.push("PBIX SHA-256");
     if (nativeEvidence.pbix?.bytes !== pbixMetadata?.bytes) mismatches.push("PBIX byte length");
@@ -189,6 +246,10 @@ const releaseManifest = {
             path: portablePath(sampleRoot),
             format: "PBIP",
             files: sampleFiles.filter(Boolean).length,
+            integrity: {
+                manifest: fileMetadata(sampleIntegrityPath),
+                ...computedSampleIntegrity
+            },
             pbix: pbixMetadata,
             pbixStatus: pbixMetadata && nativeValidated
                 ? "A genuine Desktop-produced PBIX is present and tied to the native evidence record."
@@ -225,6 +286,7 @@ const releaseManifest = {
             completedAt: nativeEvidence.completedAt,
             pbivizSha256: nativeEvidence.pbiviz?.sha256 ?? null,
             pbixSha256: nativeEvidence.pbix?.sha256 ?? null,
+            sample: nativeEvidence.sample ?? null,
             boundaries: nativeEvidence.boundaries ?? []
         }
         : {

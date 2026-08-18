@@ -2,8 +2,6 @@ $ErrorActionPreference = "Stop"
 
 Add-Type -AssemblyName UIAutomationClient
 Add-Type -AssemblyName UIAutomationTypes
-Add-Type -AssemblyName System.Drawing
-Add-Type -AssemblyName System.Windows.Forms
 
 Add-Type @'
 using System;
@@ -19,7 +17,6 @@ public static class NativeDesktopGuard {
     [DllImport("kernel32.dll")] public static extern uint GetCurrentThreadId();
     [DllImport("user32.dll", CharSet=CharSet.Auto)] public static extern int GetWindowText(IntPtr handle, StringBuilder text, int count);
     [DllImport("user32.dll")] public static extern bool GetWindowRect(IntPtr handle, out Rect rect);
-    [DllImport("user32.dll")] public static extern bool PrintWindow(IntPtr handle, IntPtr deviceContext, uint flags);
 
     [StructLayout(LayoutKind.Sequential)]
     public struct Rect { public int Left, Top, Right, Bottom; }
@@ -101,6 +98,131 @@ function Assert-OwnedDialogForeground {
     throw "Refusing input: foreground dialog is not '$ExpectedDialogTitle' owned by PID $ProcessId"
 }
 
+function Get-OwnedDialog {
+            param([int]$ProcessId, [string]$ExpectedDialogTitle, [int]$TimeoutSeconds = 10)
+            $deadline = (Get-Date).AddSeconds($TimeoutSeconds)
+            while ((Get-Date) -lt $deadline) {
+                Assert-OwnedDialogForeground -ProcessId $ProcessId -ExpectedDialogTitle $ExpectedDialogTitle
+                $titleCondition = New-Object System.Windows.Automation.PropertyCondition(
+                    [System.Windows.Automation.AutomationElement]::NameProperty,
+                    ($ExpectedDialogTitle -replace "^\*|\*$", "")
+                )
+                $processCondition = New-Object System.Windows.Automation.PropertyCondition(
+                    [System.Windows.Automation.AutomationElement]::ProcessIdProperty,
+                    $ProcessId
+                )
+                $typeCondition = New-Object System.Windows.Automation.PropertyCondition(
+                    [System.Windows.Automation.AutomationElement]::ControlTypeProperty,
+                    [System.Windows.Automation.ControlType]::Window
+                )
+                $condition = New-Object System.Windows.Automation.AndCondition(
+                    $titleCondition,
+                    $processCondition,
+                    $typeCondition
+                )
+                $dialog = [System.Windows.Automation.AutomationElement]::RootElement.FindFirst(
+                    [System.Windows.Automation.TreeScope]::Children,
+                    $condition
+                )
+                if ($dialog) { return $dialog }
+                Start-Sleep -Milliseconds 400
+            }
+            throw "The verified owned Save As dialog was not exposed through UI Automation"
+}
+
+function Assert-ControlInsideDialog {
+            param([int]$ProcessId, [string]$ExpectedDialogTitle, $Dialog, $Control)
+            Assert-OwnedDialogForeground -ProcessId $ProcessId -ExpectedDialogTitle $ExpectedDialogTitle
+            if ($Control.Current.ProcessId -ne $ProcessId) {
+                throw "Refusing control action: the target process changed"
+            }
+            $dialogRectangle = $Dialog.Current.BoundingRectangle
+            $controlRectangle = $Control.Current.BoundingRectangle
+            if ($controlRectangle.Width -le 0 -or $controlRectangle.Height -le 0 -or
+                $controlRectangle.X -lt $dialogRectangle.X -or
+                $controlRectangle.Y -lt $dialogRectangle.Y -or
+                ($controlRectangle.X + $controlRectangle.Width) -gt
+                    ($dialogRectangle.X + $dialogRectangle.Width) -or
+                ($controlRectangle.Y + $controlRectangle.Height) -gt
+                    ($dialogRectangle.Y + $dialogRectangle.Height)) {
+                throw "Refusing control action: the target is not visibly bounded inside the owned dialog"
+            }
+}
+
+function Find-OwnedDialogControl {
+            param(
+                [int]$ProcessId,
+                [string]$ExpectedDialogTitle,
+                [string]$Name,
+                [string]$ControlType,
+                [string]$AutomationId,
+                [switch]$RequireValuePattern,
+                [switch]$RequireInvokePattern
+            )
+            $dialog = Get-OwnedDialog -ProcessId $ProcessId -ExpectedDialogTitle $ExpectedDialogTitle
+            $conditions = @(
+                (New-Object System.Windows.Automation.PropertyCondition(
+                    [System.Windows.Automation.AutomationElement]::ControlTypeProperty,
+                    [System.Windows.Automation.ControlType]::$ControlType
+                ))
+            )
+            if ($Name) {
+                $conditions += New-Object System.Windows.Automation.PropertyCondition(
+                    [System.Windows.Automation.AutomationElement]::NameProperty,
+                    $Name
+                )
+            }
+            if ($AutomationId) {
+                $conditions += New-Object System.Windows.Automation.PropertyCondition(
+                    [System.Windows.Automation.AutomationElement]::AutomationIdProperty,
+                    $AutomationId
+                )
+            }
+            $condition = if ($conditions.Count -eq 1) {
+                $conditions[0]
+            } else {
+                New-Object System.Windows.Automation.AndCondition($conditions)
+            }
+            $controls = $dialog.FindAll([System.Windows.Automation.TreeScope]::Descendants, $condition)
+            $matches = @()
+            foreach ($control in $controls) {
+                try {
+                    Assert-ControlInsideDialog -ProcessId $ProcessId -ExpectedDialogTitle $ExpectedDialogTitle `
+                        -Dialog $dialog -Control $control
+                    if ($RequireValuePattern) {
+                        $control.GetCurrentPattern([System.Windows.Automation.ValuePattern]::Pattern) | Out-Null
+                    }
+                    if ($RequireInvokePattern) {
+                        $control.GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern) | Out-Null
+                    }
+                    $matches += $control
+                } catch {}
+            }
+            if ($matches.Count -eq 1) {
+                return [ordered]@{ dialog = $dialog; control = $matches[0] }
+            }
+            if ($matches.Count -gt 1) {
+                throw "The owned Save As dialog exposes multiple matching $ControlType controls"
+            }
+            throw "The owned Save As dialog exposes no safe bound $ControlType control for '$Name'"
+}
+
+function Set-OwnedDialogValue {
+            param([int]$ProcessId, [string]$ExpectedDialogTitle, $Target, [string]$Value)
+            Assert-ControlInsideDialog -ProcessId $ProcessId -ExpectedDialogTitle $ExpectedDialogTitle `
+                -Dialog $Target.dialog -Control $Target.control
+            $pattern = $Target.control.GetCurrentPattern([System.Windows.Automation.ValuePattern]::Pattern)
+            $pattern.SetValue($Value)
+}
+
+function Invoke-OwnedDialogControl {
+            param([int]$ProcessId, [string]$ExpectedDialogTitle, $Target)
+            Assert-ControlInsideDialog -ProcessId $ProcessId -ExpectedDialogTitle $ExpectedDialogTitle `
+                -Dialog $Target.dialog -Control $Target.control
+            $pattern = $Target.control.GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern)
+            $pattern.Invoke()
+}
+
 function Get-OwnedRoot {
     param([int]$ProcessId, [string]$ExpectedTitle)
     $process = Get-OwnedDesktop -ProcessId $ProcessId -ExpectedTitle $ExpectedTitle
@@ -166,48 +288,12 @@ function Invoke-OwnedElement {
     throw "UIA target '$($Element.Current.Name)' has no safe invokable pattern"
 }
 
-function Capture-OwnedWindow {
-    param([int]$ProcessId, [string]$ExpectedTitle, [string]$Path)
-    $process = Assert-OwnedForeground -ProcessId $ProcessId -ExpectedTitle $ExpectedTitle
-    $rectangle = New-Object NativeDesktopGuard+Rect
-    [NativeDesktopGuard]::GetWindowRect($process.MainWindowHandle, [ref]$rectangle) | Out-Null
-    $width = $rectangle.Right - $rectangle.Left
-    $height = $rectangle.Bottom - $rectangle.Top
-    if ($width -lt 800 -or $height -lt 500) { throw "Owned window is not captureable: ${width}x${height}" }
-    $bitmap = New-Object System.Drawing.Bitmap $width, $height
-    $graphics = [System.Drawing.Graphics]::FromImage($bitmap)
-    $deviceContext = $graphics.GetHdc()
-    $captured = [NativeDesktopGuard]::PrintWindow($process.MainWindowHandle, $deviceContext, 2)
-    $graphics.ReleaseHdc($deviceContext)
-    $graphics.Dispose()
-    if (-not $captured) {
-        $bitmap.Dispose()
-        throw "PrintWindow failed for the exact owned Desktop window"
+function Get-AllowlistedControlProbe {
+    param([string]$LogicalName, $Element)
+    return [ordered]@{
+        logicalName = $LogicalName
+        controlType = $Element.Current.ControlType.ProgrammaticName -replace "^ControlType\.", ""
+        enabled = $Element.Current.IsEnabled
+        offscreen = $Element.Current.IsOffscreen
     }
-    New-Item -ItemType Directory -Force -Path (Split-Path $Path) | Out-Null
-    $bitmap.Save($Path, [System.Drawing.Imaging.ImageFormat]::Png)
-    $bitmap.Dispose()
-    return @{ path = $Path; width = $width; height = $height; sha256 = (Get-FileHash $Path -Algorithm SHA256).Hash.ToLowerInvariant() }
-}
-
-function Get-OwnedUiaProbe {
-    param([int]$ProcessId, [string]$ExpectedTitle)
-    $root = Get-OwnedRoot -ProcessId $ProcessId -ExpectedTitle $ExpectedTitle
-    $elements = $root.FindAll(
-        [System.Windows.Automation.TreeScope]::Descendants,
-        [System.Windows.Automation.Condition]::TrueCondition
-    )
-    $result = @()
-    foreach ($element in $elements) {
-        if ($result.Count -ge 2000) { break }
-        $name = $element.Current.Name
-        if ($name) {
-            $result += [ordered]@{
-                name = $name
-                type = $element.Current.ControlType.ProgrammaticName -replace "^ControlType\.", ""
-                automationId = $element.Current.AutomationId
-            }
-        }
-    }
-    return $result
 }

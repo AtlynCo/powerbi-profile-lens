@@ -10,6 +10,7 @@
  */
 const fs = require("node:fs");
 const path = require("node:path");
+const { writeSampleIntegrity } = require("./sample-integrity.cjs");
 
 const root = path.resolve(__dirname, "..");
 const manifest = JSON.parse(fs.readFileSync(path.join(root, "pbiviz.json"), "utf8"));
@@ -698,7 +699,14 @@ const packageDescriptor = path.join(root, "dist", "package.json");
     );
     console.log(`Embedded packaged visual ${guid} into the sample report.`);
 })().then(() => {
+    const integrity = writeSampleIntegrity({
+        root,
+        sampleRoot,
+        generatorPath: __filename,
+        guid
+    });
     console.log(`Sample PBIP written to samples/${sampleName} (${buildRows().length} synthetic rows).`);
+    console.log(`Sample tree SHA-256: ${integrity.projectTree.sha256}`);
 }).catch((error) => {
     console.error(error.message ?? error);
     process.exitCode = 1;
