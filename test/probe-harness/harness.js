@@ -54,6 +54,36 @@
                     for (var profileIndex = 0; profileIndex < profiles.length; profileIndex++) {
                         var magnitude = 40 - Math.abs(bandIndex - 2) * 7
                             + profileIndex * 3 + seriesIndex * 5 + entityIndex * 2;
+                        if (
+                            config.negativeFirstValue
+                            && entityIndex === 0
+                            && periodIndex <= 0
+                            && bandIndex === 0
+                            && seriesIndex === 0
+                            && profileIndex === 0
+                        ) {
+                            magnitude = -1234.5;
+                        }
+                        if (
+                            config.nonFiniteSecondValue
+                            && entityIndex === 0
+                            && periodIndex <= 0
+                            && bandIndex === 1
+                            && seriesIndex === 0
+                            && profileIndex === 0
+                        ) {
+                            magnitude = Number.POSITIVE_INFINITY;
+                        }
+                        if (
+                            config.nonNumericThirdValue
+                            && entityIndex === 0
+                            && periodIndex <= 0
+                            && bandIndex === 2
+                            && seriesIndex === 0
+                            && profileIndex === 0
+                        ) {
+                            magnitude = "not a number";
+                        }
                         values[seriesIndex * valueCount + profileIndex] = { value: magnitude };
                     }
                 }

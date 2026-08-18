@@ -12,7 +12,13 @@ export interface NormalizationSettings {
     readonly blankPolicy: BlankPolicy;
 }
 
-export type NormalizationState = "value" | "missing" | "negativeValue" | "zeroDenominator";
+export type NormalizationState =
+    | "value"
+    | "missing"
+    | "nonNumeric"
+    | "nonFinite"
+    | "negativeValue"
+    | "zeroDenominator";
 
 export interface NormalizedCell {
     readonly profileIndex: number;
@@ -113,6 +119,36 @@ export function normalizeFrame(
                 && entry.cell.highlight !== null
                 && entry.cell.highlight !== 0;
             const dimmed = hasAnyHighlight && !highlighted;
+
+            if (entry.cell.state === "nonNumeric") {
+                cells.push({
+                    profileIndex,
+                    seriesIndex: entry.cell.seriesIndex,
+                    bandIndex: entry.cell.bandIndex,
+                    raw: null,
+                    display: null,
+                    denominator: null,
+                    state: "nonNumeric",
+                    highlighted,
+                    dimmed
+                });
+                continue;
+            }
+
+            if (entry.cell.state === "nonFinite") {
+                cells.push({
+                    profileIndex,
+                    seriesIndex: entry.cell.seriesIndex,
+                    bandIndex: entry.cell.bandIndex,
+                    raw: entry.cell.value,
+                    display: null,
+                    denominator: null,
+                    state: "nonFinite",
+                    highlighted,
+                    dimmed
+                });
+                continue;
+            }
 
             if (raw === null) {
                 missingCount++;

@@ -236,11 +236,30 @@ function describeCell(input: RenderInput, cell: NormalizedCell, profileIndex: nu
     const series = cell.seriesIndex === IMPLICIT_INDEX
         ? input.localization.get("Legend_SingleSeries")
         : input.model.series[cell.seriesIndex]?.label ?? "";
-    const value = cell.state === "negativeValue"
-        ? input.localization.get("Aria_NegativeUnsupported")
-        : cell.state === "value" && cell.display !== null
-            ? formatDisplayValue(cell.display, input.frame.mode, input.localization.currentLocale)
-            : input.localization.get("Aria_MissingValue");
+    const value = cell.state === "nonNumeric"
+        ? input.localization.get("Aria_NonNumericUnsupported")
+        : cell.state === "nonFinite"
+            ? input.localization.format(
+                "Aria_NonFiniteUnsupported",
+                input.localization.formatNumber(cell.raw ?? Number.NaN)
+            )
+            : cell.state === "negativeValue"
+        ? input.localization.format(
+            "Aria_NegativeUnsupported",
+            input.localization.formatNumber(cell.raw ?? 0)
+        )
+            : cell.state === "zeroDenominator"
+                ? input.localization.format(
+                    "Aria_ZeroDenominator",
+                    input.localization.formatNumber(cell.raw ?? 0)
+                )
+                : cell.state === "value" && cell.display !== null
+                    ? formatDisplayValue(
+                        cell.display,
+                        input.frame.mode,
+                        input.localization.currentLocale
+                    )
+                    : input.localization.get("Aria_MissingValue");
     return input.localization.format(
         "Aria_Segment",
         profile?.label ?? "",

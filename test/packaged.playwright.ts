@@ -84,6 +84,33 @@ test.describe("packaged visual in a real browser", () => {
         await expect(page.locator(".profile-lens-table table")).toHaveCount(1);
     });
 
+    test("preserves rejected raw values in packaged nonvisual representations", async ({ page }) => {
+        await mount(page, {
+            entities: ["Entity A"],
+            periods: [],
+            bands: ["Negative", "Infinite", "Text"],
+            series: [],
+            profiles: ["Metric A"],
+            negativeFirstValue: true,
+            nonFiniteSecondValue: true,
+            nonNumericThirdValue: true
+        });
+
+        await expect(page.locator(".profile-lens-target").first())
+            .toHaveAttribute("aria-label", /negative value -1,234\.5 unsupported/);
+        await expect(page.locator(".profile-lens-table tbody tr").first().locator("td"))
+            .toHaveText("negative value unsupported, raw -1,234.5");
+        await expect(page.locator(".profile-lens-target").nth(1))
+            .toHaveAttribute("aria-label", /non-finite value \u221e unsupported/);
+        await expect(page.locator(".profile-lens-table tbody tr").nth(1).locator("td"))
+            .toHaveText("non-finite value \u221e unsupported");
+        await expect(page.locator(".profile-lens-target").nth(2))
+            .toHaveAttribute("aria-label", /non-numeric value unsupported/);
+        await expect(page.locator(".profile-lens-table tbody tr").nth(2).locator("td"))
+            .toHaveText("non-numeric value unsupported");
+        await expect(page.locator('[data-code="negativeProfileValues"]')).toContainText("1");
+    });
+
     test("keeps every rendered element inside the visual root at each tile size", async ({ page }) => {
         await mount(page);
         for (const size of SIZES) {

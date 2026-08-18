@@ -417,6 +417,10 @@ describe("accessibility and theming", () => {
         const diagnostic = mock.element.querySelector('[data-code="zeroDenominator"]');
         expect(diagnostic).not.toBeNull();
         expect(diagnostic?.textContent).toContain("2");
+        expect(targets(mock.element)[0].getAttribute("aria-label"))
+            .toContain("raw value 0, no normalization denominator");
+        expect(mock.element.querySelector("tbody tr:first-child td")?.textContent)
+            .toBe("no denominator, raw 0");
     });
 
     it("rejects negative profile values before drawing a magnitude", () => {
@@ -425,16 +429,35 @@ describe("accessibility and theming", () => {
             entities: ["Entity A"],
             bands: ["Negative", "Positive"],
             profiles: ["Metric A"],
-            value: ({ bandIndex }) => bandIndex === 0 ? -10 : 20
+            value: ({ bandIndex }) => bandIndex === 0 ? -1234.5 : 20
         })));
         const rendered = targets(mock.element);
         expect(rendered[0].querySelector("rect")?.getAttribute("stroke-dasharray")).toBe("2 2");
         expect(rendered[1].querySelector("rect")?.hasAttribute("stroke-dasharray")).toBe(false);
-        expect(rendered[0].getAttribute("aria-label")).toContain("negative value unsupported");
+        expect(rendered[0].getAttribute("aria-label"))
+            .toContain("negative value -1,234.5 unsupported");
         expect(mock.element.querySelector('[data-code="negativeProfileValues"]')?.textContent)
             .toContain("1");
         expect(mock.element.querySelector("tbody tr:first-child td")?.textContent)
-            .toBe("negative value unsupported");
+            .toBe("negative value unsupported, raw -1,234.5");
+    });
+
+    it("preserves rejected non-numeric and non-finite states for nonvisual readers", () => {
+        const { mock, visual } = mount();
+        visual.update(updateOptions(buildMatrixDataView({
+            entities: ["Entity A"],
+            bands: ["Text", "Infinite"],
+            profiles: ["Metric A"],
+            value: ({ bandIndex }) => bandIndex === 0 ? "not a number" : Number.POSITIVE_INFINITY
+        })));
+        const rendered = targets(mock.element);
+        expect(rendered[0].getAttribute("aria-label")).toContain("non-numeric value unsupported");
+        expect(rendered[1].getAttribute("aria-label")).toContain("non-finite value \u221e unsupported");
+        const cells = [...mock.element.querySelectorAll("tbody td")].map((cell) => cell.textContent);
+        expect(cells).toEqual([
+            "non-numeric value unsupported",
+            "non-finite value \u221e unsupported"
+        ]);
     });
 
     it("shows progressive landing guidance before the contract is complete", () => {

@@ -605,7 +605,7 @@ export function interpretValue(raw: PrimitiveValue | undefined): InterpretedValu
     if (typeof raw === "number") {
         return Number.isFinite(raw)
             ? { value: raw, state: "value" }
-            : { value: null, state: "nonFinite" };
+            : { value: raw, state: "nonFinite" };
     }
     if (typeof raw === "boolean") {
         return { value: null, state: "nonNumeric" };
@@ -617,7 +617,7 @@ export function interpretValue(raw: PrimitiveValue | undefined): InterpretedValu
     if (typeof raw === "string" && raw.trim() !== "" && !Number.isNaN(parsed)) {
         return Number.isFinite(parsed)
             ? { value: parsed, state: "value" }
-            : { value: null, state: "nonFinite" };
+            : { value: parsed, state: "nonFinite" };
     }
     return { value: null, state: "nonNumeric" };
 }

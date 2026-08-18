@@ -149,6 +149,8 @@ describe("matrix parsing", () => {
         expect(model.counts.missing).toBe(1);
         expect(model.counts.nonNumeric).toBe(1);
         expect(model.counts.nonFinite).toBe(1);
+        expect(model.cells[2].value).toBe(Number.POSITIVE_INFINITY);
+        expect(model.cells[2].state).toBe("nonFinite");
         const codes = model.diagnostics.map((entry) => entry.code);
         expect(codes).toContain("blankValues");
         expect(codes).toContain("nonNumericValues");

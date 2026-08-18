@@ -74,10 +74,23 @@ export function renderAccessibleTable(container: HTMLElement, input: TableInput)
                 const dataCell = document.createElement("td");
                 if (!cell || cell.state === "missing") {
                     dataCell.textContent = input.localization.get("Table_Missing");
+                } else if (cell.state === "nonNumeric") {
+                    dataCell.textContent = input.localization.get("Table_NonNumericUnsupported");
+                } else if (cell.state === "nonFinite") {
+                    dataCell.textContent = input.localization.format(
+                        "Table_NonFiniteUnsupported",
+                        input.localization.formatNumber(cell.raw ?? Number.NaN)
+                    );
                 } else if (cell.state === "negativeValue") {
-                    dataCell.textContent = input.localization.get("Table_NegativeUnsupported");
+                    dataCell.textContent = input.localization.format(
+                        "Table_NegativeUnsupported",
+                        input.localization.formatNumber(cell.raw ?? 0)
+                    );
                 } else if (cell.state === "zeroDenominator") {
-                    dataCell.textContent = input.localization.get("Table_ZeroDenominator");
+                    dataCell.textContent = input.localization.format(
+                        "Table_ZeroDenominator",
+                        input.localization.formatNumber(cell.raw ?? 0)
+                    );
                 } else {
                     const displayed = formatDisplayValue(
                         cell.display,
