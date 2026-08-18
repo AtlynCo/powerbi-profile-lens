@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import type powerbi from "powerbi-visuals-api";
 import { Visual } from "../src/visual";
 import { buildEmptyDataView, buildMatrixDataView } from "./helpers/mockDataView";
@@ -39,6 +39,46 @@ function pointer(type: string, extra: Record<string, unknown> = {}): Event {
     const event = new Event(type, { bubbles: true, cancelable: true });
     Object.assign(event, { clientX: 10, clientY: 20, pointerType: "mouse", ...extra });
     return event;
+}
+
+function key(type: string, value: string, extra: Record<string, unknown> = {}): Event {
+    const event = new Event(type, { bubbles: true, cancelable: true });
+    Object.assign(event, { key: value, ...extra });
+    return event;
+}
+
+function setSurfaceBounds(
+    surface: HTMLElement,
+    width = 320,
+    height = 300
+): void {
+    surface.getBoundingClientRect = () => ({
+        x: 0,
+        y: 0,
+        left: 0,
+        top: 0,
+        right: width,
+        bottom: height,
+        width,
+        height,
+        toJSON: () => ({})
+    });
+}
+
+function contextMetrics(root: HTMLElement): {
+    sceneBuilds: number;
+    svgGeometryBuilds: number;
+    cameraFrames: number;
+    moveEnds: number;
+} {
+    return (root as HTMLElement & {
+        __profileLensContextMetrics: {
+            sceneBuilds: number;
+            svgGeometryBuilds: number;
+            cameraFrames: number;
+            moveEnds: number;
+        };
+    }).__profileLensContextMetrics;
 }
 
 describe("visual lifecycle", () => {
@@ -553,6 +593,408 @@ describe("interaction", () => {
         expect(mock.tooltip.show).not.toHaveBeenCalled();
         expect(mock.applyJsonFilter).not.toHaveBeenCalled();
     });
+
+    it("pans without selecting, then preserves ordinary click activation", async () => {
+        const { mock, visual } = mount();
+        visual.update(updateOptions(buildMatrixDataView({
+            entities: ["Entity A", "Entity B"],
+            bands: ["Band 1"],
+            profiles: ["Metric A"],
+            objects: {
+                context: { mode: "grid" },
+                navigation: { enabled: true }
+            }
+        })));
+        const surface = mock.element.querySelector<HTMLElement>(".profile-lens-context")!;
+        setSurfaceBounds(surface, 320, 300);
+        const layer = mock.element.querySelector<SVGGElement>(
+            ".profile-lens-context-camera-layer"
+        )!;
+        const before = layer.getAttribute("transform");
+
+        surface.dispatchEvent(pointer("pointerdown", {
+            pointerId: 1,
+            button: 0,
+            clientX: 40,
+            clientY: 250
+        }));
+        surface.dispatchEvent(pointer("pointermove", {
+            pointerId: 1,
+            clientX: 80,
+            clientY: 250
+        }));
+        surface.dispatchEvent(pointer("contextmenu", {
+            clientX: 80,
+            clientY: 250
+        }));
+        surface.dispatchEvent(pointer("pointerup", {
+            pointerId: 1,
+            clientX: 80,
+            clientY: 250
+        }));
+        surface.dispatchEvent(pointer("click", {
+            clientX: 80,
+            clientY: 250
+        }));
+        expect(layer.getAttribute("transform")).not.toBe(before);
+        expect(mock.selection.select).not.toHaveBeenCalled();
+        expect(mock.selection.showContextMenu).not.toHaveBeenCalled();
+        expect(mock.tooltip.show).not.toHaveBeenCalled();
+        expect(mock.element.querySelector(".profile-lens-header-title")?.textContent)
+            .toBe("Entity A");
+
+        surface.dispatchEvent(pointer("pointerdown", {
+            pointerId: 2,
+            button: 0,
+            clientX: 56,
+            clientY: 250
+        }));
+        surface.dispatchEvent(pointer("pointerup", {
+            pointerId: 2,
+            clientX: 56,
+            clientY: 250
+        }));
+        surface.dispatchEvent(pointer("click", {
+            clientX: 56,
+            clientY: 250
+        }));
+        await Promise.resolve();
+        expect(mock.selection.select).toHaveBeenCalledTimes(1);
+    });
+
+    it("does not focus a fallback feature when the current entity is absent from the scene", () => {
+        const { mock, visual } = mount();
+        visual.update(updateOptions(buildMatrixDataView({
+            entities: ["UNKNOWN", "USA"],
+            bands: ["Band 1"],
+            profiles: ["Metric A"],
+            objects: {
+                context: {
+                    mode: "builtInPack",
+                    pack: "worldCountries",
+                    packKeyMode: "canonical"
+                },
+                navigation: { enabled: true }
+            }
+        })));
+        const surface = mock.element.querySelector<HTMLElement>(".profile-lens-context")!;
+        setSurfaceBounds(surface, 320, 300);
+        surface.focus();
+        expect(mock.element.querySelector(".profile-lens-header-title")?.textContent)
+            .toBe("UNKNOWN");
+        surface.dispatchEvent(pointer("pointerdown", {
+            pointerId: 1,
+            button: 0,
+            clientX: 120,
+            clientY: 150
+        }));
+        surface.dispatchEvent(pointer("pointermove", {
+            pointerId: 1,
+            clientX: 150,
+            clientY: 150
+        }));
+        surface.dispatchEvent(pointer("pointerup", {
+            pointerId: 1,
+            clientX: 150,
+            clientY: 150
+        }));
+        surface.dispatchEvent(pointer("click", {
+            clientX: 150,
+            clientY: 150
+        }));
+        expect(mock.element.querySelector(".profile-lens-header-title")?.textContent)
+            .toBe("UNKNOWN");
+        expect(mock.selection.select).not.toHaveBeenCalled();
+        surface.dispatchEvent(key("keydown", "Enter"));
+        expect(mock.element.querySelector(".profile-lens-header-title")?.textContent)
+            .toBe("USA");
+        expect(mock.selection.select).toHaveBeenCalledTimes(1);
+    });
+
+    it("keeps the camera and scene build stable across local focus and selection rerenders", () => {
+        const { mock, visual } = mount();
+        visual.update(updateOptions(buildMatrixDataView({
+            entities: ["Entity A", "Entity B", "Entity C", "Entity D"],
+            periods: ["2025", "2026"],
+            bands: ["Band 1"],
+            profiles: ["Metric A"],
+            objects: {
+                context: { mode: "grid" },
+                navigation: { enabled: true }
+            }
+        })));
+        const surface = mock.element.querySelector<HTMLElement>(".profile-lens-context")!;
+        setSurfaceBounds(surface, 320, 300);
+        surface.dispatchEvent(pointer("pointerdown", {
+            pointerId: 1,
+            button: 0,
+            clientX: 80,
+            clientY: 150
+        }));
+        surface.dispatchEvent(pointer("pointermove", {
+            pointerId: 1,
+            clientX: 96,
+            clientY: 150
+        }));
+        surface.dispatchEvent(pointer("pointerup", {
+            pointerId: 1,
+            clientX: 96,
+            clientY: 150
+        }));
+        const transform = mock.element.querySelector(
+            ".profile-lens-context-camera-layer"
+        )?.getAttribute("transform");
+        const beforeMetrics = { ...contextMetrics(surface) };
+
+        surface.focus();
+        surface.dispatchEvent(key("keydown", "ArrowRight"));
+        expect(mock.element.querySelector(".profile-lens-context-camera-layer")
+            ?.getAttribute("transform")).toBe(transform);
+        const period = mock.element.querySelector<HTMLElement>(".profile-lens-period-slider");
+        period?.dispatchEvent(key("keydown", "ArrowRight"));
+        expect(mock.element.querySelector(".profile-lens-context-camera-layer")
+            ?.getAttribute("transform")).toBe(transform);
+        mock.selection.onSelectCallback?.([mockSelectionId("|node:entity:0")]);
+        expect(mock.element.querySelector(".profile-lens-context-camera-layer")
+            ?.getAttribute("transform")).toBe(transform);
+        const afterMetrics = contextMetrics(surface);
+        expect(afterMetrics.sceneBuilds).toBe(beforeMetrics.sceneBuilds);
+        expect(afterMetrics.svgGeometryBuilds).toBe(beforeMetrics.svgGeometryBuilds);
+        expect(afterMetrics.cameraFrames).toBe(beforeMetrics.cameraFrames);
+
+        visual.update(updateOptions(buildMatrixDataView({
+            entities: ["Entity A", "Entity B", "Entity C", "Entity D"],
+            periods: ["2025", "2026"],
+            bands: ["Band 1"],
+            profiles: ["Metric A"],
+            objects: {
+                context: { mode: "hex" },
+                navigation: { enabled: true }
+            }
+        })));
+        expect(mock.element.querySelector(".profile-lens-context-camera-layer")
+            ?.getAttribute("transform")).toBe("matrix(1,0,0,1,0,0)");
+    });
+
+    it("preserves zoom through valid resize and resets after an invalid transition", () => {
+        const { mock, visual } = mount();
+        const view = buildMatrixDataView({
+            entities: ["Entity A", "Entity B", "Entity C", "Entity D"],
+            bands: ["Band 1"],
+            profiles: ["Metric A"],
+            objects: {
+                context: { mode: "grid" },
+                navigation: { enabled: true }
+            }
+        });
+        visual.update(updateOptions(view, { width: 640, height: 480 }));
+        let surface = mock.element.querySelector<HTMLElement>(".profile-lens-context")!;
+        setSurfaceBounds(surface, 320, 300);
+        surface.dispatchEvent(key("keydown", "+"));
+        surface.dispatchEvent(key("keydown", "ArrowLeft", { shiftKey: true }));
+        const before = mock.element.querySelector(".profile-lens-context-camera-layer")
+            ?.getAttribute("transform") ?? "";
+        const beforeZoom = Number(before.match(/matrix\(([^,]+)/)?.[1]);
+        const sceneBuilds = contextMetrics(surface).sceneBuilds;
+
+        visual.update(updateOptions(view, { width: 900, height: 620 }));
+        surface = mock.element.querySelector<HTMLElement>(".profile-lens-context")!;
+        const after = mock.element.querySelector(".profile-lens-context-camera-layer")
+            ?.getAttribute("transform") ?? "";
+        const afterZoom = Number(after.match(/matrix\(([^,]+)/)?.[1]);
+        expect(afterZoom).toBeCloseTo(beforeZoom, 12);
+        expect(after).not.toBe("matrix(1,0,0,1,0,0)");
+        expect(contextMetrics(surface).sceneBuilds).toBe(sceneBuilds);
+
+        visual.update(updateOptions(view, { width: 0, height: 0 }));
+        visual.update(updateOptions(view, { width: 640, height: 480 }));
+        expect(mock.element.querySelector(".profile-lens-context-camera-layer")
+            ?.getAttribute("transform")).toBe("matrix(1,0,0,1,0,0)");
+    });
+
+    it("zooms by wheel, keyboard, and pinch without changing profile focus", () => {
+        vi.useFakeTimers();
+        try {
+            const { mock, visual } = mount();
+            visual.update(updateOptions(buildMatrixDataView({
+                entities: ["Entity A", "Entity B"],
+                bands: ["Band 1"],
+                profiles: ["Metric A"],
+                objects: {
+                    context: { mode: "grid" },
+                    navigation: {
+                        enabled: true,
+                        showCenterProbe: true,
+                        showResetControl: true,
+                        showGestureHelp: true
+                    }
+                }
+            })));
+            const surface = mock.element.querySelector<HTMLElement>(".profile-lens-context")!;
+            setSurfaceBounds(surface, 320, 300);
+            const wheel = pointer("wheel", {
+                deltaY: -100,
+                deltaMode: 0,
+                clientX: 160,
+                clientY: 150
+            });
+            surface.dispatchEvent(wheel);
+            expect(wheel.defaultPrevented).toBe(true);
+            expect(vi.getTimerCount()).toBe(1);
+            const afterWheel = mock.element.querySelector(
+                ".profile-lens-context-camera-layer"
+            )?.getAttribute("transform");
+            expect(afterWheel).not.toBe("matrix(1,0,0,1,0,0)");
+
+            surface.dispatchEvent(key("keydown", "+"));
+            expect(mock.element.querySelector(".profile-lens-context-camera-layer")
+                ?.getAttribute("transform")).not.toBe(afterWheel);
+            surface.dispatchEvent(key("keydown", "Home"));
+            expect(mock.element.querySelector(".profile-lens-context-camera-layer")
+                ?.getAttribute("transform")).toBe("matrix(1,0,0,1,0,0)");
+
+            surface.dispatchEvent(pointer("pointerdown", {
+                pointerId: 11,
+                pointerType: "touch",
+                button: 0,
+                clientX: 100,
+                clientY: 150
+            }));
+            surface.dispatchEvent(pointer("pointerdown", {
+                pointerId: 12,
+                pointerType: "touch",
+                button: 0,
+                clientX: 200,
+                clientY: 150
+            }));
+            surface.dispatchEvent(pointer("pointermove", {
+                pointerId: 12,
+                pointerType: "touch",
+                clientX: 240,
+                clientY: 150
+            }));
+            surface.dispatchEvent(pointer("pointerup", {
+                pointerId: 12,
+                pointerType: "touch",
+                clientX: 240,
+                clientY: 150
+            }));
+            surface.dispatchEvent(pointer("pointerup", {
+                pointerId: 11,
+                pointerType: "touch",
+                clientX: 100,
+                clientY: 150
+            }));
+            expect(mock.element.querySelector(".profile-lens-context-camera-layer")
+                ?.getAttribute("transform")).not.toBe("matrix(1,0,0,1,0,0)");
+            expect(mock.element.querySelector(".profile-lens-header-title")?.textContent)
+                .toBe("Entity A");
+            expect(mock.selection.select).not.toHaveBeenCalled();
+            expect(mock.element.querySelector(".profile-lens-context-probe")).not.toBeNull();
+            expect(surface.getAttribute("aria-description")).toContain("does not change");
+            expect(surface.getAttribute("aria-keyshortcuts")).toContain("Shift+ArrowLeft");
+            expect(mock.element.querySelector(".profile-lens-context-reset")
+                ?.getAttribute("tabindex")).toBe("-1");
+
+            vi.advanceTimersByTime(120);
+            expect(vi.getTimerCount()).toBe(0);
+            expect(contextMetrics(surface).moveEnds).toBeGreaterThan(0);
+        } finally {
+            vi.useRealTimers();
+        }
+    });
+
+    it("does not capture or prevent navigation input when interactions are disabled", () => {
+        const { mock, visual } = mount({ allowInteractions: false });
+        visual.update(updateOptions(buildMatrixDataView({
+            entities: ["Entity A", "Entity B"],
+            bands: ["Band 1"],
+            profiles: ["Metric A"],
+            objects: {
+                context: { mode: "grid" },
+                navigation: { enabled: true }
+            }
+        })));
+        const surface = mock.element.querySelector<HTMLElement>(".profile-lens-context")!;
+        setSurfaceBounds(surface, 320, 300);
+        const transform = mock.element.querySelector(
+            ".profile-lens-context-camera-layer"
+        )?.getAttribute("transform");
+        const wheel = pointer("wheel", {
+            deltaY: -100,
+            deltaMode: 0,
+            clientX: 160,
+            clientY: 150
+        });
+        surface.dispatchEvent(wheel);
+        surface.dispatchEvent(pointer("pointerdown", {
+            pointerId: 1,
+            button: 0,
+            clientX: 40,
+            clientY: 150
+        }));
+        surface.dispatchEvent(pointer("pointermove", {
+            pointerId: 1,
+            clientX: 100,
+            clientY: 150
+        }));
+        surface.dispatchEvent(key("keydown", "+"));
+        expect(wheel.defaultPrevented).toBe(false);
+        expect(mock.element.querySelector(".profile-lens-context-camera-layer")
+            ?.getAttribute("transform")).toBe(transform);
+        expect(contextMetrics(surface).cameraFrames).toBe(0);
+        expect(surface.classList.contains("profile-lens-context-navigation-active")).toBe(false);
+        expect(mock.element.querySelector(".profile-lens-context-reset")
+            ?.hasAttribute("hidden")).toBe(true);
+        expect(mock.selection.select).not.toHaveBeenCalled();
+        expect(mock.tooltip.show).not.toHaveBeenCalled();
+    });
+
+    it.each(["pointercancel", "lostpointercapture"])(
+        "cleans up %s without duplicate activation",
+        (termination) => {
+            const { mock, visual } = mount();
+            visual.update(updateOptions(buildMatrixDataView({
+                entities: ["Entity A", "Entity B"],
+                bands: ["Band 1"],
+                profiles: ["Metric A"],
+                objects: {
+                    context: { mode: "grid" },
+                    navigation: { enabled: true }
+                }
+            })));
+            const surface = mock.element.querySelector<HTMLElement>(".profile-lens-context")!;
+            setSurfaceBounds(surface, 320, 300);
+            surface.dispatchEvent(pointer("pointerdown", {
+                pointerId: 91,
+                button: 0,
+                clientX: 40,
+                clientY: 250
+            }));
+            surface.dispatchEvent(pointer("pointermove", {
+                pointerId: 91,
+                clientX: 80,
+                clientY: 250
+            }));
+            surface.dispatchEvent(pointer(termination, {
+                pointerId: 91,
+                clientX: 80,
+                clientY: 250
+            }));
+            surface.dispatchEvent(pointer("pointerup", {
+                pointerId: 91,
+                clientX: 80,
+                clientY: 250
+            }));
+            surface.dispatchEvent(pointer("click", {
+                clientX: 80,
+                clientY: 250
+            }));
+            expect(surface.classList.contains("profile-lens-context-panning")).toBe(false);
+            expect(mock.selection.select).not.toHaveBeenCalled();
+            expect(mock.selection.showContextMenu).not.toHaveBeenCalled();
+        }
+    );
 });
 
 describe("accessibility and theming", () => {
@@ -602,6 +1044,74 @@ describe("accessibility and theming", () => {
         const { mock, visual } = mount({ locale: "he-IL" });
         visual.update(updateOptions(dataView()));
         expect(mock.element.querySelector(".profile-lens")?.getAttribute("dir")).toBe("rtl");
+    });
+
+    it("mirrors horizontal keyboard camera pan in right to left layouts", () => {
+        const panForLocale = (locale: string): number => {
+            const { mock, visual } = mount({ locale });
+            visual.update(updateOptions(buildMatrixDataView({
+                entities: ["Entity A", "Entity B"],
+                bands: ["Band 1"],
+                profiles: ["Metric A"],
+                objects: {
+                    context: { mode: "grid" },
+                    navigation: { enabled: true }
+                }
+            })));
+            const surface = mock.element.querySelector<HTMLElement>(".profile-lens-context")!;
+            setSurfaceBounds(surface, 320, 300);
+            surface.dispatchEvent(key("keydown", "+"));
+            surface.dispatchEvent(key("keydown", "ArrowLeft", { shiftKey: true }));
+            const transform = mock.element.querySelector(".profile-lens-context-camera-layer")
+                ?.getAttribute("transform") ?? "";
+            const values = transform.match(/-?\d+(?:\.\d+)?/g)?.map(Number) ?? [];
+            return values[4] ?? Number.NaN;
+        };
+        const ltr = panForLocale("en-US");
+        resetDocument();
+        const rtl = panForLocale("he-IL");
+        expect(ltr).toBeGreaterThan(rtl);
+    });
+
+    it("keeps reduced-motion navigation immediate and free of animation timers", () => {
+        vi.useFakeTimers();
+        try {
+            const { mock, visual } = mount();
+            visual.update(updateOptions(buildMatrixDataView({
+                entities: ["Entity A", "Entity B"],
+                bands: ["Band 1"],
+                profiles: ["Metric A"],
+                objects: {
+                    context: { mode: "grid" },
+                    navigation: { enabled: true },
+                    accessibility: { reducedMotion: true }
+                }
+            })));
+            const surface = mock.element.querySelector<HTMLElement>(".profile-lens-context")!;
+            setSurfaceBounds(surface, 320, 300);
+            surface.dispatchEvent(pointer("pointerdown", {
+                pointerId: 1,
+                button: 0,
+                clientX: 40,
+                clientY: 150
+            }));
+            surface.dispatchEvent(pointer("pointermove", {
+                pointerId: 1,
+                clientX: 60,
+                clientY: 150
+            }));
+            surface.dispatchEvent(pointer("pointerup", {
+                pointerId: 1,
+                clientX: 60,
+                clientY: 150
+            }));
+            expect(mock.element.querySelector(".profile-lens")
+                ?.classList.contains("profile-lens-reduced-motion")).toBe(true);
+            expect(contextMetrics(surface).cameraFrames).toBeGreaterThan(0);
+            expect(vi.getTimerCount()).toBe(0);
+        } finally {
+            vi.useRealTimers();
+        }
     });
 
     it("applies formatting properties from the data view objects", () => {

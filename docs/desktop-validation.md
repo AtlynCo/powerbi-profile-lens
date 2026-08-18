@@ -43,6 +43,14 @@ candidate; record the package name and SHA-256 from `dist/release-manifest.json`
 2. Verify SVG at 500 features and 20,000 vertices, then Canvas when either threshold is exceeded.
 3. Compare SVG and Canvas labels, selection, focus, tooltip, context menu, and accessible descriptions.
 4. Test one through six profile measures, both radial and stacked arrangements.
+5. With navigation disabled, confirm existing reports remain fitted and static. Enable it explicitly
+   for world, state, county, point, bound-geometry, grid, and hex scenes.
+6. Drag with the primary mouse button, use wheel/trackpad zoom, one-pointer touch pan where available,
+   synthetic and physical two-pointer pinch, Shift+Arrow, `+`/`-`, Home, and the reset control.
+7. Confirm cursor/midpoint zoom anchoring, bounded pan, fixed center probe, and viewed-center
+   preservation on resize. The probe must not change the Entity/header/profile in this release.
+8. During multi-step county pan/zoom, confirm scene, raster, picking-surface, and spatial-index build
+   counts remain unchanged; record camera-frame and picking metrics.
 
 ## Loading and native capability spike
 
@@ -67,7 +75,11 @@ candidate; record the package name and SHA-256 from `dist/release-manifest.json`
    authoritative after resize and refresh.
 6. Exercise local-only and report-selection modes. Confirm no visual gesture writes an outward filter.
 7. Disable report interactions and confirm no selection, tooltip, focus mutation, or
-   context-menu host call.
+   context-menu host call. Also confirm no camera mutation, pointer capture, wheel prevention,
+   navigation control/focus chrome, or navigation host call while the current camera stays visible.
+8. Start a drag over a feature and release over another feature. Confirm no entity activation,
+   tooltip, or context menu occurs; then perform one ordinary click and confirm exactly one existing
+   activation.
 
 ## Accessibility and semantic parity
 
@@ -77,6 +89,8 @@ candidate; record the package name and SHA-256 from `dist/release-manifest.json`
    profile table.
 4. Verify Windows high contrast, color-independent selected/focused states, RTL, reduced motion, and
    the smallest responsive layout.
+5. Confirm the context is one Tab stop, the reset button is not another sequential stop, probe and
+   gesture help are described, plain Arrow remains entity browsing, and RTL mirrors Shift+Left/Right.
 
 ## Persistence and service boundary
 
@@ -90,3 +104,7 @@ candidate; record the package name and SHA-256 from `dist/release-manifest.json`
 Native results establish only the tested host/package combination. They do not constitute Microsoft
 certification. Until the exact native PBIX above exists and passes, the artifact is not Partner Center
 submission-ready or certification-complete.
+
+Packaged Chromium mouse/wheel and synthetic pinch evidence does not prove Power BI Desktop mouse,
+trackpad, touch hardware, focus routing, export, or reopen behavior. Record those surfaces as unproven
+unless they were exercised against the exact package hash and genuine reopened PBIX.

@@ -1,4 +1,5 @@
 import type { Diagnostic, EntityRef } from "../model/contract";
+import type { ContextCamera } from "./viewport/contract";
 
 export type ContextMode = "none" | "points" | "boundGeometry" | "grid" | "hex" | "builtInPack";
 export type ContextRendererKind = "svg" | "canvas";
@@ -106,11 +107,22 @@ export interface SceneTransform {
 
 export interface ContextRenderRequest {
     readonly scene: ContextScene;
+    readonly sceneIdentity: string;
     readonly viewport: Viewport;
-    readonly transform: SceneTransform;
+    readonly baseTransform: SceneTransform;
+    readonly camera: ContextCamera;
     readonly focusedKey: string | null;
     readonly selectedKeys: ReadonlySet<string>;
     readonly interactive: boolean;
+    readonly navigation: {
+        readonly enabled: boolean;
+        readonly showProbe: boolean;
+        readonly showResetControl: boolean;
+        readonly showGestureHelp: boolean;
+        readonly resetLabel: string;
+        readonly probeDescription: string;
+        readonly gestureHelp: string;
+    };
     readonly connectorTarget?: ScenePoint;
     readonly pointSize?: number;
 }

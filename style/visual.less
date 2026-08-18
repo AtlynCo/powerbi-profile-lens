@@ -67,6 +67,16 @@
         outline: 2px solid @text-color;
         outline-offset: -2px;
     }
+
+    &.profile-lens-context-navigation-active {
+        cursor: grab;
+        touch-action: none;
+        user-select: none;
+    }
+
+    &.profile-lens-context-panning {
+        cursor: grabbing;
+    }
 }
 
 .profile-lens-context-canvas,
@@ -80,6 +90,7 @@
 
 .profile-lens-context-canvas {
     z-index: 0;
+    transform-origin: 0 0;
 }
 
 .profile-lens-context-svg {
@@ -100,6 +111,59 @@
     text-overflow: ellipsis;
     white-space: nowrap;
     pointer-events: none;
+}
+
+.profile-lens-context-help {
+    position: absolute;
+    inset-inline-start: 4px;
+    bottom: 2px;
+    z-index: 2;
+    max-width: calc(100% - 96px);
+    overflow: hidden;
+    color: @muted-color;
+    font-size: 9px;
+    line-height: 11px;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    pointer-events: none;
+}
+
+.profile-lens-context-reset {
+    position: absolute;
+    inset-inline-end: 4px;
+    top: 4px;
+    z-index: 3;
+    min-width: 28px;
+    min-height: 24px;
+    padding: 2px 6px;
+    border: 1px solid @border-color;
+    border-radius: 2px;
+    color: @text-color;
+    background: #FFF;
+    font: inherit;
+    cursor: pointer;
+
+    &:disabled {
+        cursor: default;
+        opacity: 0.6;
+        pointer-events: none;
+    }
+}
+
+.profile-lens-context-camera-layer,
+.profile-lens-context-outline-layer {
+    transform-origin: 0 0;
+}
+
+.profile-lens-context-fixed-layer,
+.profile-lens-context-probe,
+.profile-lens-context-outline-layer {
+    pointer-events: none;
+}
+
+.profile-lens-context-outline,
+.profile-lens-context-outline * {
+    vector-effect: non-scaling-stroke;
 }
 
 .profile-lens-profile-svg {
@@ -299,5 +363,24 @@
 .profile-lens-high-contrast {
     .profile-lens-legend-swatch {
         border-width: 2px;
+    }
+
+    .profile-lens-context-reset {
+        border-width: 2px;
+        color: inherit;
+        background: transparent;
+    }
+}
+
+@media (max-width: 120px), (max-height: 120px) {
+    .profile-lens-context-help {
+        display: none;
+    }
+
+    .profile-lens-context-reset {
+        min-width: 24px;
+        min-height: 20px;
+        padding: 1px 3px;
+        font-size: 9px;
     }
 }

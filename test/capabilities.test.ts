@@ -144,6 +144,7 @@ describe("capabilities contract", () => {
             "interaction",
             "layout",
             "loading",
+            "navigation",
             "period",
             "profiles",
             "series"
@@ -157,5 +158,14 @@ describe("capabilities contract", () => {
         };
         expect(interaction.type.enumeration.map((entry) => entry.value))
             .toEqual(["localOnly", "reportSelection"]);
+        expect(Object.keys(capabilities.objects.navigation.properties).sort()).toEqual([
+            "enabled",
+            "maxZoom",
+            "minZoom",
+            "showCenterProbe",
+            "showGestureHelp",
+            "showResetControl",
+            "wheelSensitivity"
+        ]);
     });
 });

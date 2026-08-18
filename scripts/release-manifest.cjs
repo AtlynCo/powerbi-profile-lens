@@ -311,12 +311,19 @@ const releaseManifest = {
         dataViewMappings: 1,
         mappingKind: "matrix",
         interactionModes: ["localOnly", "reportSelection"],
+        viewportNavigation: {
+            defaultEnabled: false,
+            gestures: ["primary-drag", "wheel", "one-pointer-pan", "two-pointer-pinch"],
+            keyboard: ["Shift+Arrow", "+", "-", "Home"],
+            probeDrivesEntityFocus: false,
+            moveEndHostSelection: false
+        },
         outwardFilter: false,
         roles: (JSON.parse(fs.readFileSync(path.join(root, "capabilities.json"), "utf8")).dataRoles ?? [])
             .map((role) => role.name)
     },
     hashPolicy: "PBIVIZ ZIP entries are sorted and normalized to a fixed UTC anchored DOS timestamp, DEFLATE level 9, and DOS platform metadata before hashing, so the hash does not depend on the build machine's timezone or platform.",
-    proofBoundary: "Automated unit, pack-pipeline and packaged-browser probes prove strict bounded parsing, exact offline world/state/county joins, deterministic source hashes and generated packs, complete declared territory coverage, point/grid/hex/bound-geometry providers, SVG/Canvas semantic and host-identity parity, physical hit testing, bounded Canvas surfaces, responsive layout through 80x80, disabled physical focus, high contrast, RTL, reduced motion and runtime network abstinence. Native Desktop/Service field wells, segmentation, bookmarks, DirectQuery/Direct Lake, export, pinning, native tooltip rendering and matrix expand/collapse remain unproven unless the nativeValidation record explicitly reports a validated observation. expandCollapse and drilldown are intentionally undeclared. This manifest never treats PBIP structure or a blocked Desktop launch as PBIX validation, Microsoft certification, or Partner Center submission."
+    proofBoundary: "Automated unit, pack-pipeline and packaged-browser probes prove strict bounded parsing, exact offline world/state/county joins, deterministic source hashes and generated packs, complete declared territory coverage, point/grid/hex/bound-geometry providers, SVG/Canvas semantic and host-identity parity, real Chromium primary-drag and wheel gestures, synthetic Pointer Event pinch, fixed non-focusing probe semantics, fit-relative camera transforms, synchronous camera submission and next-animation-frame latency budgets, inverse picking at DPR 1/2 and scaled backing, no scene/raster/picking-index rebuild during measured camera sequences, physical hit testing, bounded Canvas surfaces, responsive layout through 80x80, disabled physical focus and camera input, high contrast, RTL, reduced motion and runtime network abstinence. Native Desktop/Service mouse, trackpad, touch, field wells, segmentation, bookmarks, DirectQuery/Direct Lake, export, pinning, native tooltip rendering and matrix expand/collapse remain unproven unless the nativeValidation record explicitly reports a validated observation. expandCollapse and drilldown are intentionally undeclared. This manifest never treats PBIP structure, packaged Chromium gestures, or a blocked Desktop launch as PBIX validation, Microsoft certification, or Partner Center submission."
 };
 
 const finalSourceCommit = require("./native-source-integrity.cjs").assertCleanBoundSource(root);

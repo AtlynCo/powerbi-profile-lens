@@ -6,12 +6,14 @@ import type {
     SceneTransform,
     Viewport
 } from "./contract";
+import { sceneBounds } from "./viewport/bounds";
+import { projectPoint } from "./viewport/camera";
 
 const PADDING = 8;
 
 export function fitScene(scene: ContextScene, viewport: Viewport): SceneTransform {
-    const points = scene.features.flatMap((feature) => geometryPoints(feature.geometry));
-    if (points.length === 0) {
+    const bounds = sceneBounds(scene);
+    if (!bounds) {
         return {
             scale: 1,
             translateX: viewport.width / 2,
@@ -19,12 +21,7 @@ export function fitScene(scene: ContextScene, viewport: Viewport): SceneTransfor
             invertY: false
         };
     }
-    const xs = points.map((point) => point.x);
-    const ys = points.map((point) => point.y);
-    const minX = Math.min(...xs);
-    const maxX = Math.max(...xs);
-    const minY = Math.min(...ys);
-    const maxY = Math.max(...ys);
+    const { minX, maxX, minY, maxY } = bounds;
     const spanX = Math.max(maxX - minX, 1);
     const spanY = Math.max(maxY - minY, 1);
     const width = Math.max(viewport.width - PADDING * 2, 1);
@@ -41,14 +38,7 @@ export function fitScene(scene: ContextScene, viewport: Viewport): SceneTransfor
     };
 }
 
-export function projectPoint(point: ScenePoint, transform: SceneTransform): ScenePoint {
-    return {
-        x: point.x * transform.scale + transform.translateX,
-        y: transform.invertY
-            ? transform.translateY - point.y * transform.scale
-            : point.y * transform.scale + transform.translateY
-    };
-}
+export { projectPoint };
 
 export function geometryPoints(geometry: ContextGeometry): readonly ScenePoint[] {
     if (geometry.points) {

@@ -584,6 +584,61 @@
         }
       }
     },
+    "navigation": {
+      "displayName": "Navigation",
+      "displayNameKey": "Format_Navigation_Card",
+      "properties": {
+        "enabled": {
+          "displayName": "Enable viewport navigation",
+          "displayNameKey": "Format_NavigationEnabled",
+          "type": {
+            "bool": true
+          }
+        },
+        "minZoom": {
+          "displayName": "Minimum zoom",
+          "displayNameKey": "Format_MinZoom",
+          "type": {
+            "numeric": true
+          }
+        },
+        "maxZoom": {
+          "displayName": "Maximum zoom",
+          "displayNameKey": "Format_MaxZoom",
+          "type": {
+            "numeric": true
+          }
+        },
+        "wheelSensitivity": {
+          "displayName": "Wheel sensitivity",
+          "displayNameKey": "Format_WheelSensitivity",
+          "type": {
+            "numeric": true
+          }
+        },
+        "showCenterProbe": {
+          "displayName": "Show center probe",
+          "displayNameKey": "Format_ShowCenterProbe",
+          "type": {
+            "bool": true
+          }
+        },
+        "showResetControl": {
+          "displayName": "Show reset control",
+          "displayNameKey": "Format_ShowResetControl",
+          "type": {
+            "bool": true
+          }
+        },
+        "showGestureHelp": {
+          "displayName": "Show gesture help",
+          "displayNameKey": "Format_ShowGestureHelp",
+          "type": {
+            "bool": true
+          }
+        }
+      }
+    },
     "loading": {
       "displayName": "Detail loading",
       "displayNameKey": "Format_Loading_Card",

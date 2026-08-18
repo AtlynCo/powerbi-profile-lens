@@ -132,13 +132,23 @@
                         worldDetail: config.worldDetail || "110m",
                         packKeyMode: config.packKeyMode || "auto",
                         svgFeatureThreshold: config.svgFeatureThreshold || 500,
-                        svgVertexThreshold: config.svgVertexThreshold || 20000
+                        svgVertexThreshold: config.svgVertexThreshold || 20000,
+                        pointSize: config.pointSize || 6
                     },
                     layout: {
                         contextLayout: config.contextLayout || "split"
                     },
                     interaction: {
                         mode: config.interactionMode || "reportSelection"
+                    },
+                    navigation: {
+                        enabled: Boolean(config.navigationEnabled),
+                        minZoom: config.minZoom || 1,
+                        maxZoom: config.maxZoom || 8,
+                        wheelSensitivity: config.wheelSensitivity || 1,
+                        showCenterProbe: config.showCenterProbe !== false,
+                        showResetControl: config.showResetControl !== false,
+                        showGestureHelp: config.showGestureHelp !== false
                     }
                 }
             },

@@ -4,7 +4,7 @@ Nothing in this document claims Microsoft certification, approval, submission, o
 
 | Requirement | Release value | Status |
 |---|---|---|
-| Visual | Atlyn Profile Lens, GUID `atlynProfileLens`, version `1.2.0.0` | Packaged |
+| Visual | Atlyn Profile Lens, GUID `atlynProfileLens`, version `1.3.0.0` | Packaged |
 | API | `5.11.0` | Packaged |
 | Listing price | Free | Owner decision |
 | Support | <https://atlyn.io/contact> | Recorded in `pbiviz.json` |
@@ -15,8 +15,8 @@ Nothing in this document claims Microsoft certification, approval, submission, o
 | Listing logo | `assets/partner-center-logo-300x300.png`, 300x300 PNG | Present |
 | Screenshots | 1-5 native release screenshots | **Blocked: no safe native capture was completed** |
 | Offline sample project | `samples/AtlynProfileLensSample/AtlynProfileLensSample.pbip` | Present |
-| Genuine offline PBIX | `dist/release/AtlynProfileLensSample-1.2.0.0.pbix` | **Blocked: not produced** |
-| Native evidence | `docs/native-validation/atlynProfileLens-1.2.0.0.json` | Blocked record |
+| Genuine offline PBIX | `dist/release/AtlynProfileLensSample-1.3.0.0.pbix` | **Blocked: not produced** |
+| Native evidence | No 1.3.0.0 native record | **Not run; 1.2.0.0 evidence is historical only** |
 
 ## Source and artifact parity
 
