@@ -20,6 +20,7 @@
     "openedByDesktop": true,
     "fixtureIdentityAtLaunch": "not-recorded",
     "currentPreparedFixture": {
+      "sourceCommit": "0fd0bda805c34d0a2b26c2c5d6714de62cfba3b8",
       "projectTreeSha256": "b287ce8bbd5c5192940c78ca653373abe9f2a99c02788c2efae4bae564818e3f",
       "reportDefinitionTreeSha256": "c7b5e4f05b4e86b2d7e3854ef7590ac0ce3570f37b46152c59a5fdae53e6b710",
       "modelDefinitionTreeSha256": "407a94d172ea8ef05797a2856a96dc49d9aa76046b5ade4210d5417e4518db9c",
