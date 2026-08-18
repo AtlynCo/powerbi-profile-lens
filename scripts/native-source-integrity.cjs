@@ -8,6 +8,7 @@ const AUTOMATION_PATHS = [
     "scripts/native-evidence-sanitize.cjs",
     "scripts/native-observations.cjs",
     "scripts/native-pbix-snapshot.cjs",
+    "scripts/pbix-publication-lock.cjs",
     "scripts/native-snapshot.cjs",
     "scripts/native-source-integrity.cjs",
     "scripts/finalize-native-evidence.cjs",

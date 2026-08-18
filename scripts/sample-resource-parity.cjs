@@ -1,8 +1,21 @@
 const crypto = require("node:crypto");
 const fs = require("node:fs");
 const path = require("node:path");
+const zlib = require("node:zlib");
 const JSZip = require("jszip");
 const strictUtf8 = new TextDecoder("utf-8", { fatal: true });
+const MAX_ZIP_ENTRIES = 10_000;
+const MAX_ENTRY_UNCOMPRESSED = 64 * 1024 * 1024;
+const MAX_TOTAL_UNCOMPRESSED = 512 * 1024 * 1024;
+const MAX_COMPRESSION_RATIO = 500;
+const crcTable = new Uint32Array(256);
+for (let index = 0; index < 256; index++) {
+    let value = index;
+    for (let bit = 0; bit < 8; bit++) {
+        value = (value & 1) ? (0xedb88320 ^ (value >>> 1)) : (value >>> 1);
+    }
+    crcTable[index] = value >>> 0;
+}
 
 function sha256(bytes) {
     return crypto.createHash("sha256").update(bytes).digest("hex");
@@ -25,10 +38,56 @@ function decodeZipName(bytes, flags) {
     if ([...bytes].some((value) => value > 0x7f) && (flags & 0x0800) === 0) {
         throw new Error("Non-ASCII ZIP names must declare UTF-8.");
     }
+
     try {
         return strictUtf8.decode(bytes);
     } catch {
         throw new Error("ZIP filename is not valid UTF-8.");
+    }
+}
+
+function crc32(bytes) {
+        let crc = 0xffffffff;
+        for (const byte of bytes) crc = crcTable[(crc ^ byte) & 0xff] ^ (crc >>> 8);
+        return (crc ^ 0xffffffff) >>> 0;
+    }
+
+function validateZipPayloads(bytes, records) {
+        if (records.length > MAX_ZIP_ENTRIES) throw new Error("ZIP entry count exceeds budget.");
+        let total = 0;
+        for (const record of records) {
+            if (record.uncompressedSize > MAX_ENTRY_UNCOMPRESSED) {
+                throw new Error(`ZIP entry exceeds uncompressed budget: ${record.name}`);
+            }
+            total += record.uncompressedSize;
+            if (total > MAX_TOTAL_UNCOMPRESSED) throw new Error("ZIP total uncompressed budget exceeded.");
+            if (record.compressedSize === 0 && record.uncompressedSize > 0) {
+                throw new Error(`ZIP entry has an invalid compression ratio: ${record.name}`);
+            }
+            if (record.compressedSize > 0 &&
+                record.uncompressedSize / record.compressedSize > MAX_COMPRESSION_RATIO) {
+                throw new Error(`ZIP entry compression ratio exceeds budget: ${record.name}`);
+            }
+            const compressed = bytes.subarray(record.dataStart, record.dataEnd);
+            let actual;
+            if (record.method === 0) {
+                actual = compressed;
+            } else {
+                try {
+                    actual = zlib.inflateRawSync(compressed, {
+                        maxOutputLength: MAX_ENTRY_UNCOMPRESSED + 1
+                    });
+                } catch {
+                    throw new Error(`ZIP entry decompression failed: ${record.name}`);
+                }
+            }
+            if (actual.length !== record.uncompressedSize ||
+                compressed.length !== record.compressedSize) {
+                throw new Error(`ZIP entry size metadata differs from payload: ${record.name}`);
+            }
+            if (crc32(actual) !== record.crc32) {
+                throw new Error(`ZIP entry CRC32 differs from payload: ${record.name}`);
+        }
     }
 }
 
@@ -228,14 +287,8 @@ function requireCanonicalPbixResource(rawNames, guid) {
 }
 
 async function verifySampleResourceParity({ packagePath, sampleRoot, guid }) {
-    const packageBytes = fs.readFileSync(packagePath);
-    const zip = await JSZip.loadAsync(packageBytes);
-    const resourcePath = `resources/${guid}.pbiviz.json`;
-    const resource = zip.files[resourcePath];
-    if (!resource || resource.dir) {
-        throw new Error(`PBIVIZ resource is missing: ${resourcePath}`);
-    }
-    const payload = await resource.async("nodebuffer");
+    const { packageBytes, archivePath: resourcePath, payload } =
+        await packagePayload(packagePath, guid);
     const embedded = [];
     function walk(directory) {
         for (const entry of fs.readdirSync(directory).sort()) {
@@ -283,6 +336,8 @@ async function verifySampleResourceParity({ packagePath, sampleRoot, guid }) {
 
 async function packagePayload(packagePath, guid) {
     const packageBytes = fs.readFileSync(packagePath);
+    const packageRecords = parseCanonicalZipRecords(packageBytes);
+    validateZipPayloads(packageBytes, packageRecords);
     const zip = await JSZip.loadAsync(packageBytes);
     const archivePath = `resources/${guid}.pbiviz.json`;
     const resource = zip.files[archivePath];
@@ -298,6 +353,7 @@ async function verifyPbixVisualParity({ packagePath, pbixPath, guid }) {
     const { packageBytes, archivePath, payload } = await packagePayload(packagePath, guid);
     const pbixBytes = fs.readFileSync(pbixPath);
     const records = parseCanonicalZipRecords(pbixBytes);
+    validateZipPayloads(pbixBytes, records);
     const rawNames = records.map((record) => record.name);
     const pbix = await JSZip.loadAsync(pbixBytes);
     const canonical = requireCanonicalPbixResource(rawNames, guid);
@@ -328,6 +384,7 @@ async function verifyPbixVisualParity({ packagePath, pbixPath, guid }) {
 
 module.exports = {
     parseExtraFields,
+    validateZipPayloads,
     requireCanonicalPbixResource,
     parseCanonicalZipRecords,
     resolveActiveResourcePointer,

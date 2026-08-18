@@ -469,6 +469,7 @@ function Start-OwnedProcessJob {
         rootProcessId = $launch.ProcessId
         rootStartTimeUtcTicks = $launch.StartTimeUtcTicks
         closed = $false
+        cleanupResult = $null
     }
 }
 
@@ -482,54 +483,69 @@ function Test-OwnedJobMembership {
 }
 
 function Invoke-OwnedProcessCleanup {
-    param($Job)
+    param(
+        $Job,
+        [scriptblock]$GracefulCloser = {
+            param($OwnedJob)
+            $root = Get-Process -Id $OwnedJob.rootProcessId -ErrorAction SilentlyContinue
+            if ($root -and
+                $root.StartTime.ToUniversalTime().Ticks -eq $OwnedJob.rootStartTimeUtcTicks -and
+                $root.CloseMainWindow()) {
+                return $root.WaitForExit(15000)
+            }
+            return $false
+        }
+    )
     $result = [ordered]@{
         graceful = $false
         forced = $false
-        remaining = @()
+        complete = $false
+        activeProcessCount = $null
         errors = @()
     }
-    if ($Job.closed) {
-        $result.graceful = $true
+    if ($Job.cleanupResult) {
+        return $Job.cleanupResult
+    }
+    $active = [OwnedProcessJob]::ActiveProcesses($Job.handle)
+    if ($active -eq [uint32]::MaxValue) {
+        $result.errors += "job process query failed"
         return $result
     }
+    $result.activeProcessCount = $active
     try {
-        $root = Get-Process -Id $Job.rootProcessId -ErrorAction SilentlyContinue
-        if ($root -and
-            $root.StartTime.ToUniversalTime().Ticks -eq $Job.rootStartTimeUtcTicks -and
-            $root.CloseMainWindow()) {
-            $result.graceful = $root.WaitForExit(15000)
-        }
+        $result.graceful = [bool](& $GracefulCloser $Job)
     } catch {
         $result.errors += "graceful close failed"
     }
-    try {
-        if (-not [OwnedProcessJob]::TerminateJobObject($Job.handle, 1)) {
-            throw "job termination failed"
-        }
-        $result.forced = $true
-        $deadline = (Get-Date).AddSeconds(15)
-        while ((Get-Date) -lt $deadline -and
-            [OwnedProcessJob]::ActiveProcesses($Job.handle) -ne 0) {
-            Start-Sleep -Milliseconds 200
-        }
-        if ([OwnedProcessJob]::ActiveProcesses($Job.handle) -ne 0) {
-            throw "owned job still has active processes"
-        }
-    } catch {
-        $result.errors += "owned job cleanup failed"
-    } finally {
-        if ($result.errors.Count -eq 0) {
-            [OwnedProcessJob]::CloseHandle($Job.handle) | Out-Null
-            $Job.closed = $true
+    $active = [OwnedProcessJob]::ActiveProcesses($Job.handle)
+    if ($active -ne [uint32]::MaxValue -and $active -gt 0) {
+        try {
+            if (-not [OwnedProcessJob]::TerminateJobObject($Job.handle, 1)) {
+                throw "job termination failed"
+            }
+            $result.forced = $true
+            $deadline = (Get-Date).AddSeconds(15)
+            while ((Get-Date) -lt $deadline -and
+                [OwnedProcessJob]::ActiveProcesses($Job.handle) -ne 0) {
+                Start-Sleep -Milliseconds 200
+            }
+        } catch {
+            $result.errors += "owned job cleanup failed"
         }
     }
-    $root = Get-Process -Id $Job.rootProcessId -ErrorAction SilentlyContinue
-    if ($root -and $root.StartTime.ToUniversalTime().Ticks -eq $Job.rootStartTimeUtcTicks) {
-        $result.remaining += $Job.rootProcessId
+    $active = [OwnedProcessJob]::ActiveProcesses($Job.handle)
+    if ($active -ne [uint32]::MaxValue) {
+        $result.activeProcessCount = $active
+        $result.complete = $active -eq 0
+    } else {
+        $result.errors += "terminal job process query failed"
     }
-    if ($result.errors.Count -gt 0 -and $result.remaining.Count -eq 0) {
-        $result.remaining = @(-1)
+    if ($result.complete) {
+        [OwnedProcessJob]::CloseHandle($Job.handle) | Out-Null
+        $Job.closed = $true
+    }
+    if ($result.complete) {
+        $Job.cleanupResult = $result
     }
     return $result
 }

@@ -77,6 +77,12 @@ const { manifest: snapshotManifest, verifySnapshot } = require("../scripts/nativ
     manifest(directory: string): { sha256: string };
     verifySnapshot(root: string, token: string, expected: string): { manifest: { sha256: string } };
 };
+const { acquirePbixPublicationLock } = require("../scripts/pbix-publication-lock.cjs") as {
+    acquirePbixPublicationLock(
+        root: string,
+        pbixPath: string
+    ): Promise<{ release(): Promise<void> }>;
+};
 const {
     createPbixSnapshot,
     verifyPbixSnapshot
@@ -224,10 +230,10 @@ describe("native validation evidence safety", () => {
                 path.join(root, "scripts", "native-validation", "run-desktop-validation.ps1"),
                 "utf8"
             );
-            const release = fs.readFileSync(
-                path.join(root, "scripts", "release-manifest.cjs"),
-                "utf8"
-            );
+            const release = [
+                "release-manifest.cjs",
+                "release-manifest-worker.cjs"
+            ].map((file) => fs.readFileSync(path.join(root, "scripts", file), "utf8")).join("\n");
             expect(runner).toContain("native-source-integrity.cjs");
             expect(runner).toContain("$visualManifest.visual.version");
             expect(runner).not.toContain("AtlynProfileLensSample-1.2.0.0.pbix");
@@ -369,7 +375,7 @@ describe("native validation evidence safety", () => {
         const recoveryEscaped = recovery.replaceAll("'", "''");
         const command = ". 'scripts\\native-validation\\snapshot-guard.ps1'; "
             + `$guard = Open-SnapshotReadLocks -RepoRoot '${escaped}' `
-            + `-SnapshotRoot '${snapshotEscaped}' -RecoveryRoot '${recoveryEscaped}' -RunId 'test'; `
+            + `-SnapshotRoot '${snapshotEscaped}' -RecoveryRoot '${recoveryEscaped}' -RunId '${"a".repeat(32)}'; `
             + "try { "
             + `try { [IO.File]::Open('${snapshotEscaped}\\locked.pbip','Open','Write','None').Dispose(); 'writable' } `
             + "catch { 'write-blocked' }; "
@@ -396,7 +402,7 @@ describe("native validation evidence safety", () => {
         const command = ". 'scripts\\native-validation\\snapshot-guard.ps1'; "
             + `$guard = Open-SnapshotReadLocks -RepoRoot '${temp.replaceAll("'", "''")}' `
             + `-SnapshotRoot '${snapshot.replaceAll("'", "''")}' `
-            + `-RecoveryRoot '${recovery.replaceAll("'", "''")}' -RunId 'crash'; `
+            + `-RecoveryRoot '${recovery.replaceAll("'", "''")}' -RunId '${"c".repeat(32)}'; `
             + "foreach($s in $guard.streams){$s.Dispose()}; "
             + "$script:first=$true; $partial={param($p,$a) if($script:first){$script:first=$false;throw 'injected'}else{Set-Acl -Path $p -AclObject $a}}; "
             + "try { Recover-StaleSnapshotAclJournals -RepoRoot $guard.repoRoot "
@@ -414,6 +420,58 @@ describe("native validation evidence safety", () => {
             expect(output).toContain("partial-preserved");
             expect(output).toContain("recovered-idempotent");
             expect(fs.existsSync(recovery) ? fs.readdirSync(recovery) : []).toHaveLength(0);
+        } finally {
+            fs.rmSync(temp, { recursive: true, force: true });
+        }
+    });
+
+    it("authenticates journals and rejects traversal and reparse targets", () => {
+        const temp = fs.mkdtempSync(path.join(os.tmpdir(), "profile-lens-journal-auth-"));
+        const snapshot = path.join(temp, "dist", "release", "native-snapshot", "d".repeat(64));
+        const recovery = path.join(temp, "dist", "release", "native-recovery");
+        const outside = path.join(temp, "outside");
+        fs.mkdirSync(snapshot, { recursive: true });
+        fs.mkdirSync(outside);
+        fs.writeFileSync(path.join(snapshot, "file.pbip"), "fixture");
+        const e = (value: string): string => value.replaceAll("'", "''");
+        const command = ". 'scripts\\native-validation\\snapshot-guard.ps1'; "
+            + `$guard=Open-SnapshotReadLocks -RepoRoot '${e(temp)}' -SnapshotRoot '${e(snapshot)}' `
+            + `-RecoveryRoot '${e(recovery)}' -RunId '${"e".repeat(32)}'; `
+            + "foreach($s in $guard.streams){$s.Dispose()}; $journal=$guard.journalPath; "
+            + "$original=[IO.File]::ReadAllBytes($journal); $envelope=Get-Content $journal -Raw|ConvertFrom-Json; "
+            + "$envelope.payload.recoveryErrors=@('tampered'); Set-Content $journal ($envelope|ConvertTo-Json -Depth 10 -Compress); "
+            + `try{Recover-StaleSnapshotAclJournals -RepoRoot '${e(temp)}' -RecoveryRoot '${e(recovery)}';throw 'accepted-tamper'}catch{'tamper-rejected'}; `
+            + "[IO.File]::WriteAllBytes($journal,$original); "
+            + "$envelope=Get-Content $journal -Raw|ConvertFrom-Json; $envelope.payload.directories[0].relativePath='../escape'; "
+            + "Write-AtomicRecoveryJournal -Path $journal -Journal $envelope.payload; "
+            + `try{Recover-StaleSnapshotAclJournals -RepoRoot '${e(temp)}' -RecoveryRoot '${e(recovery)}';throw 'accepted-traversal'}catch{'traversal-rejected'}; `
+            + "[IO.File]::WriteAllBytes($journal,$original); "
+            + `Recover-StaleSnapshotAclJournals -RepoRoot '${e(temp)}' -RecoveryRoot '${e(recovery)}'|Out-Null; `
+            + `New-Item -ItemType Junction -Path '${e(path.join(snapshot, "link"))}' -Target '${e(outside)}'|Out-Null; `
+            + "$payload=[ordered]@{schemaVersion=1;harnessId='atlyn-profile-lens-native-validation';"
+            + `runId='${"f".repeat(32)}';snapshotToken='${"d".repeat(64)}';`
+            + `snapshotLogicalPath='dist/release/native-snapshot/${"d".repeat(64)}';`
+            + "directories=@([ordered]@{relativePath='link';sddl=(Get-Acl "
+            + `'${e(path.join(snapshot, "link"))}').Sddl;sddlSha256='0';semanticAclSha256='0'});recoveryErrors=@()}; `
+            + `try{Assert-JournalSchemaAndContainment -Payload $payload -RepoRoot '${e(temp)}';throw 'accepted-reparse'}catch{'reparse-rejected'}; `
+            + "$acl=(Get-Acl "
+            + `'${e(snapshot)}').Sddl;$entry=[ordered]@{relativePath='';sddl=$acl;`
+            + "sddlSha256=(Get-SddlSha256 $acl);semanticAclSha256=(Get-SemanticAclSha256 $acl)};"
+            + "$payload.directories=@($entry,$entry);"
+            + `try{Assert-JournalSchemaAndContainment -Payload $payload -RepoRoot '${e(temp)}';throw 'accepted-duplicate'}catch{'duplicate-rejected'};`
+            + "$bad='D:(A;;FA;;;WD)';$entry=[ordered]@{relativePath='';sddl=$bad;"
+            + "sddlSha256=(Get-SddlSha256 $bad);semanticAclSha256=(Get-SemanticAclSha256 $bad)};"
+            + "$payload.directories=@($entry);"
+            + `try{Assert-JournalSchemaAndContainment -Payload $payload -RepoRoot '${e(temp)}';throw 'accepted-principal'}catch{'principal-rejected'}`;
+        try {
+            const output = execFileSync("pwsh", ["-NoProfile", "-Command", command], {
+                cwd: root
+            }).toString();
+            expect(output).toContain("tamper-rejected");
+            expect(output).toContain("traversal-rejected");
+            expect(output).toContain("reparse-rejected");
+            expect(output).toContain("duplicate-rejected");
+            expect(output).toContain("principal-rejected");
         } finally {
             fs.rmSync(temp, { recursive: true, force: true });
         }
@@ -438,8 +496,11 @@ describe("native validation evidence safety", () => {
             + `$childId=[int](Get-Content '${marker.replaceAll("'", "''")}'); `
             + "$primary=[Exception]::new('original-post-launch-failure'); "
             + "$cleanup=Invoke-OwnedProcessCleanup -Job $job; "
+            + "$cleanupAgain=Invoke-OwnedProcessCleanup -Job $job; "
             + "$selected=Select-RunFailure -PrimaryFailure $primary -CleanupFailure ([Exception]::new('cleanup')); "
-            + "if($cleanup.remaining.Count -ne 0 -or (Get-Process -Id $childId -ErrorAction SilentlyContinue)){throw 'leak'}; $selected.Message";
+            + "if(-not $cleanup.complete -or -not $cleanup.forced -or "
+            + "$cleanupAgain.forced -ne $cleanup.forced -or "
+            + "(Get-Process -Id $childId -ErrorAction SilentlyContinue)){throw 'leak'}; $selected.Message";
         try {
             const output = execFileSync("pwsh", ["-NoProfile", "-Command", command], {
                 cwd: root
@@ -450,11 +511,34 @@ describe("native validation evidence safety", () => {
         }
     });
 
+    it("closes a zero-process job despite graceful-close diagnostics", () => {
+        const temp = fs.mkdtempSync(path.join(os.tmpdir(), "profile-lens-job-zero-"));
+        const script = path.join(temp, "exit.ps1");
+        fs.writeFileSync(script, "exit 0\n");
+        const command = ". 'scripts\\native-validation\\desktop-guard.ps1'; "
+            + `$job=Start-OwnedProcessJob -Executable (Get-Command pwsh).Source `
+            + `-Argument '${script.replaceAll("'", "''")}' -WorkingDirectory '${temp.replaceAll("'", "''")}'; `
+            + "Start-Sleep 1; $result=Invoke-OwnedProcessCleanup -Job $job "
+            + "-GracefulCloser {param($j) throw 'injected graceful diagnostic'}; "
+            + "if(-not $result.complete -or -not $job.closed -or $result.errors.Count -ne 1){throw 'not terminal'}; 'terminal'";
+        try {
+            expect(execFileSync("pwsh", ["-NoProfile", "-Command", command], {
+                cwd: root
+            }).toString()).toContain("terminal");
+        } finally {
+            fs.rmSync(temp, { recursive: true, force: true });
+        }
+    });
+
     it("content-addresses and read-locks the PBIX reopen snapshot", () => {
         const temp = fs.mkdtempSync(path.join(os.tmpdir(), "profile-lens-pbix-lock-"));
-        const source = path.join(temp, "release.pbix");
+        fs.copyFileSync(path.join(root, "pbiviz.json"), path.join(temp, "pbiviz.json"));
+        const source = path.join(temp, "AtlynProfileLensSample-1.2.0.0.pbix");
         fs.writeFileSync(source, "stable pbix");
+        expect(() => createPbixSnapshot(temp, path.join(temp, "wrong.pbix")))
+            .toThrow(/basename/i);
         const snapshot = createPbixSnapshot(temp, source);
+        expect(path.basename(snapshot.logicalPath)).toBe("AtlynProfileLensSample-1.2.0.0.pbix");
         fs.writeFileSync(source, "replacement");
         expect(verifyPbixSnapshot(temp, snapshot.token).snapshot.sha256)
             .toBe(snapshot.snapshot.sha256);
@@ -474,6 +558,20 @@ describe("native validation evidence safety", () => {
             expect(verifyPbixSnapshot(temp, snapshot.token).snapshot.sha256)
                 .toBe(snapshot.snapshot.sha256);
         } finally {
+            fs.rmSync(temp, { recursive: true, force: true });
+        }
+    });
+
+    it("holds the exact release PBIX through publication", async () => {
+        const temp = fs.mkdtempSync(path.join(os.tmpdir(), "profile-lens-publication-"));
+        const pbix = path.join(temp, "AtlynProfileLensSample-1.2.0.0.pbix");
+        fs.writeFileSync(pbix, "release bytes");
+        const lock = await acquirePbixPublicationLock(root, pbix);
+        try {
+            expect(() => fs.writeFileSync(pbix, "replacement")).toThrow();
+            expect(() => fs.rmSync(pbix)).toThrow();
+        } finally {
+            await lock.release();
             fs.rmSync(temp, { recursive: true, force: true });
         }
     });
@@ -569,6 +667,61 @@ describe("native validation evidence safety", () => {
                 pbixPath: invalidNamesPath,
                 guid
             })).rejects.toThrow(/UTF-8|Non-ASCII/i);
+
+            const forgedCrc = fs.readFileSync(await writePbix("forged-crc-source.pbix", activeLayout));
+            let crcEocd = forgedCrc.length - 22;
+            while (crcEocd >= 0 && forgedCrc.readUInt32LE(crcEocd) !== 0x06054b50) crcEocd--;
+            const crcCentral = forgedCrc.readUInt32LE(crcEocd + 16);
+            const crcName = forgedCrc.indexOf(Buffer.from(canonical), crcCentral);
+            const crcRecord = crcName - 46;
+            const crcLocal = forgedCrc.readUInt32LE(crcRecord + 42);
+            const wrongCrc = (forgedCrc.readUInt32LE(crcRecord + 16) + 1) >>> 0;
+            forgedCrc.writeUInt32LE(wrongCrc, crcLocal + 14);
+            forgedCrc.writeUInt32LE(wrongCrc, crcRecord + 16);
+            const forgedCrcPath = path.join(temp, "forged-crc.pbix");
+            fs.writeFileSync(forgedCrcPath, forgedCrc);
+            await expect(verifyPbixVisualParity({
+                packagePath,
+                pbixPath: forgedCrcPath,
+                guid
+            })).rejects.toThrow(/CRC32/i);
+
+            const forgedSize = fs.readFileSync(await writePbix("forged-size-source.pbix", activeLayout));
+            let sizeEocd = forgedSize.length - 22;
+            while (sizeEocd >= 0 && forgedSize.readUInt32LE(sizeEocd) !== 0x06054b50) sizeEocd--;
+            const sizeCentral = forgedSize.readUInt32LE(sizeEocd + 16);
+            const sizeName = forgedSize.indexOf(Buffer.from(canonical), sizeCentral);
+            const sizeRecord = sizeName - 46;
+            const sizeLocal = forgedSize.readUInt32LE(sizeRecord + 42);
+            const forgedUncompressed = forgedSize.readUInt32LE(sizeLocal + 22) + 1;
+            forgedSize.writeUInt32LE(forgedUncompressed, sizeLocal + 22);
+            forgedSize.writeUInt32LE(forgedUncompressed, sizeRecord + 24);
+            const forgedSizePath = path.join(temp, "forged-size.pbix");
+            fs.writeFileSync(forgedSizePath, forgedSize);
+            await expect(verifyPbixVisualParity({
+                packagePath,
+                pbixPath: forgedSizePath,
+                guid
+            })).rejects.toThrow(/size metadata/i);
+
+            const BombZip = require("jszip") as new () => {
+                file(entry: string, value: string | Buffer): unknown;
+                generateAsync(options: { type: string; compression: string }): Promise<Buffer>;
+            };
+            const bomb = new BombZip();
+            bomb.file(canonical, payload as Buffer);
+            bomb.file("Report/Layout", activeLayout);
+            bomb.file("unrelated.bin", Buffer.alloc(2 * 1024 * 1024));
+            const bombPath = path.join(temp, "unrelated-bomb.pbix");
+            fs.writeFileSync(bombPath, await bomb.generateAsync({
+                type: "nodebuffer",
+                compression: "DEFLATE"
+            }));
+            await expect(verifyPbixVisualParity({
+                packagePath,
+                pbixPath: bombPath,
+                guid
+            })).rejects.toThrow(/compression ratio/i);
 
             const validBytes = fs.readFileSync(await writePbix("unmatched-source.pbix", activeLayout));
             const prefix = Buffer.alloc(30);

@@ -10,12 +10,22 @@ function metadata(filePath) {
     };
 }
 
+function expectedPbixName(root) {
+    const visual = JSON.parse(fs.readFileSync(path.join(root, "pbiviz.json"), "utf8"));
+    return `AtlynProfileLensSample-${visual.visual.version}.pbix`;
+}
+
 function createPbixSnapshot(root, sourcePath) {
+    const basename = expectedPbixName(root);
+    if (path.basename(sourcePath) !== basename) {
+        throw new Error("Release PBIX basename does not match the title-bound release name.");
+    }
     const source = metadata(sourcePath);
     const parent = path.join(root, "dist", "release", "native-pbix-snapshot");
-    const target = path.join(parent, `${source.sha256}.pbix`);
+    const targetDirectory = path.join(parent, source.sha256);
+    const target = path.join(targetDirectory, basename);
     const staging = `${target}.staging`;
-    fs.mkdirSync(parent, { recursive: true });
+    fs.mkdirSync(targetDirectory, { recursive: true });
     fs.rmSync(staging, { force: true });
     fs.copyFileSync(sourcePath, staging, fs.constants.COPYFILE_EXCL);
     const copied = metadata(staging);
@@ -27,7 +37,8 @@ function createPbixSnapshot(root, sourcePath) {
     fs.renameSync(staging, target);
     return {
         token: source.sha256,
-        logicalPath: `dist/release/native-pbix-snapshot/${source.sha256}.pbix`,
+        basename,
+        logicalPath: `dist/release/native-pbix-snapshot/${source.sha256}/${basename}`,
         original: source,
         snapshot: copied
     };
@@ -35,10 +46,11 @@ function createPbixSnapshot(root, sourcePath) {
 
 function verifyPbixSnapshot(root, token) {
     if (!/^[0-9a-f]{64}$/.test(token)) throw new Error("PBIX snapshot token is invalid.");
-    const logicalPath = `dist/release/native-pbix-snapshot/${token}.pbix`;
+    const basename = expectedPbixName(root);
+    const logicalPath = `dist/release/native-pbix-snapshot/${token}/${basename}`;
     const snapshot = metadata(path.join(root, logicalPath));
     if (snapshot.sha256 !== token) throw new Error("PBIX snapshot changed.");
-    return { token, logicalPath, snapshot };
+    return { token, basename, logicalPath, snapshot };
 }
 
 module.exports = { createPbixSnapshot, metadata, verifyPbixSnapshot };

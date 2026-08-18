@@ -1,6 +1,7 @@
 const crypto = require("node:crypto");
 const fs = require("node:fs");
 const path = require("node:path");
+const writeFileAtomic = require("write-file-atomic");
 const {
     assertBoundSourceMatchesCommit,
     computeAutomationIntegrity
@@ -10,6 +11,7 @@ const { verifyPbixVisualParity } = require("./sample-resource-parity.cjs");
 const { deriveScenarioOutcomes } = require("./native-observations.cjs");
 const { verifySnapshot } = require("./native-snapshot.cjs");
 const { verifyPbixSnapshot } = require("./native-pbix-snapshot.cjs");
+const { acquirePbixPublicationLock } = require("./pbix-publication-lock.cjs");
 
 const REQUIRED_SCENARIOS = [
     "fieldWells",
@@ -39,6 +41,8 @@ async function finalizeNativeEvidence(root) {
         "release",
         `AtlynProfileLensSample-${visualManifest.visual.version}.pbix`
     );
+    const publicationLock = await acquirePbixPublicationLock(root, pbixPath);
+    try {
     const run = JSON.parse(fs.readFileSync(source, "utf8"));
     assertEvidenceSafe(run, [process.env.USERNAME, process.env.USER]);
     if (run.outcome !== "native-run-completed") {
@@ -85,6 +89,11 @@ async function finalizeNativeEvidence(root) {
     if (pbixSnapshot.snapshot.sha256 !== run.pbixSnapshot?.snapshot?.sha256 ||
         pbixSnapshot.snapshot.sha256 !== run.pbixSnapshot?.original?.sha256) {
         throw new Error("PBIX snapshot does not match the stable release PBIX.");
+    }
+    if (run.pbixTitleGuard?.basename !== path.parse(pbixSnapshot.basename).name ||
+        run.pbixTitleGuard?.snapshotSha256 !== pbixSnapshot.token ||
+        run.pbixTitleGuard?.runId !== run.snapshot?.lock?.runId) {
+        throw new Error("PBIX title ownership guard is not bound to the snapshot and run.");
     }
     const pbixSnapshotPath = path.join(root, pbixSnapshot.logicalPath);
     const pbixParity = await verifyPbixVisualParity({
@@ -149,8 +158,16 @@ async function finalizeNativeEvidence(root) {
         "native-validation",
         `${visualManifest.visual.name}-${visualManifest.visual.version}.json`
     );
-    fs.writeFileSync(target, `${JSON.stringify(evidence, null, 2)}\n`);
+    const releasePbixBytes = fs.readFileSync(pbixPath);
+    if (releasePbixBytes.length !== pbixSnapshot.snapshot.bytes ||
+        sha256(releasePbixBytes) !== pbixSnapshot.token) {
+        throw new Error("Release PBIX changed before evidence publication.");
+    }
+    writeFileAtomic.sync(target, `${JSON.stringify(evidence, null, 2)}\n`);
     return target;
+    } finally {
+        await publicationLock.release();
+    }
 }
 
 module.exports = { REQUIRED_SCENARIOS, finalizeNativeEvidence };

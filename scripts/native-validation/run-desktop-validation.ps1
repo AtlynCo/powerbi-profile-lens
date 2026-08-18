@@ -151,6 +151,8 @@ $pages = @(
 
 function Start-OwnedReport {
     param([string]$Path)
+    $launchBasename = [System.IO.Path]::GetFileNameWithoutExtension($Path)
+    $launchExpectedTitle = "*$launchBasename*"
     $existing = @(Get-Process -Name PBIDesktop -ErrorAction SilentlyContinue)
     if ($existing.Count -gt 0) {
         throw "Desktop ownership blocker: an existing Power BI Desktop process is present"
@@ -196,7 +198,7 @@ function Start-OwnedReport {
         Start-Sleep -Seconds 3
         $candidates = @(Get-Process -Name PBIDesktop -ErrorAction SilentlyContinue |
             Where-Object { $known -notcontains $_.Id -and $_.MainWindowHandle -ne [IntPtr]::Zero } |
-            Where-Object { [NativeDesktopGuard]::Title($_.MainWindowHandle) -like $expectedTitle })
+            Where-Object { [NativeDesktopGuard]::Title($_.MainWindowHandle) -like $launchExpectedTitle })
         if ($candidates.Count -gt 1) {
             throw "Multiple newly owned Desktop windows match the expected report"
         }
@@ -206,7 +208,8 @@ function Start-OwnedReport {
                 throw "Expected Desktop window is not a member of the owned process job"
             }
             $candidate | Add-Member -NotePropertyName OwnedJob -NotePropertyValue $job
-            Assert-OwnedForeground -ProcessId $candidate.Id -ExpectedTitle $expectedTitle | Out-Null
+            Assert-OwnedForeground -ProcessId $candidate.Id -ExpectedTitle $launchExpectedTitle | Out-Null
+            $script:expectedTitle = $launchExpectedTitle
             return $candidate
         }
     }
@@ -288,7 +291,8 @@ $primaryFailure = $null
 $secondaryFailure = $null
 $cleanupFailure = $null
 $pbixReadLock = $null
-$remainingOwnedProcesses = @()
+$releasePbixReadLock = $null
+$ownedCleanupIncomplete = $false
 try {
 $snapshotLockEvidence = $snapshotGuard.evidence
 New-Item -ItemType Directory -Force -Path (Split-Path $pbixPath), $evidencePath | Out-Null
@@ -340,15 +344,27 @@ try {
         sha256 = (Get-FileHash $pbixPath -Algorithm SHA256).Hash.ToLowerInvariant()
     }
     $writerCleanup = Close-OwnedReport -Job $process.OwnedJob
-    if ($writerCleanup.remaining.Count -gt 0) {
+    if (-not $writerCleanup.complete) {
         throw "The owned Desktop writer process did not exit"
     }
+    $releasePbixReadLock = Open-PbixReadLock -Path $pbixPath
     $pbixSnapshotJson = & node (Join-Path $root "scripts\native-pbix-snapshot.cjs") $pbixPath
     if ($LASTEXITCODE -ne 0) { throw "PBIX snapshot creation failed" }
     $pbixSnapshot = $pbixSnapshotJson | ConvertFrom-Json
     $pbixSnapshotPath = Join-Path $root $pbixSnapshot.logicalPath.Replace("/", "\")
     $pbixReadLock = Open-PbixReadLock -Path $pbixSnapshotPath
     $record.pbixSnapshot = $pbixSnapshot
+    $record.pbixTitleGuard = [ordered]@{
+        basename = [System.IO.Path]::GetFileNameWithoutExtension($pbixSnapshot.basename)
+        snapshotSha256 = $pbixSnapshot.snapshot.sha256
+        runId = $runId
+    }
+    $record.releasePbixLock = [ordered]@{
+        logicalPath = ($pbixRelative -replace "\\", "/")
+        sha256 = $pbixSnapshot.original.sha256
+        bytes = $pbixSnapshot.original.bytes
+        heldThroughEvidencePublication = $true
+    }
 
     $process = Start-OwnedReport -Path $pbixSnapshotPath
     $record.passes += [ordered]@{
@@ -357,7 +373,7 @@ try {
         pages = Invoke-PagePass -ProcessId $process.Id
     }
     $readerCleanup = Close-OwnedReport -Job $process.OwnedJob
-    if ($readerCleanup.remaining.Count -gt 0) {
+    if (-not $readerCleanup.complete) {
         throw "The owned Desktop reader process did not exit"
     }
     $verifiedPbixSnapshotJson = & node (Join-Path $root "scripts\native-pbix-snapshot.cjs") `
@@ -390,28 +406,30 @@ try {
             $cleanup = [ordered]@{
                 graceful = $false
                 forced = $false
-                remaining = @($ownedJob.rootProcessId)
+                complete = $false
+                activeProcessCount = $null
                 errors = @("cleanup threw")
             }
         }
         $cleanupSummaries += [ordered]@{
             graceful = $cleanup.graceful
             forced = $cleanup.forced
-            remainingCount = $cleanup.remaining.Count
+            complete = $cleanup.complete
+            activeProcessCount = $cleanup.activeProcessCount
             errorCount = $cleanup.errors.Count
         }
-        $remainingOwnedProcesses += $cleanup.remaining
+        if (-not $cleanup.complete) { $ownedCleanupIncomplete = $true }
     }
     $cleanupCompleted = $true
     $record.cleanup = [ordered]@{
         ownedProcessCount = $script:ownedProcessJobs.Count
         outcomes = $cleanupSummaries
-        allExited = $remainingOwnedProcesses.Count -eq 0
+        allExited = -not $ownedCleanupIncomplete
     }
-    if ($remainingOwnedProcesses.Count -gt 0) {
+    if ($ownedCleanupIncomplete) {
         $cleanupFailure = [System.Exception]::new("Owned Desktop cleanup is incomplete")
     }
-    if ($pbixReadLock -and $remainingOwnedProcesses.Count -eq 0) {
+    if ($pbixReadLock -and -not $ownedCleanupIncomplete) {
         $pbixReadLock.Dispose()
         $pbixReadLock = $null
     }
@@ -430,17 +448,17 @@ try {
         foreach ($ownedJob in $script:ownedProcessJobs) {
             try {
                 $cleanup = Invoke-OwnedProcessCleanup -Job $ownedJob
-                $remainingOwnedProcesses += $cleanup.remaining
+                if (-not $cleanup.complete) { $ownedCleanupIncomplete = $true }
             } catch {
-                $remainingOwnedProcesses += $ownedJob.rootProcessId
+                $ownedCleanupIncomplete = $true
                 if (-not $cleanupFailure) { $cleanupFailure = $_ }
             }
         }
     }
-    if ($pbixReadLock -and $remainingOwnedProcesses.Count -eq 0) {
+    if ($pbixReadLock -and -not $ownedCleanupIncomplete) {
         $pbixReadLock.Dispose()
     }
-    if ($remainingOwnedProcesses.Count -eq 0) {
+    if (-not $ownedCleanupIncomplete) {
         try {
             Close-SnapshotReadLocks -Guard $snapshotGuard
             $guardsRestored = $true
@@ -498,6 +516,9 @@ try {
 }
 if ($failure) { throw $failure }
 } finally {
+    if ($releasePbixReadLock -and -not $ownedCleanupIncomplete) {
+        $releasePbixReadLock.Dispose()
+    }
     if ($mutexOwned) { $validationMutex.ReleaseMutex() }
     $validationMutex.Dispose()
 }
