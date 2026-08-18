@@ -5,6 +5,7 @@ import type {
     ContextRendererResult
 } from "./contract";
 import { hitTestScene } from "./hitTest";
+import { cameraToBasePoint } from "./viewport/camera";
 
 class RegisteredContextRenderer implements ContextRenderer {
     public readonly id: string;
@@ -16,13 +17,16 @@ class RegisteredContextRenderer implements ContextRenderer {
     public render(request: ContextRenderRequest): ContextRendererResult {
         return {
             kind: this.kind,
-            hitTest: (x, y) => hitTestScene(
-                request.scene,
-                request.transform,
-                x,
-                y,
-                request.pointSize
-            )
+            hitTest: (x, y) => {
+                const point = cameraToBasePoint({ x, y }, request.camera);
+                return hitTestScene(
+                    request.scene,
+                    request.baseTransform,
+                    point.x,
+                    point.y,
+                    request.pointSize
+                );
+            }
         };
     }
 }

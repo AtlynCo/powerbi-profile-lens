@@ -1,13 +1,13 @@
 {
   "$schema": "https://developer.microsoft.com/json-schemas/fabric/item/report/definition/visualContainer/2.7.0/schema.json",
-  "name": "visualProfileshare",
+  "name": "visualViewportWorld",
   "position": {
-    "x": 550,
-    "y": 30,
-    "z": 1,
-    "height": 390,
-    "width": 490,
-    "tabOrder": 1
+    "x": 40,
+    "y": 40,
+    "z": 0,
+    "height": 800,
+    "width": 980,
+    "tabOrder": 0
   },
   "visual": {
     "visualType": "atlynProfileLens",
@@ -23,11 +23,11 @@
                       "Entity": "ProfileFacts"
                     }
                   },
-                  "Property": "Entity"
+                  "Property": "WorldKey"
                 }
               },
-              "queryRef": "ProfileFacts.Entity",
-              "nativeQueryRef": "Entity"
+              "queryRef": "ProfileFacts.WorldKey",
+              "nativeQueryRef": "WorldKey"
             },
             {
               "field": {
@@ -86,6 +86,24 @@
               "nativeQueryRef": "Sum of Metric B"
             }
           ]
+        },
+        "ContextValue": {
+          "projections": [
+            {
+              "field": {
+                "Measure": {
+                  "Expression": {
+                    "SourceRef": {
+                      "Entity": "ProfileFacts"
+                    }
+                  },
+                  "Property": "Context value"
+                }
+              },
+              "queryRef": "ProfileFacts.Context value",
+              "nativeQueryRef": "Context value"
+            }
+          ]
         }
       }
     },
@@ -116,7 +134,7 @@
             "contextLayout": {
               "expr": {
                 "Literal": {
-                  "Value": "'profileOnly'"
+                  "Value": "'split'"
                 }
               }
             }
@@ -129,7 +147,7 @@
             "mode": {
               "expr": {
                 "Literal": {
-                  "Value": "'none'"
+                  "Value": "'builtInPack'"
                 }
               }
             },
@@ -150,7 +168,7 @@
             "packKeyMode": {
               "expr": {
                 "Literal": {
-                  "Value": "'auto'"
+                  "Value": "'canonical'"
                 }
               }
             }
@@ -189,7 +207,7 @@
             "enabled": {
               "expr": {
                 "Literal": {
-                  "Value": "false"
+                  "Value": "true"
                 }
               }
             },

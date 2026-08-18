@@ -66,6 +66,13 @@ interface PickingMetrics {
     readonly spatialReferenceBudget: number;
     readonly bucketSize: number;
     readonly scaled: boolean;
+    readonly displayBackingWidth: number;
+    readonly displayBackingHeight: number;
+    readonly baseRasterBackingWidth: number;
+    readonly baseRasterBackingHeight: number;
+    readonly pickingBackingWidth: number;
+    readonly pickingBackingHeight: number;
+    readonly totalBackingPixels: number;
 }
 
 function assertCoherentPickingMetrics(metrics: PickingMetrics): void {
@@ -107,6 +114,21 @@ function assertCoherentPickingMetrics(metrics: PickingMetrics): void {
     }
     if (metrics.bucketSize < 32) {
         throw new Error("adaptive bucket size fell below its minimum");
+    }
+    for (const dimension of [
+        metrics.displayBackingWidth,
+        metrics.displayBackingHeight,
+        metrics.baseRasterBackingWidth,
+        metrics.baseRasterBackingHeight,
+        metrics.pickingBackingWidth,
+        metrics.pickingBackingHeight
+    ]) {
+        if (dimension > 4096) {
+            throw new Error("a Canvas backing dimension exceeded 4096");
+        }
+    }
+    if (metrics.totalBackingPixels > 8_388_608 * 3) {
+        throw new Error("combined display, base, and picking backing pixels exceeded the budget");
     }
 }
 
@@ -387,7 +409,11 @@ test.describe("packaged visual in a real browser", () => {
     });
 
     test("uses the host high contrast colors", async ({ page }) => {
-        await mount(page, { highContrast: true, contextMode: "grid" });
+        await mount(page, {
+            highContrast: true,
+            contextMode: "grid",
+            navigationEnabled: true
+        });
         const fills = await page.evaluate(() =>
             Array.from(document.querySelectorAll(".profile-lens-target rect"))
                 .slice(0, 4)
@@ -402,9 +428,15 @@ test.describe("packaged visual in a real browser", () => {
         }
         const contextFeature = page.locator(".profile-lens-context-svg [data-context-key]").first();
         await expect(contextFeature).toHaveAttribute("fill", "#000000");
-        await expect(contextFeature).toHaveAttribute("stroke", "#00FF00");
+        await expect(contextFeature).toHaveAttribute("stroke", "#FFFFFF");
         await expect(page.locator(".profile-lens-context-svg [data-context-key]").nth(1))
             .toHaveAttribute("stroke", "#FFFFFF");
+        await expect(page.locator(".profile-lens-context-outline").first())
+            .toHaveAttribute("stroke", "#00FF00");
+        await expect(page.locator(".profile-lens-context-probe circle").nth(1))
+            .toHaveAttribute("stroke", "#00FF00");
+        await expect(page.locator(".profile-lens-context-probe circle").first())
+            .toHaveAttribute("fill", "#000000");
         await expect(page.locator(".profile-lens-high-contrast")).toHaveCount(1);
     });
 
@@ -438,12 +470,20 @@ test.describe("packaged visual in a real browser", () => {
         await mount(page, {
             contextMode: "builtInPack",
             contextPack: "worldCountries",
+            navigationEnabled: true,
             entities: ["USA", "CAN", "MEX"],
             periods: [],
             bands: ["Band 1"],
             series: [],
             profiles: ["Metric A"]
         });
+        const contextBounds = await page.locator(".profile-lens-context").boundingBox();
+        await page.mouse.move(
+            (contextBounds?.x ?? 0) + (contextBounds?.width ?? 0) / 2,
+            (contextBounds?.y ?? 0) + (contextBounds?.height ?? 0) / 2
+        );
+        await page.mouse.wheel(0, -120);
+        await page.waitForTimeout(200);
         const mutations = await page.evaluate(async () => {
             const container = document.getElementById("visual-root") as HTMLElement;
             let count = 0;
@@ -799,12 +839,425 @@ test.describe("packaged visual in a real browser", () => {
         expect(await activate("reportSelection")).toMatchObject({ filter: 0, select: 1 });
     });
 
+    test("keeps transformed SVG and Canvas picking under physical camera gestures", async ({ page }) => {
+        const exercise = async (threshold: number): Promise<{
+            renderer: "svg" | "canvas";
+            selected: string | null;
+            tooltip: string | null;
+            context: string | null;
+        }> => {
+            await mount(page, {
+                contextMode: "grid",
+                navigationEnabled: true,
+                svgFeatureThreshold: threshold,
+                entities: ["Entity A", "Entity B"],
+                periods: [],
+                bands: ["Band 1"],
+                series: [],
+                profiles: ["Metric A"]
+            });
+            const surface = page.locator(".profile-lens-context");
+            const bounds = await surface.boundingBox();
+            expect(bounds).not.toBeNull();
+            await surface.evaluate((node) => {
+                const root = node as HTMLElement & {
+                    __captureCounts?: { got: number; lost: number };
+                };
+                root.__captureCounts = { got: 0, lost: 0 };
+                root.addEventListener("gotpointercapture", () => {
+                    root.__captureCounts!.got++;
+                });
+                root.addEventListener("lostpointercapture", () => {
+                    root.__captureCounts!.lost++;
+                });
+            });
+            const centerX = (bounds?.x ?? 0) + (bounds?.width ?? 0) / 2;
+            const centerY = (bounds?.y ?? 0) + (bounds?.height ?? 0) / 2;
+            await page.mouse.move(centerX, centerY);
+            await page.mouse.down();
+            await page.mouse.move(centerX - 24, centerY + 8, { steps: 8 });
+            await page.mouse.up();
+            expect(await surface.evaluate((node) =>
+                (node as HTMLElement & {
+                    __captureCounts?: { got: number; lost: number };
+                }).__captureCounts)).toEqual({ got: 1, lost: 1 });
+            await page.mouse.wheel(0, -180);
+            await page.waitForTimeout(140);
+
+            const target = await surface.evaluate((node) => {
+                const root = node as HTMLElement;
+                const bounds = root.getBoundingClientRect();
+                const transform = root.querySelector(".profile-lens-context-outline-layer")
+                    ?.getAttribute("transform");
+                if (!transform) {
+                    throw new Error("camera transform is missing");
+                }
+                const values = transform.match(/-?\d+(?:\.\d+)?(?:e[+-]?\d+)?/gi)?.map(Number);
+                if (!values || values.length !== 6) {
+                    throw new Error(`camera transform is invalid: ${transform}`);
+                }
+                const baseX = bounds.width * 0.75;
+                const baseY = bounds.height * 0.5;
+                return {
+                    x: bounds.left + values[0] * baseX + values[4],
+                    y: bounds.top + values[3] * baseY + values[5],
+                    transform
+                };
+            });
+            expect(target.transform).not.toBe("matrix(1,0,0,1,0,0)");
+            await page.mouse.move(target.x, target.y);
+            await page.mouse.click(target.x, target.y, { button: "right" });
+            await page.mouse.click(target.x, target.y);
+            const calls = await page.evaluate(() => (window as unknown as {
+                profileLensHost: {
+                    calls: {
+                        select: number;
+                        contextMenu: number;
+                        lastSelectedKey: string | null;
+                        lastTooltipKey: string | null;
+                        lastContextKey: string | null;
+                    };
+                };
+            }).profileLensHost.calls);
+            expect(calls.select).toBe(1);
+            expect(calls.contextMenu).toBe(1);
+            expect(calls.lastSelectedKey).toContain("entity:1");
+            expect(calls.lastTooltipKey).toContain("entity:1");
+            expect(calls.lastContextKey).toContain("entity:1");
+            await expect(page.locator(".profile-lens-context-outline")).not.toHaveCount(0);
+            await expect(page.locator(".profile-lens-context-outline-layer"))
+                .toHaveAttribute("transform", target.transform);
+            await page.locator(".profile-lens-context-reset").click();
+            await expect(page.locator(".profile-lens-context-outline-layer"))
+                .toHaveAttribute("transform", "matrix(1,0,0,1,0,0)");
+            expect(await page.evaluate(() => (window as unknown as {
+                profileLensHost: { calls: { select: number; contextMenu: number } };
+            }).profileLensHost.calls)).toMatchObject({ select: 1, contextMenu: 1 });
+            await expect(surface).toBeFocused();
+            await surface.evaluate((node) => {
+                const root = node as HTMLElement;
+                const bounds = root.getBoundingClientRect();
+                const fire = (type: string, x: number) => root.dispatchEvent(new PointerEvent(type, {
+                    bubbles: true,
+                    cancelable: true,
+                    pointerId: 81,
+                    pointerType: "touch",
+                    button: 0,
+                    clientX: bounds.left + x,
+                    clientY: bounds.top + bounds.height / 2
+                }));
+                fire("pointerdown", bounds.width / 2);
+                fire("pointermove", bounds.width / 2 + 24);
+                fire("pointerup", bounds.width / 2 + 24);
+            });
+            await expect(page.locator(".profile-lens-context-outline-layer"))
+                .not.toHaveAttribute("transform", "matrix(1,0,0,1,0,0)");
+            expect(await page.evaluate(() => (window as unknown as {
+                profileLensHost: { calls: { select: number; contextMenu: number } };
+            }).profileLensHost.calls)).toMatchObject({ select: 1, contextMenu: 1 });
+            const canvasWidth = await page.locator(".profile-lens-context-canvas")
+                .evaluate((canvas) => (canvas as HTMLCanvasElement).width);
+            return {
+                renderer: canvasWidth > 1 ? "canvas" : "svg",
+                selected: calls.lastSelectedKey,
+                tooltip: calls.lastTooltipKey,
+                context: calls.lastContextKey
+            };
+        };
+
+        const svg = await exercise(500);
+        const canvas = await exercise(1);
+        expect(svg.renderer).toBe("svg");
+        expect(canvas.renderer).toBe("canvas");
+        expect(canvas.selected).toBe(svg.selected);
+        expect(canvas.tooltip).toBe(svg.tooltip);
+        expect(canvas.context).toBe(svg.context);
+    });
+
+    test("does not focus a fallback feature when physical drag enters a partial scene", async ({ page }) => {
+        await mount(page, {
+            contextMode: "builtInPack",
+            contextPack: "worldCountries",
+            packKeyMode: "canonical",
+            navigationEnabled: true,
+            entities: ["UNKNOWN", "USA"],
+            periods: [],
+            bands: ["Band 1"],
+            series: [],
+            profiles: ["Metric A"]
+        });
+        await expect(page.locator(".profile-lens-header-title")).toHaveText("UNKNOWN");
+        const feature = await page.locator("[data-context-key]").boundingBox();
+        expect(feature).not.toBeNull();
+        const x = (feature?.x ?? 0) + (feature?.width ?? 0) / 2;
+        const y = (feature?.y ?? 0) + (feature?.height ?? 0) / 2;
+        await page.mouse.move(x, y);
+        await page.mouse.down();
+        await page.mouse.move(x + 24, y, { steps: 8 });
+        await page.mouse.up();
+        await expect(page.locator(".profile-lens-header-title")).toHaveText("UNKNOWN");
+        const calls = await page.evaluate(() => (window as unknown as {
+            profileLensHost: { calls: { select: number; filter: number } };
+        }).profileLensHost.calls);
+        expect(calls).toMatchObject({ select: 0, filter: 0 });
+        const movedFeature = await page.locator("[data-context-key]").boundingBox();
+        await page.mouse.click(
+            (movedFeature?.x ?? 0) + (movedFeature?.width ?? 0) / 2,
+            (movedFeature?.y ?? 0) + (movedFeature?.height ?? 0) / 2
+        );
+        await expect(page.locator(".profile-lens-header-title")).toHaveText("USA");
+        expect(await page.evaluate(() => (window as unknown as {
+            profileLensHost: { calls: { select: number } };
+        }).profileLensHost.calls.select)).toBe(1);
+    });
+
+    test("keeps overscanned Canvas point pixels and picking aligned after camera movement", async ({ page }) => {
+        await mount(page, {
+            contextMode: "boundGeometry",
+            navigationEnabled: true,
+            svgFeatureThreshold: 1,
+            pointSize: 24,
+            entities: ["Point A", "Point B"],
+            geometryTexts: ["POINT (0 0)", "POINT (100 0)"],
+            periods: [],
+            bands: ["Band 1"],
+            series: [],
+            profiles: ["Metric A"]
+        });
+        const surface = page.locator(".profile-lens-context");
+        const bounds = await surface.boundingBox();
+        expect(bounds).not.toBeNull();
+        await surface.focus();
+        await surface.dispatchEvent("keydown", { key: "+" });
+        const centerX = (bounds?.x ?? 0) + (bounds?.width ?? 0) / 2;
+        const centerY = (bounds?.y ?? 0) + (bounds?.height ?? 0) / 2;
+        await page.mouse.move(centerX, centerY);
+        await page.mouse.down();
+        await page.mouse.move(centerX + 100, centerY, { steps: 10 });
+        await page.mouse.up();
+        const target = await surface.evaluate((node) => {
+            const root = node as HTMLElement;
+            const bounds = root.getBoundingClientRect();
+            const transform = root.querySelector(".profile-lens-context-outline-layer")
+                ?.getAttribute("transform");
+            const values = transform?.match(/-?\d+(?:\.\d+)?(?:e[+-]?\d+)?/gi)?.map(Number);
+            if (!values || values.length !== 6) {
+                throw new Error(`point camera transform is invalid: ${transform}`);
+            }
+            const x = values[0] * -10 + values[4];
+            const y = values[3] * (bounds.height / 2) + values[5];
+            const canvas = root.querySelector("canvas") as HTMLCanvasElement;
+            const context = canvas.getContext("2d");
+            if (!context) throw new Error("display Canvas context is missing");
+            const pixelX = Math.floor(x * canvas.width / bounds.width);
+            const pixelY = Math.floor(y * canvas.height / bounds.height);
+            return {
+                x: bounds.left + x,
+                y: bounds.top + y,
+                alpha: context.getImageData(pixelX, pixelY, 1, 1).data[3]
+            };
+        });
+        expect(target.x).toBeGreaterThanOrEqual(bounds?.x ?? 0);
+        expect(target.alpha).toBeGreaterThan(0);
+        await page.mouse.click(target.x, target.y);
+        const calls = await page.evaluate(() => (window as unknown as {
+            profileLensHost: {
+                calls: { select: number; lastSelectedKey: string | null };
+            };
+        }).profileLensHost.calls);
+        expect(calls.select).toBe(1);
+        expect(calls.lastSelectedKey).toContain("entity:0");
+    });
+
+    test("keeps world, state, and county camera frames inside the no-rebuild budget", async ({ page }) => {
+        const cases = [
+            {
+                name: "world",
+                contextPack: "worldCountries",
+                worldDetail: "50m",
+                packKeyMode: "canonical",
+                entities: WORLD_50_KEYS,
+                svgFeatureThreshold: 500,
+                svgVertexThreshold: 100000
+            },
+            {
+                name: "state",
+                contextPack: "usStates",
+                packKeyMode: "geoid2",
+                entities: STATE_KEYS,
+                svgFeatureThreshold: 500,
+                svgVertexThreshold: 100000
+            },
+            {
+                name: "county",
+                contextPack: "usCounties",
+                packKeyMode: "geoid5",
+                entities: COUNTY_KEYS,
+                svgFeatureThreshold: 1,
+                svgVertexThreshold: 100
+            }
+        ];
+        const observed: Array<Record<string, unknown>> = [];
+        for (const value of cases) {
+            await mount(page, {
+                contextMode: "builtInPack",
+                navigationEnabled: true,
+                contextPack: value.contextPack,
+                worldDetail: value.worldDetail,
+                packKeyMode: value.packKeyMode,
+                svgFeatureThreshold: value.svgFeatureThreshold,
+                svgVertexThreshold: value.svgVertexThreshold,
+                entities: value.entities,
+                periods: [],
+                bands: ["Band 1"],
+                series: [],
+                profiles: ["Metric A"]
+            });
+            const surface = page.locator(".profile-lens-context");
+            const bounds = await surface.boundingBox();
+            expect(bounds).not.toBeNull();
+            const before = await surface.evaluate((node) => {
+                const metrics = (node as HTMLElement & {
+                    __profileLensContextMetrics?: {
+                        sceneBuilds: number;
+                        sceneBuildDurationMs: number;
+                        svgGeometryBuilds: number;
+                        svgGeometryBuildDurationMs: number;
+                        canvasRasterBuilds: number;
+                        canvasRasterBuildDurationMs: number;
+                        canvasPickingBuilds: number;
+                        canvasPickingBuildDurationMs: number;
+                        cameraFrames: number;
+                        moveEnds: number;
+                        cameraFrameDurationsMs: number[];
+                    };
+                }).__profileLensContextMetrics;
+                if (!metrics) throw new Error("context metrics are missing");
+                return { ...metrics, cameraFrameDurationsMs: [...metrics.cameraFrameDurationsMs] };
+            });
+            const header = await page.locator(".profile-lens-header-title").textContent();
+            const centerX = (bounds?.x ?? 0) + (bounds?.width ?? 0) / 2;
+            const centerY = (bounds?.y ?? 0) + (bounds?.height ?? 0) / 2;
+            await page.mouse.move(centerX, centerY);
+            await page.mouse.down();
+            await page.mouse.move(centerX - 80, centerY + 24, { steps: 20 });
+            await page.mouse.up();
+            await expect(page.locator(".profile-lens-header-title")).toHaveText(header ?? "");
+            expect(await page.evaluate(() => (window as unknown as {
+                profileLensHost: { calls: { select: number } };
+            }).profileLensHost.calls.select)).toBe(0);
+            for (let index = 0; index < 5; index++) {
+                await page.mouse.wheel(0, -20);
+            }
+            const presentedFrameDurations = await surface.evaluate(async (node) => {
+                const root = node as HTMLElement;
+                const bounds = root.getBoundingClientRect();
+                const fire = (type: string, id: number, x: number, y: number) => {
+                    root.dispatchEvent(new PointerEvent(type, {
+                        bubbles: true,
+                        cancelable: true,
+                        pointerId: id,
+                        pointerType: "touch",
+                        button: 0,
+                        clientX: bounds.left + x,
+                        clientY: bounds.top + y
+                    }));
+                };
+                const nextFrame = () => new Promise<number>((resolveFrame) => {
+                    requestAnimationFrame(resolveFrame);
+                });
+                const durations: number[] = [];
+                fire("pointerdown", 41, bounds.width / 2 - 60, bounds.height / 2);
+                fire("pointerdown", 42, bounds.width / 2 + 60, bounds.height / 2);
+                for (let index = 0; index < 35; index++) {
+                    const started = performance.now();
+                    fire(
+                        "pointermove",
+                        42,
+                        bounds.width / 2 + 62 + index * 2,
+                        bounds.height / 2 + index * 0.2
+                    );
+                    durations.push((await nextFrame()) - started);
+                }
+                fire("pointerup", 42, bounds.width / 2 + 132, bounds.height / 2 + 7);
+                fire("pointerup", 41, bounds.width / 2 - 60, bounds.height / 2);
+                return durations;
+            });
+            await page.waitForTimeout(150);
+            const after = await surface.evaluate((node) => {
+                const metrics = (node as HTMLElement & {
+                    __profileLensContextMetrics?: {
+                        sceneBuilds: number;
+                        sceneBuildDurationMs: number;
+                        svgGeometryBuilds: number;
+                        svgGeometryBuildDurationMs: number;
+                        canvasRasterBuilds: number;
+                        canvasRasterBuildDurationMs: number;
+                        canvasPickingBuilds: number;
+                        canvasPickingBuildDurationMs: number;
+                        cameraFrames: number;
+                        moveEnds: number;
+                        maxCameraFrameDurationMs: number;
+                        cameraFrameDurationsMs: number[];
+                    };
+                }).__profileLensContextMetrics;
+                if (!metrics) throw new Error("context metrics are missing");
+                return { ...metrics, cameraFrameDurationsMs: [...metrics.cameraFrameDurationsMs] };
+            });
+            expect(after.sceneBuilds).toBe(before.sceneBuilds);
+            expect(after.svgGeometryBuilds).toBe(before.svgGeometryBuilds);
+            expect(after.canvasRasterBuilds).toBe(before.canvasRasterBuilds);
+            expect(after.canvasPickingBuilds).toBe(before.canvasPickingBuilds);
+            const frameDelta = after.cameraFrames - before.cameraFrames;
+            expect(frameDelta).toBeGreaterThanOrEqual(40);
+            const moveEndDelta = after.moveEnds - before.moveEnds;
+            expect(moveEndDelta).toBe(3);
+            const durations = after.cameraFrameDurationsMs
+                .slice(-frameDelta)
+                .sort((left, right) => left - right);
+            const p95 = durations[Math.floor((durations.length - 1) * 0.95)] ?? Number.POSITIVE_INFINITY;
+            expect(p95).toBeLessThanOrEqual(16.7);
+            expect(after.maxCameraFrameDurationMs).toBeLessThanOrEqual(33.4);
+            const presented = [...presentedFrameDurations].sort((left, right) => left - right);
+            const presentedP95 = presented[
+                Math.floor((presented.length - 1) * 0.95)
+            ] ?? Number.POSITIVE_INFINITY;
+            const presentedMax = presented.at(-1) ?? Number.POSITIVE_INFINITY;
+            expect(presentedP95).toBeLessThanOrEqual(33.4);
+            expect(presentedMax).toBeLessThanOrEqual(50);
+            await expect(page.locator(".profile-lens-header-title")).toHaveText(header ?? "");
+            const calls = await page.evaluate(() => (window as unknown as {
+                profileLensHost: { calls: { select: number; filter: number } };
+            }).profileLensHost.calls);
+            expect(calls).toMatchObject({ select: 0, filter: 0 });
+            observed.push({
+                name: value.name,
+                frameDelta,
+                moveEndDelta,
+                p95,
+                max: after.maxCameraFrameDurationMs,
+                presentedP95,
+                presentedMax,
+                sceneBuilds: after.sceneBuilds,
+                sceneBuildDurationMs: after.sceneBuildDurationMs,
+                svgGeometryBuilds: after.svgGeometryBuilds,
+                svgGeometryBuildDurationMs: after.svgGeometryBuildDurationMs,
+                canvasRasterBuilds: after.canvasRasterBuilds,
+                canvasRasterBuildDurationMs: after.canvasRasterBuildDurationMs,
+                canvasPickingBuilds: after.canvasPickingBuilds,
+                canvasPickingBuildDurationMs: after.canvasPickingBuildDurationMs
+            });
+        }
+        console.log(`Viewport camera metrics: ${JSON.stringify(observed)}`);
+    });
+
     test("bounds Canvas and redirects disabled physical context focus", async ({ page }) => {
         const started = Date.now();
         await mount(page, {
             contextMode: "builtInPack",
             contextPack: "usCounties",
             svgFeatureThreshold: 1,
+            navigationEnabled: true,
             allowInteractions: false,
             entities: COUNTY_KEYS,
             periods: [],
@@ -841,6 +1294,9 @@ test.describe("packaged visual in a real browser", () => {
         expect(calls.tooltipShow).toBe(0);
         expect(calls.contextMenu).toBe(0);
         expect(calls.filter).toBe(0);
+        const reset = page.locator(".profile-lens-context-reset");
+        await expect(reset).toHaveAttribute("tabindex", "-1");
+        await expect(reset).toBeHidden();
         await expect(page.locator(".profile-lens-context-semantic [role='option']")).toHaveCount(100);
     });
 
@@ -860,6 +1316,7 @@ test.describe("packaged visual in a real browser", () => {
             await mount(page, {
                 contextMode: "builtInPack",
                 contextPack: "usCounties",
+                navigationEnabled: true,
                 entities: COUNTY_KEYS,
                 periods: [],
                 bands: ["Band 1"],
@@ -892,10 +1349,57 @@ test.describe("packaged visual in a real browser", () => {
                     bucketSize: number;
                     pickingScaleX: number;
                     pickingScaleY: number;
+                    displayBackingWidth: number;
+                    displayBackingHeight: number;
+                    baseRasterBackingWidth: number;
+                    baseRasterBackingHeight: number;
+                    pickingBackingWidth: number;
+                    pickingBackingHeight: number;
+                    totalBackingPixels: number;
                 };
                 const root = node as HTMLElement & { __profileLensCanvasHitMetrics: Metrics };
-                const before = { ...root.__profileLensCanvasHitMetrics };
                 const bounds = root.getBoundingClientRect();
+                root.dispatchEvent(new WheelEvent("wheel", {
+                    bubbles: true,
+                    cancelable: true,
+                    deltaY: -180,
+                    deltaMode: 0,
+                    clientX: bounds.left + bounds.width / 2,
+                    clientY: bounds.top + bounds.height / 2
+                }));
+                root.dispatchEvent(new PointerEvent("pointerdown", {
+                    bubbles: true,
+                    cancelable: true,
+                    pointerId: 71,
+                    pointerType: "mouse",
+                    button: 0,
+                    clientX: bounds.left + bounds.width / 2,
+                    clientY: bounds.top + bounds.height / 2
+                }));
+                root.dispatchEvent(new PointerEvent("pointermove", {
+                    bubbles: true,
+                    cancelable: true,
+                    pointerId: 71,
+                    pointerType: "mouse",
+                    buttons: 1,
+                    clientX: bounds.left + bounds.width / 2 - 30,
+                    clientY: bounds.top + bounds.height / 2 + 10
+                }));
+                root.dispatchEvent(new PointerEvent("pointerup", {
+                    bubbles: true,
+                    cancelable: true,
+                    pointerId: 71,
+                    pointerType: "mouse",
+                    button: 0,
+                    clientX: bounds.left + bounds.width / 2 - 30,
+                    clientY: bounds.top + bounds.height / 2 + 10
+                }));
+                const cameraTransform = root.querySelector(".profile-lens-context-outline-layer")
+                    ?.getAttribute("transform");
+                if (!cameraTransform || cameraTransform === "matrix(1,0,0,1,0,0)") {
+                    throw new Error("county inverse-picking probe did not move the camera");
+                }
+                const before = { ...root.__profileLensCanvasHitMetrics };
                 const started = performance.now();
                 const moves = 50;
                 for (let index = 0; index < moves; index += 1) {
@@ -939,6 +1443,13 @@ test.describe("packaged visual in a real browser", () => {
                     maxBucketOccupancy: after.maxBucketOccupancy,
                     spatialReferenceBudget: after.spatialReferenceBudget,
                     bucketSize: after.bucketSize,
+                    displayBackingWidth: after.displayBackingWidth,
+                    displayBackingHeight: after.displayBackingHeight,
+                    baseRasterBackingWidth: after.baseRasterBackingWidth,
+                    baseRasterBackingHeight: after.baseRasterBackingHeight,
+                    pickingBackingWidth: after.pickingBackingWidth,
+                    pickingBackingHeight: after.pickingBackingHeight,
+                    totalBackingPixels: after.totalBackingPixels,
                     scaled: after.pickingScaleX < 1 || after.pickingScaleY < 1
                 };
             });

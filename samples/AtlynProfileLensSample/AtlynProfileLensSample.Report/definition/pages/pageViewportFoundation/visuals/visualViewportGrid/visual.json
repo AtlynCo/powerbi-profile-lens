@@ -1,12 +1,12 @@
 {
   "$schema": "https://developer.microsoft.com/json-schemas/fabric/item/report/definition/visualContainer/2.7.0/schema.json",
-  "name": "visualProfileshare",
+  "name": "visualViewportGrid",
   "position": {
-    "x": 550,
-    "y": 30,
+    "x": 1060,
+    "y": 40,
     "z": 1,
-    "height": 390,
-    "width": 490,
+    "height": 800,
+    "width": 500,
     "tabOrder": 1
   },
   "visual": {
@@ -86,6 +86,24 @@
               "nativeQueryRef": "Sum of Metric B"
             }
           ]
+        },
+        "ContextValue": {
+          "projections": [
+            {
+              "field": {
+                "Measure": {
+                  "Expression": {
+                    "SourceRef": {
+                      "Entity": "ProfileFacts"
+                    }
+                  },
+                  "Property": "Context value"
+                }
+              },
+              "queryRef": "ProfileFacts.Context value",
+              "nativeQueryRef": "Context value"
+            }
+          ]
         }
       }
     },
@@ -116,7 +134,7 @@
             "contextLayout": {
               "expr": {
                 "Literal": {
-                  "Value": "'profileOnly'"
+                  "Value": "'split'"
                 }
               }
             }
@@ -129,7 +147,7 @@
             "mode": {
               "expr": {
                 "Literal": {
-                  "Value": "'none'"
+                  "Value": "'grid'"
                 }
               }
             },
@@ -189,7 +207,7 @@
             "enabled": {
               "expr": {
                 "Literal": {
-                  "Value": "false"
+                  "Value": "true"
                 }
               }
             },

@@ -58,10 +58,13 @@ import { fitScene } from "./context/projection";
 import { chooseContextRenderer } from "./context/rendererSelection";
 import { computeContextLayout } from "./layout/contextLayout";
 import {
+    ContextPerformanceMetrics,
     ContextSurfaceElements,
     RenderedContextSurface,
+    createContextPerformanceMetrics,
     createContextSurface,
     hideContextSurface,
+    recordContextSceneBuild,
     recordCanvasTargetMapLookup,
     renderContextSurface
 } from "./render/contextSurface";
@@ -73,6 +76,25 @@ import {
     RUNTIME_LICENSE_NOTICES,
     RUNTIME_LICENSE_NOTICES_SHA256
 } from "./runtimeLicenses";
+import {
+    clampCameraToBounds,
+    projectBounds,
+    sceneBounds,
+    viewportOverscroll
+} from "./context/viewport/bounds";
+import {
+    composeSceneTransform,
+    panCamera,
+    preserveCameraOnResize,
+    resetCamera,
+    zoomCameraAt
+} from "./context/viewport/camera";
+import { contextSceneIdentity } from "./context/viewport/identity";
+import type {
+    CameraLimits,
+    ContextCamera,
+    ContextViewportSession
+} from "./context/viewport/contract";
 
 import IVisual = powerbi.extensibility.visual.IVisual;
 import IVisualHost = powerbi.extensibility.visual.IVisualHost;
@@ -83,6 +105,12 @@ import VisualUpdateOptions = powerbi.extensibility.visual.VisualUpdateOptions;
 import VisualTooltipDataItem = powerbi.extensibility.VisualTooltipDataItem;
 
 const SVG_NS = "http://www.w3.org/2000/svg";
+
+interface CachedContextScene {
+    readonly key: string;
+    readonly identity: string;
+    readonly scene: ContextScene;
+}
 
 export class Visual implements IVisual {
     private readonly host: IVisualHost;
@@ -119,6 +147,10 @@ export class Visual implements IVisual {
     private measure: ((text: string, fontSize: number) => number) | undefined;
     private lastViewport = { width: 0, height: 0 };
     private renderedContext: RenderedContextSurface | null = null;
+    private readonly contextMetrics: ContextPerformanceMetrics = createContextPerformanceMetrics();
+    private contextSceneCache: CachedContextScene | null = null;
+    private viewportSession: ContextViewportSession | null = null;
+    private modelRevision = 0;
 
     public constructor(options?: VisualConstructorOptions) {
         if (!options) {
@@ -249,6 +281,7 @@ export class Visual implements IVisual {
             );
             const moreDataAvailable = Boolean(dataView?.metadata?.segment);
             this.model = withSegmentState(parsed, this.segments.state(moreDataAvailable));
+            this.modelRevision++;
             this.lastDataView = dataView;
             this.lastFingerprint = fingerprint;
 
@@ -284,6 +317,17 @@ export class Visual implements IVisual {
             width: Math.max(options.viewport?.width ?? 0, 0),
             height: Math.max(options.viewport?.height ?? 0, 0)
         };
+        if (
+            this.viewportSession
+            && (
+                !Number.isFinite(viewport.width)
+                || !Number.isFinite(viewport.height)
+                || viewport.width <= 0
+                || viewport.height <= 0
+            )
+        ) {
+            this.viewportSession = { ...this.viewportSession, invalidResize: true };
+        }
         this.lastViewport = viewport;
         this.root.setAttribute("dir", this.resolveDirection());
         this.root.classList.toggle("profile-lens-reduced-motion", this.settings.reducedMotion);
@@ -333,7 +377,8 @@ export class Visual implements IVisual {
         );
 
         const theme = resolveTheme(this.host.colorPalette, this.settings);
-        const scene = this.buildContextScene(model);
+        const contextScene = this.resolveContextScene(model);
+        const scene = contextScene.scene;
         const hasContext = scene.features.length > 0 && scene.mode !== "none";
         const commonLayoutRequest = {
             profileCount: model.profiles.length,
@@ -459,6 +504,7 @@ export class Visual implements IVisual {
         const contextInteraction = composite.context
             ? this.renderContext(
                 scene,
+                contextScene.identity,
                 composite.context,
                 selectedEntityKeys,
                 allowInteractions,
@@ -533,6 +579,32 @@ export class Visual implements IVisual {
         }
     }
 
+    private resolveContextScene(model: ProfileDataModel): CachedContextScene {
+        const key = JSON.stringify({
+            modelRevision: this.modelRevision,
+            mode: this.settings.contextMode,
+            pack: this.settings.contextPack,
+            worldDetail: this.settings.worldDetail,
+            packKeyMode: this.settings.packKeyMode,
+            maxGeometryCharacters: this.settings.maxGeometryCharacters,
+            maxSceneVertices: this.settings.maxSceneVertices
+        });
+        if (this.contextSceneCache?.key === key) {
+            return this.contextSceneCache;
+        }
+        const started = performance.now();
+        const scene = this.buildContextScene(model);
+        const identity = contextSceneIdentity(scene);
+        recordContextSceneBuild(this.contextMetrics, performance.now() - started);
+        const cached = {
+            key,
+            identity,
+            scene
+        };
+        this.contextSceneCache = cached;
+        return cached;
+    }
+
     private buildContextScene(model: ProfileDataModel): ContextScene {
         const entityIdentities = new Map<number, ContextSelectionIdentity>(
             model.entities.map((entity) => [
@@ -582,6 +654,7 @@ export class Visual implements IVisual {
 
     private renderContext(
         scene: ContextScene,
+        sceneIdentity: string,
         rect: { readonly x: number; readonly y: number; readonly width: number; readonly height: number },
         selectedKeys: ReadonlySet<string>,
         allowInteractions: boolean,
@@ -599,16 +672,38 @@ export class Visual implements IVisual {
             maxSvgVertices: this.settings.svgVertexThreshold
         })).kind;
         const contextTheme = resolveTheme(this.host.colorPalette, this.settings);
-        const transform = fitScene(scene, viewport);
+        const rawBounds = sceneBounds(scene);
+        if (!rawBounds) {
+            throw new Error("A visible context scene must contain finite geometry.");
+        }
+        const baseTransform = fitScene(scene, viewport);
+        const baseBounds = projectBounds(rawBounds, baseTransform);
+        const session = this.resolveViewportSession(
+            sceneIdentity,
+            baseTransform,
+            baseBounds,
+            viewport
+        );
         this.renderedContext = renderContextSurface(
             this.contextSurface,
             {
                 scene,
+                sceneIdentity,
                 viewport,
-                transform,
+                baseTransform,
+                camera: session.camera,
                 focusedKey: this.focusedEntityKey,
                 selectedKeys,
                 interactive: allowInteractions,
+                navigation: {
+                    enabled: this.settings.navigationEnabled,
+                    showProbe: this.settings.showCenterProbe,
+                    showResetControl: this.settings.showResetControl,
+                    showGestureHelp: this.settings.showGestureHelp,
+                    resetLabel: this.localization.get("Navigation_Reset"),
+                    probeDescription: this.localization.get("Navigation_ProbeDescription"),
+                    gestureHelp: this.localization.get("Navigation_GestureHelp")
+                },
                 connectorTarget,
                 pointSize: this.settings.contextPointSize
             },
@@ -626,7 +721,8 @@ export class Visual implements IVisual {
                 background: contextTheme.background,
                 pointSize: this.settings.contextPointSize
             },
-            window.devicePixelRatio || 1
+            window.devicePixelRatio || 1,
+            this.contextMetrics
         );
         const targetsByIndex = new Map(
             scene.features.map((feature) => [feature.index, this.contextTarget(feature)])
@@ -647,7 +743,7 @@ export class Visual implements IVisual {
                     scene.features,
                     currentKey,
                     direction,
-                    transform,
+                    composeSceneTransform(baseTransform, this.viewportSession?.camera ?? session.camera),
                     this.resolveDirection() === "rtl"
                 );
                 return feature ? this.contextTarget(feature) : null;
@@ -661,8 +757,188 @@ export class Visual implements IVisual {
                 return feature ? this.contextTarget(feature) : null;
             },
             hasKey: (key) => key.startsWith("context:")
-                && scene.features.some((feature) => `context:${feature.key}` === key)
+                && scene.features.some((feature) => `context:${feature.key}` === key),
+            navigation: this.settings.navigationEnabled
+                ? {
+                    resetElement: this.contextSurface.resetButton,
+                    wheelSensitivity: this.settings.wheelSensitivity,
+                    rtl: this.resolveDirection() === "rtl",
+                    panBy: (deltaX, deltaY) => this.panContextCamera(deltaX, deltaY),
+                    zoomAt: (factor, x, y) => this.zoomContextCamera(factor, x, y),
+                    pinchBy: (factor, x, y, deltaX, deltaY) =>
+                        this.pinchContextCamera(factor, x, y, deltaX, deltaY),
+                    reset: () => this.resetContextCamera(),
+                    moveEnd: () => {
+                        this.contextMetrics.moveEnds++;
+                    }
+                }
+                : undefined
         };
+    }
+
+    private resolveViewportSession(
+        sceneIdentity: string,
+        baseTransform: ReturnType<typeof fitScene>,
+        baseBounds: ReturnType<typeof projectBounds>,
+        viewport: { readonly width: number; readonly height: number }
+    ): ContextViewportSession {
+        const limits = this.cameraLimits(viewport);
+        const existing = this.viewportSession;
+        let camera: ContextCamera;
+        if (
+            !existing
+            || existing.sceneIdentity !== sceneIdentity
+            || existing.invalidResize
+        ) {
+            camera = resetCamera(limits, baseBounds, viewport);
+        } else if (
+            existing.viewport.width !== viewport.width
+            || existing.viewport.height !== viewport.height
+            || existing.baseTransform.scale !== baseTransform.scale
+            || existing.baseTransform.translateX !== baseTransform.translateX
+            || existing.baseTransform.translateY !== baseTransform.translateY
+            || existing.baseTransform.invertY !== baseTransform.invertY
+        ) {
+            camera = preserveCameraOnResize(
+                existing.camera,
+                existing.baseTransform,
+                baseTransform,
+                existing.viewport,
+                viewport,
+                baseBounds,
+                limits
+            ) ?? resetCamera(limits, baseBounds, viewport);
+        } else {
+            const zoom = Math.min(
+                Math.max(existing.camera.zoom, limits.minZoom),
+                limits.maxZoom
+            );
+            camera = zoom === existing.camera.zoom
+                ? clampCameraToBounds(
+                    existing.camera,
+                    baseBounds,
+                    viewport,
+                    limits.overscroll
+                )
+                : zoomCameraAt(
+                    existing.camera,
+                    zoom / existing.camera.zoom,
+                    { x: viewport.width / 2, y: viewport.height / 2 },
+                    limits,
+                    baseBounds,
+                    viewport
+                );
+        }
+        const session = {
+            sceneIdentity,
+            camera,
+            baseTransform,
+            baseBounds,
+            viewport,
+            invalidResize: false
+        };
+        this.viewportSession = session;
+        return session;
+    }
+
+    private cameraLimits(
+        viewport: { readonly width: number; readonly height: number }
+    ): CameraLimits {
+        return {
+            minZoom: this.settings.minZoom,
+            maxZoom: this.settings.maxZoom,
+            overscroll: viewportOverscroll(viewport)
+        };
+    }
+
+    private panContextCamera(deltaX: number, deltaY: number): boolean {
+        const session = this.viewportSession;
+        if (!session || !this.canNavigateContext()) {
+            return false;
+        }
+        return this.applyContextCamera(panCamera(
+            session.camera,
+            deltaX,
+            deltaY,
+            this.cameraLimits(session.viewport),
+            session.baseBounds,
+            session.viewport
+        ));
+    }
+
+    private zoomContextCamera(factor: number, x: number, y: number): boolean {
+        const session = this.viewportSession;
+        if (!session || !this.canNavigateContext()) {
+            return false;
+        }
+        return this.applyContextCamera(zoomCameraAt(
+            session.camera,
+            factor,
+            { x, y },
+            this.cameraLimits(session.viewport),
+            session.baseBounds,
+            session.viewport
+        ));
+    }
+
+    private resetContextCamera(): boolean {
+        const session = this.viewportSession;
+        if (!session || !this.canNavigateContext()) {
+            return false;
+        }
+        return this.applyContextCamera(resetCamera(
+            this.cameraLimits(session.viewport),
+            session.baseBounds,
+            session.viewport
+        ));
+    }
+
+    private pinchContextCamera(
+        factor: number,
+        x: number,
+        y: number,
+        deltaX: number,
+        deltaY: number
+    ): boolean {
+        const session = this.viewportSession;
+        if (!session || !this.canNavigateContext()) {
+            return false;
+        }
+        const limits = this.cameraLimits(session.viewport);
+        const zoomed = zoomCameraAt(
+            session.camera,
+            factor,
+            { x, y },
+            limits,
+            session.baseBounds,
+            session.viewport
+        );
+        return this.applyContextCamera(panCamera(
+            zoomed,
+            deltaX,
+            deltaY,
+            limits,
+            session.baseBounds,
+            session.viewport
+        ));
+    }
+
+    private applyContextCamera(camera: ContextCamera): boolean {
+        const session = this.viewportSession;
+        const rendered = this.renderedContext;
+        if (!session || !rendered || !this.canNavigateContext()) {
+            return false;
+        }
+        if (!rendered.setCamera(camera)) {
+            return false;
+        }
+        this.viewportSession = { ...session, camera };
+        return true;
+    }
+
+    private canNavigateContext(): boolean {
+        return this.settings.navigationEnabled
+            && this.host.hostCapabilities?.allowInteractions !== false;
     }
 
     private contextTarget(feature: ContextFeature): InteractionTarget {
@@ -713,6 +989,9 @@ export class Visual implements IVisual {
         const entityKey = key.slice("context:".length);
         const entity = this.model.entities.find((entry) => entry.key === entityKey);
         if (!entity) {
+            return;
+        }
+        if (this.focusedEntityKey === entity.key) {
             return;
         }
         this.focusedEntityKey = entity.key;

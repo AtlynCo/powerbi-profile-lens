@@ -7,6 +7,14 @@ import { execFileSync } from "node:child_process";
 import { describe, expect, it } from "vitest";
 
 const root = path.resolve(__dirname, "..");
+const visualManifest = JSON.parse(
+    fs.readFileSync(path.join(root, "pbiviz.json"), "utf8")
+) as { visual: { name: string; version: string } };
+const currentPackagePath = path.join(
+    root,
+    "dist",
+    `${visualManifest.visual.name}.${visualManifest.visual.version}.pbiviz`
+);
 const require = createRequire(import.meta.url);
 const { computeSampleIntegrity } = require("../scripts/sample-integrity.cjs") as {
     computeSampleIntegrity(options: {
@@ -205,6 +213,8 @@ describe("native validation evidence safety", () => {
                 "utf8"
             );
             expect(runner).toContain("native-source-integrity.cjs");
+            expect(runner).toContain("$visualManifest.visual.version");
+            expect(runner).not.toContain("AtlynProfileLensSample-1.2.0.0.pbix");
             expect(release).toContain("assertBoundSourceMatchesCommit");
             expect(release).toContain("assertCleanBoundSource");
             expect(release).toContain("writeFileAtomic.sync");
@@ -216,7 +226,7 @@ describe("native validation evidence safety", () => {
     });
 
     it("proves final PBIVIZ payload parity and rejects embedded drift", async () => {
-        const packagePath = path.join(root, "dist", "atlynProfileLens.1.2.0.0.pbiviz");
+        const packagePath = currentPackagePath;
         const sampleRoot = path.join(root, "samples", "AtlynProfileLensSample");
         const parity = await verifySampleResourceParity({
             packagePath,
@@ -371,7 +381,7 @@ describe("native validation evidence safety", () => {
             `Decoy/CustomVisuals/${guid}/resources/${guid}.pbiviz.json`
         ], guid)).toThrow(/noncanonical|decoy/i);
 
-        const packagePath = path.join(root, "dist", "atlynProfileLens.1.2.0.0.pbiviz");
+        const packagePath = currentPackagePath;
         const packageZip = await JSZip.loadAsync(fs.readFileSync(packagePath));
         const payload = await packageZip.files[`resources/${guid}.pbiviz.json`]?.async("nodebuffer");
         expect(payload).toBeDefined();

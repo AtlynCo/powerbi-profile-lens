@@ -136,6 +136,18 @@ A third party can add a pack without changing the renderer:
 Providers may not touch the DOM, host services, storage, files, or network.
 Renderers continue to consume only `ContextScene`.
 
+## Viewport navigation boundary
+
+Viewport navigation is author opt-in and disabled by default. It pans and zooms the current generic
+scene with the same camera used by point, strict geometry, grid, and hex providers. There is no
+provider-specific navigation branch.
+
+In 1.3.0, a built-in-pack scene still contains only exact-key features matched to report entities.
+Navigation does not expose unmatched pack geometry, fetch a backdrop, or infer data for another
+feature. The fixed center probe is visual only and never changes the Entity, profile, or host
+selection. Full-pack backdrop/data separation and probe-driven focus are intentionally outside this
+release.
+
 ## Known limits and proof boundary
 
 - Map labels are intentionally absent; exact source names are available through

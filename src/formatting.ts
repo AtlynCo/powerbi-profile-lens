@@ -223,6 +223,66 @@ export class ContextCard extends Card {
     ];
 }
 
+export class NavigationCard extends Card {
+    public override name = "navigation";
+    public override displayNameKey = "Format_Navigation_Card";
+
+    public enabled = new formattingSettings.ToggleSwitch({
+        name: "enabled",
+        displayNameKey: "Format_NavigationEnabled",
+        value: false
+    });
+
+    public minZoom = new formattingSettings.NumUpDown({
+        name: "minZoom",
+        displayNameKey: "Format_MinZoom",
+        value: 1,
+        options: numberOptions(1, 8)
+    });
+
+    public maxZoom = new formattingSettings.NumUpDown({
+        name: "maxZoom",
+        displayNameKey: "Format_MaxZoom",
+        value: 8,
+        options: numberOptions(1, 16)
+    });
+
+    public wheelSensitivity = new formattingSettings.NumUpDown({
+        name: "wheelSensitivity",
+        displayNameKey: "Format_WheelSensitivity",
+        value: 1,
+        options: numberOptions(0.25, 4)
+    });
+
+    public showCenterProbe = new formattingSettings.ToggleSwitch({
+        name: "showCenterProbe",
+        displayNameKey: "Format_ShowCenterProbe",
+        value: true
+    });
+
+    public showResetControl = new formattingSettings.ToggleSwitch({
+        name: "showResetControl",
+        displayNameKey: "Format_ShowResetControl",
+        value: true
+    });
+
+    public showGestureHelp = new formattingSettings.ToggleSwitch({
+        name: "showGestureHelp",
+        displayNameKey: "Format_ShowGestureHelp",
+        value: true
+    });
+
+    public override slices = [
+        this.enabled,
+        this.minZoom,
+        this.maxZoom,
+        this.wheelSensitivity,
+        this.showCenterProbe,
+        this.showResetControl,
+        this.showGestureHelp
+    ];
+}
+
 export class LoadingCard extends Card {
     public override name = "loading";
     public override displayNameKey = "Format_Loading_Card";
@@ -427,6 +487,7 @@ export class ProfileLensFormattingModel extends Model {
     public data = new DataCard();
     public layout = new LayoutCard();
     public context = new ContextCard();
+    public navigation = new NavigationCard();
     public loading = new LoadingCard();
     public interaction = new InteractionCard();
     public profiles = new ProfilesCard();
@@ -440,6 +501,7 @@ export class ProfileLensFormattingModel extends Model {
         this.data,
         this.layout,
         this.context,
+        this.navigation,
         this.loading,
         this.interaction,
         this.profiles,
@@ -471,6 +533,13 @@ export interface ResolvedSettings {
     readonly contextSelectedColor: string;
     readonly maxGeometryCharacters: number;
     readonly maxSceneVertices: number;
+    readonly navigationEnabled: boolean;
+    readonly minZoom: number;
+    readonly maxZoom: number;
+    readonly wheelSensitivity: number;
+    readonly showCenterProbe: boolean;
+    readonly showResetControl: boolean;
+    readonly showGestureHelp: boolean;
     readonly detailStrategy: Exclude<DetailStrategyId, "matrixExpand">;
     readonly interactionMode: "localOnly" | "reportSelection";
     readonly armRotation: number;
@@ -508,6 +577,8 @@ const NORMALIZATION_MODES: readonly NormalizationMode[] = [
 ];
 
 export function resolveSettings(model: ProfileLensFormattingModel): ResolvedSettings {
+    const minZoom = clamp(model.navigation.minZoom.value, 1, 8);
+    const maxZoom = Math.max(minZoom, clamp(model.navigation.maxZoom.value, 1, 16));
     return {
         normalization: enumValue(model.data.normalization.value, NORMALIZATION_MODES, "raw"),
         percentScale: enumValue(model.data.percentScale.value, ["fraction", "percent"], "fraction"),
@@ -560,6 +631,13 @@ export function resolveSettings(model: ProfileLensFormattingModel): ResolvedSett
             1000,
             LIMITS.maxVerticesPerScene
         ),
+        navigationEnabled: model.navigation.enabled.value,
+        minZoom,
+        maxZoom,
+        wheelSensitivity: clamp(model.navigation.wheelSensitivity.value, 0.25, 4),
+        showCenterProbe: model.navigation.showCenterProbe.value,
+        showResetControl: model.navigation.showResetControl.value,
+        showGestureHelp: model.navigation.showGestureHelp.value,
         detailStrategy: enumValue(
             model.loading.strategy.value,
             ["auto", "eager", "segmented", "external"],

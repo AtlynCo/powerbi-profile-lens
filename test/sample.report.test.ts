@@ -28,6 +28,7 @@ describe("offline PBIP validation sample", () => {
             "pageWorldPack",
             "pageStatePack",
             "pageCountyPack",
+            "pageViewportFoundation",
             "pageSixProfiles",
             "pageNormalizations",
             "pageWorldDiagnostics",
@@ -51,6 +52,11 @@ describe("offline PBIP validation sample", () => {
         }
         expect(generated).toContain('interactionMode: "localOnly"');
         expect(generated).toContain('"reportSelection"');
+        expect(generated).toContain('name: "pageViewportFoundation"');
+        expect(generated).toContain("navigationEnabled: true");
+        expect(generated).toContain(
+            'Literal: { Value: options.navigationEnabled ? "true" : "false" }'
+        );
     });
 
     it("keeps exact-key and six-profile fixtures offline", () => {

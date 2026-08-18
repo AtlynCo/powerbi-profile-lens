@@ -61,6 +61,21 @@ Both renderers use the same transform, selection identities, hit-test target key
 tooltip content, and accessible descriptions. Canvas is a rendering optimization, not a reduced
 semantic mode.
 
+Viewport navigation composes an immutable scene fit with an in-memory `{ zoom, panX, panY }` camera.
+Forward and inverse transforms support both ordinary and inverted-Y providers. Camera identity is
+derived from provider/mode and ordered geometry, excluding analytical values, focus, periods, and
+host selection. Local focus, period, and selection rerenders therefore reuse the provider scene and
+camera. An incompatible scene resets; valid resize preserves the scene point under the old viewport
+center and clamps it into the new viewport.
+
+SVG geometry is created once under a camera `<g>`. Canvas rasterizes one bounded, overscanned neutral
+base surface and one coordinated color-picking surface/index in base-fit coordinates, then submits a
+transformed `drawImage` crop to the bounded display Canvas for each camera update. Screen input is
+inverse-transformed before the existing color read, spatial bucket lookup, and geometric fallback.
+Focused/selected outlines, connector, center probe, reset control, and help remain in the shared
+screen-space SVG/HTML overlay. Canvas may magnify its stable base raster at high zoom; it never
+reconstructs county paths or the picking index per pointer event.
+
 Canvas hit testing reads the color-picking pixel before geometry work and performs O(1) feature and
 interaction-target lookups. When the picked feature is the highest-rendered candidate in its spatial
 bucket, one geometric validation completes the normal path. Otherwise the fallback evaluates every
@@ -97,9 +112,25 @@ focus, the header, and `aria-activedescendant` without mutating host selection o
 click and Enter/Space activate the focused entity according to the configured interaction mode.
 The only v1 modes are local focus and host report selection; neither writes an outward filter.
 
+Viewport navigation is a separate, opt-in local state transition. A pointer-captured primary drag
+owns the gesture after four CSS pixels and consumes its click. Wheel/trackpad zoom uses a non-passive
+listener only on the active viewport and one 120 ms settle timeout. One touch pointer pans and two
+touch pointers pinch around their midpoint. Pointer cancel/lost capture is idempotent. Plain Arrow
+retains entity navigation; Shift+Arrow pans, `+`/`-` zooms, and Home resets. Camera movement and
+move-end make no host selection or filter call in 1.3.0.
+
+The fixed center probe is descriptive only in this release. It does not resolve an entity or change
+the profile. Built-in pack scenes remain report-bound; full-pack backdrop/data separation and
+probe-driven focus are later layers.
+
 The semantic status and profile table remain available at every responsive size. Feature descriptions,
 focus order, selected state, tooltip text, high-contrast cues, RTL, and reduced-motion behavior are
 kept equivalent between SVG and Canvas.
+
+When host interactions are disabled, camera listeners, capture, wheel prevention, controls, focus
+chrome, tooltip resolution during gestures, and every host call are disabled. The current camera is
+rendered statically. The context remains one semantic Tab stop; the pointer reset button has
+`tabindex="-1"` and Home provides the keyboard equivalent.
 
 ## Security and proof boundary
 
@@ -107,6 +138,8 @@ Privileges are empty. The implementation has no file access, upload, network cal
 `Function` construction and accepts no executable provider payload.
 
 Unit and packaged-browser checks can prove bounded parsing, deterministic scenes, renderer policy,
-interaction calls, and semantic parity in the test environment. They cannot prove native Desktop or
-service host behavior. The Desktop checklist is therefore required for each release candidate.
+interaction calls, real Chromium mouse/wheel behavior, synthetic Pointer Event pinch, camera frame
+work, inverse picking, and semantic parity in the test environment. They cannot prove native Desktop
+mouse, trackpad, touch, export, or service host behavior. The Desktop checklist is therefore required
+for each release candidate.
 Certification is not claimed.
