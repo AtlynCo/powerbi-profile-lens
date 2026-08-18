@@ -71,6 +71,10 @@ function computeSampleIntegrity({ root, sampleRoot, generatorPath, guid }) {
     if (!pbip) {
         throw new Error("Sample integrity requires the PBIP entry point.");
     }
+    const generatorBytes = Buffer.from(
+        fs.readFileSync(generatorPath, "utf8").replace(/\r\n/g, "\n"),
+        "utf8"
+    );
     return {
         schemaVersion: 1,
         projectTree: canonicalTree(projectFiles),
@@ -78,8 +82,8 @@ function computeSampleIntegrity({ root, sampleRoot, generatorPath, guid }) {
         modelDefinitionTree: canonicalTree(filesUnder(modelDefinitionRoot, sampleRoot)),
         generator: {
             path: portable(path.relative(root, generatorPath)),
-            bytes: fs.statSync(generatorPath).size,
-            sha256: sha256(fs.readFileSync(generatorPath))
+            bytes: generatorBytes.length,
+            sha256: sha256(generatorBytes)
         },
         pbip,
         embeddedVisualResource: embedded

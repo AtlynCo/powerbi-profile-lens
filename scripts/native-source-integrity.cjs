@@ -46,7 +46,8 @@ function sourceFiles(root, relativePaths) {
             }
             return;
         }
-        const bytes = fs.readFileSync(absolute);
+        const raw = fs.readFileSync(absolute);
+        const bytes = Buffer.from(raw.toString("utf8").replace(/\r\n/g, "\n"), "utf8");
         files.push({
             path: relativePath.split(path.sep).join("/"),
             bytes: bytes.length,
