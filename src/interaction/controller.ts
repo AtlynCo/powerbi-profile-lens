@@ -10,6 +10,7 @@ export interface InteractionTarget {
     readonly element: Element;
     readonly identity: ISelectionId | null;
     readonly tooltip: () => readonly VisualTooltipDataItem[];
+    readonly activate?: () => void;
 }
 
 export interface SurfaceInteraction {
@@ -126,6 +127,7 @@ export class InteractionController {
                 return;
             }
             this.focus(target.key);
+            target.activate?.();
             if (!target.identity) {
                 return;
             }
@@ -184,6 +186,12 @@ export class InteractionController {
         this.on(element, "focus", () => {
             if (!this.allowInteractions) {
                 this.deps.root.focus();
+                return;
+            }
+            const target = surface.targetForKey?.(null);
+            if (target) {
+                this.focus(target.key);
+                element.setAttribute("aria-activedescendant", target.key);
             }
         });
         this.on(element, "click", (event) => {
@@ -198,6 +206,7 @@ export class InteractionController {
                 return;
             }
             this.focus(target.key);
+            target.activate?.();
             if (target.identity) {
                 void this.deps.selectionManager
                     .select(target.identity, Boolean(pointer.ctrlKey || pointer.metaKey || pointer.shiftKey))
@@ -256,6 +265,7 @@ export class InteractionController {
                 if (target) {
                     keyboard.preventDefault();
                     this.focus(target.key);
+                    target.activate?.();
                     if (target.identity) {
                         void this.deps.selectionManager
                             .select(target.identity, Boolean(keyboard.ctrlKey || keyboard.metaKey))
@@ -303,9 +313,13 @@ export class InteractionController {
             case " ":
                 event.preventDefault();
                 if (this.allowInteractions && target.identity) {
+                    target.activate?.();
                     void this.deps.selectionManager
                         .select(target.identity, Boolean(event.ctrlKey || event.metaKey))
                         .then(() => this.deps.onSelectionChanged());
+                }
+                if (this.allowInteractions && !target.identity) {
+                    target.activate?.();
                 }
                 break;
             case "Escape":

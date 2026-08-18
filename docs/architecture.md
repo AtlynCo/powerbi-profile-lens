@@ -72,6 +72,18 @@ mode makes no host mutation; explicit report-filter mode writes only `general.fi
 `jsonFilters` as authoritative bookmark/filter state. Highlights, RLS, and external selections remain
 host inputs.
 
+Navigation and activation are separate state transitions. Spatial arrow keys update local entity
+focus, the header, and `aria-activedescendant` without mutating host selection or filters. Pointer
+click and Enter/Space activate the focused entity according to the configured interaction mode.
+Fresh `jsonFilters` are authoritative; cached rerenders never reinterpret an absent filter payload.
+Entering report-filter mode reconciles against the last authoritative snapshot, and leaving it
+removes the visual-owned filter.
+
+Filter writes carry monotonic local generations until host echoes settle them. Delayed echoes for
+older activations cannot relinquish ownership of the newest write. The visual retains a pre-write
+authoritative baseline, removes exactly one echoed visual-owned filter on exit, and preserves
+unrelated or coexisting external filters, including identical target/value filters.
+
 The semantic status and profile table remain available at every responsive size. Feature descriptions,
 focus order, selected state, tooltip text, high-contrast cues, RTL, and reduced-motion behavior are
 kept equivalent between SVG and Canvas.

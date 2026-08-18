@@ -450,6 +450,10 @@ describe("interaction", () => {
             .toBe("Entity B");
         expect(surface?.getAttribute("aria-activedescendant")).toBe("context:entity:1");
         expect(document.activeElement).toBe(surface);
+        expect(mock.applyJsonFilter).not.toHaveBeenCalled();
+        const enter = new Event("keydown", { bubbles: true, cancelable: true });
+        Object.assign(enter, { key: "Enter" });
+        surface?.dispatchEvent(enter);
         expect(mock.applyJsonFilter).toHaveBeenCalledTimes(1);
     });
 
@@ -527,9 +531,696 @@ describe("interaction", () => {
         const enter = new Event("keydown", { bubbles: true, cancelable: true });
         Object.assign(enter, { key: "Enter" });
         surface?.dispatchEvent(enter);
-        expect(mock.applyJsonFilter).toHaveBeenCalledTimes(2);
+        expect(mock.applyJsonFilter).toHaveBeenCalledTimes(1);
         expect(mock.applyJsonFilter.mock.calls[0].slice(1)).toEqual(["general", "filter", 0]);
-        expect(mock.applyJsonFilter.mock.calls[1].slice(1)).toEqual(["general", "filter", 0]);
+    });
+
+    it.each([
+        ["localOnly", "pointer", 0, 0],
+        ["reportSelection", "pointer", 0, 1],
+        ["reportFilter", "pointer", 1, 0],
+        ["localOnly", "keyboard", 0, 0],
+        ["reportSelection", "keyboard", 0, 1],
+        ["reportFilter", "keyboard", 1, 0]
+    ] as const)(
+        "keeps %s %s navigation and activation coherent",
+        (interactionMode, inputKind, expectedFilters, expectedSelections) => {
+            const { mock, visual } = mount();
+            visual.update(updateOptions(buildMatrixDataView({
+                entities: ["Entity A", "Entity B"],
+                bands: ["Band 1"],
+                profiles: ["Metric A"],
+                objects: {
+                    context: { mode: "grid" },
+                    interaction: { mode: interactionMode }
+                }
+            })));
+            const surface = mock.element.querySelector<HTMLElement>(".profile-lens-context");
+            if (inputKind === "pointer") {
+                surface?.dispatchEvent(pointer("click", { clientX: 280, clientY: 250 }));
+            } else {
+                surface?.focus();
+                const right = new Event("keydown", { bubbles: true, cancelable: true });
+                Object.assign(right, { key: "ArrowRight" });
+                surface?.dispatchEvent(right);
+                expect(mock.applyJsonFilter).not.toHaveBeenCalled();
+                expect(mock.selection.select).not.toHaveBeenCalled();
+                const enter = new Event("keydown", { bubbles: true, cancelable: true });
+                Object.assign(enter, { key: "Enter" });
+                surface?.dispatchEvent(enter);
+            }
+            expect(mock.element.querySelector(".profile-lens-header-title")?.textContent)
+                .toBe("Entity B");
+            expect(surface?.getAttribute("aria-activedescendant")).toBe("context:entity:1");
+            expect(mock.applyJsonFilter).toHaveBeenCalledTimes(expectedFilters);
+            expect(mock.selection.select).toHaveBeenCalledTimes(expectedSelections);
+        }
+    );
+
+    it.each([
+        ["localOnly", "pointer", 0, 0],
+        ["reportSelection", "pointer", 0, 1],
+        ["reportFilter", "pointer", 1, 0],
+        ["localOnly", "keyboard", 0, 0],
+        ["reportSelection", "keyboard", 0, 1],
+        ["reportFilter", "keyboard", 1, 0]
+    ] as const)(
+        "keeps no-context %s %s navigation and activation coherent",
+        async (interactionMode, inputKind, expectedFilters, expectedSelections) => {
+            const { mock, visual } = mount();
+            visual.update(updateOptions(buildMatrixDataView({
+                entities: ["Entity A", "Entity B"],
+                bands: ["Band 1"],
+                profiles: ["Metric A"],
+                objects: {
+                    context: { mode: "none" },
+                    interaction: { mode: interactionMode }
+                }
+            })));
+            if (inputKind === "pointer") {
+                mock.element.querySelector<HTMLElement>('[data-entity-index="1"]')?.click();
+            } else {
+                const first = mock.element.querySelector<HTMLElement>('[data-entity-index="0"]');
+                first?.focus();
+                const right = new Event("keydown", { bubbles: true, cancelable: true });
+                Object.assign(right, { key: "ArrowRight" });
+                first?.dispatchEvent(right);
+                expect(mock.applyJsonFilter).not.toHaveBeenCalled();
+                expect(mock.selection.select).not.toHaveBeenCalled();
+                const second = mock.element.querySelector<HTMLElement>('[data-entity-index="1"]');
+                const enter = new Event("keydown", { bubbles: true, cancelable: true });
+                Object.assign(enter, { key: "Enter" });
+                second?.dispatchEvent(enter);
+            }
+            await Promise.resolve();
+            expect(mock.element.querySelector(".profile-lens-header-title")?.textContent)
+                .toBe("Entity B");
+            expect(mock.element.querySelector('[data-entity-index="1"]')
+                ?.getAttribute("aria-selected")).toBe("true");
+            expect(mock.applyJsonFilter).toHaveBeenCalledTimes(expectedFilters);
+            expect(mock.selection.select).toHaveBeenCalledTimes(expectedSelections);
+        }
+    );
+
+    it("reconciles report-filter re-entry and activates the entity after re-entry", () => {
+        const { mock, visual } = mount();
+        const build = (mode: "reportFilter" | "localOnly"): powerbi.DataView =>
+            buildMatrixDataView({
+                entities: ["Entity A", "Entity B"],
+                bands: ["Band 1"],
+                profiles: ["Metric A"],
+                objects: {
+                    context: { mode: "grid" },
+                    interaction: { mode }
+                }
+            });
+        visual.update(updateOptions(build("reportFilter")));
+        let surface = mock.element.querySelector<HTMLElement>(".profile-lens-context");
+        surface?.dispatchEvent(pointer("click", { clientX: 280, clientY: 250 }));
+        expect(mock.element.querySelector(".profile-lens-header-title")?.textContent)
+            .toBe("Entity B");
+        expect(mock.applyJsonFilter).toHaveBeenCalledTimes(1);
+
+        visual.update(updateOptions(
+            build("reportFilter"),
+            { width: 800, height: 600 },
+            {
+                jsonFilters: [{
+                    target: { table: "Table", column: "Entity" },
+                    operator: "In",
+                    values: ["Entity B"],
+                    filterType: 1
+                } as unknown as powerbi.IFilter]
+            }
+        ));
+        expect(mock.element.querySelector(".profile-lens-header-title")?.textContent)
+            .toBe("Entity B");
+
+        visual.update(updateOptions(
+            build("localOnly"),
+            { width: 800, height: 600 },
+            { jsonFilters: undefined }
+        ));
+        expect(mock.element.querySelector(".profile-lens-header-title")?.textContent)
+            .toBe("Entity B");
+        expect(mock.applyJsonFilter.mock.calls[1].slice(1)).toEqual(["general", "filter", 1]);
+
+        visual.update(updateOptions(
+            build("reportFilter"),
+            { width: 800, height: 600 },
+            { jsonFilters: undefined }
+        ));
+        surface = mock.element.querySelector<HTMLElement>(".profile-lens-context");
+        expect(mock.element.querySelector(".profile-lens-header-title")?.textContent)
+            .toBe("Entity A");
+        expect(surface?.getAttribute("aria-activedescendant")).toBe("context:entity:0");
+
+        surface?.dispatchEvent(pointer("click", { clientX: 280, clientY: 250 }));
+        expect(mock.element.querySelector(".profile-lens-header-title")?.textContent)
+            .toBe("Entity B");
+        expect(surface?.getAttribute("aria-activedescendant")).toBe("context:entity:1");
+        expect(mock.applyJsonFilter).toHaveBeenCalledTimes(3);
+        expect(mock.applyJsonFilter.mock.calls[2].slice(1)).toEqual(["general", "filter", 0]);
+    });
+
+    it("starts context navigation from no-context local focus after context re-entry", () => {
+        const { mock, visual } = mount();
+        const build = (contextMode: "none" | "grid"): powerbi.DataView =>
+            buildMatrixDataView({
+                entities: ["Entity A", "Entity B", "Entity C", "Entity D"],
+                bands: ["Band 1"],
+                profiles: ["Metric A"],
+                objects: {
+                    context: { mode: contextMode },
+                    interaction: { mode: "localOnly" }
+                }
+            });
+        visual.update(updateOptions(build("none")));
+        mock.element.querySelector<HTMLElement>('[data-entity-index="1"]')?.click();
+        expect(mock.element.querySelector(".profile-lens-header-title")?.textContent)
+            .toBe("Entity B");
+
+        visual.update(updateOptions(build("grid")));
+        const surface = mock.element.querySelector<HTMLElement>(".profile-lens-context");
+        surface?.focus();
+        expect(surface?.getAttribute("aria-activedescendant")).toBe("context:entity:1");
+        const down = new Event("keydown", { bubbles: true, cancelable: true });
+        Object.assign(down, { key: "ArrowDown" });
+        surface?.dispatchEvent(down);
+        expect(mock.element.querySelector(".profile-lens-header-title")?.textContent)
+            .toBe("Entity D");
+        expect(surface?.getAttribute("aria-activedescendant")).toBe("context:entity:3");
+        expect(mock.applyJsonFilter).not.toHaveBeenCalled();
+        expect(mock.selection.select).not.toHaveBeenCalled();
+    });
+
+    it("preserves authoritative external entity filters across mode exit and re-entry", () => {
+        const { mock, visual } = mount();
+        const build = (mode: "reportFilter" | "localOnly"): powerbi.DataView =>
+            buildMatrixDataView({
+                entities: ["Entity A", "Entity B"],
+                bands: ["Band 1"],
+                profiles: ["Metric A"],
+                objects: {
+                    context: { mode: "grid" },
+                    interaction: { mode }
+                }
+            });
+        const matchingFilter = [{
+            target: { table: "Table", column: "Entity" },
+            operator: "In",
+            values: ["Entity B"],
+            filterType: 1
+        } as unknown as powerbi.IFilter];
+        visual.update(updateOptions(
+            build("reportFilter"),
+            { width: 800, height: 600 },
+            { jsonFilters: matchingFilter }
+        ));
+        expect(mock.element.querySelector(".profile-lens-header-title")?.textContent)
+            .toBe("Entity B");
+
+        visual.update(updateOptions(
+            build("localOnly"),
+            { width: 800, height: 600 },
+            { jsonFilters: undefined }
+        ));
+        expect(mock.element.querySelector(".profile-lens-header-title")?.textContent)
+            .toBe("Entity B");
+        expect(mock.applyJsonFilter).not.toHaveBeenCalled();
+
+        visual.update(updateOptions(
+            build("reportFilter"),
+            { width: 800, height: 600 },
+            { jsonFilters: undefined }
+        ));
+        expect(mock.element.querySelector(".profile-lens-header-title")?.textContent)
+            .toBe("Entity B");
+        expect(mock.element.querySelector(".profile-lens-context")
+            ?.getAttribute("aria-activedescendant")).toBe("context:entity:1");
+        expect(mock.applyJsonFilter).not.toHaveBeenCalled();
+    });
+
+    it.each(["Entity A", "Entity B"])(
+        "preserves coexisting external filter %s when removing a visual-owned filter",
+        (externalValue) => {
+            const { mock, visual } = mount();
+            const build = (mode: "reportFilter" | "localOnly"): powerbi.DataView =>
+                buildMatrixDataView({
+                    entities: ["Entity A", "Entity B"],
+                    bands: ["Band 1"],
+                    profiles: ["Metric A"],
+                    objects: {
+                        context: { mode: "grid" },
+                        interaction: { mode }
+                    }
+                });
+            const external = {
+                target: { table: "Table", column: "Entity" },
+                operator: "In",
+                values: [externalValue],
+                filterType: 1
+            } as unknown as powerbi.IFilter;
+            visual.update(updateOptions(
+                build("reportFilter"),
+                { width: 800, height: 600 },
+                { jsonFilters: [external] }
+            ));
+            mock.element.querySelector<HTMLElement>(".profile-lens-context")
+                ?.dispatchEvent(pointer("click", { clientX: 280, clientY: 250 }));
+            expect(mock.applyJsonFilter).toHaveBeenCalledTimes(1);
+
+            const visualEcho = {
+                target: { table: "Table", column: "Entity" },
+                operator: "In",
+                values: ["Entity B"],
+                filterType: 1
+            } as unknown as powerbi.IFilter;
+            visual.update(updateOptions(
+                build("reportFilter"),
+                { width: 800, height: 600 },
+                { jsonFilters: [external, visualEcho] }
+            ));
+            expect(mock.element.querySelector(".profile-lens-header-title")?.textContent)
+                .toBe("Entity B");
+
+            visual.update(updateOptions(
+                build("localOnly"),
+                { width: 800, height: 600 },
+                { jsonFilters: undefined }
+            ));
+            expect(mock.applyJsonFilter).toHaveBeenCalledTimes(2);
+            expect(mock.applyJsonFilter.mock.calls[1].slice(1))
+                .toEqual(["general", "filter", 1]);
+
+            visual.update(updateOptions(
+                build("reportFilter"),
+                { width: 800, height: 600 },
+                { jsonFilters: undefined }
+            ));
+            expect(mock.element.querySelector(".profile-lens-header-title")?.textContent)
+                .toBe(externalValue);
+            expect(mock.applyJsonFilter).toHaveBeenCalledTimes(2);
+        }
+    );
+
+    it("retains visual filter ownership when its entity disappears until mode exit", () => {
+        const { mock, visual } = mount();
+        const build = (
+            entities: readonly string[],
+            mode: "reportFilter" | "localOnly"
+        ): powerbi.DataView => buildMatrixDataView({
+            entities,
+            bands: ["Band 1"],
+            profiles: ["Metric A"],
+            objects: {
+                context: { mode: "grid" },
+                interaction: { mode }
+            }
+        });
+        visual.update(updateOptions(build(["Entity A", "Entity B"], "reportFilter")));
+        mock.element.querySelector<HTMLElement>(".profile-lens-context")
+            ?.dispatchEvent(pointer("click", { clientX: 280, clientY: 250 }));
+        expect(mock.applyJsonFilter).toHaveBeenCalledTimes(1);
+
+        const hostFilter = [{
+            target: { table: "Table", column: "Entity" },
+            operator: "In",
+            values: ["Entity B"],
+            filterType: 1
+        } as unknown as powerbi.IFilter];
+        visual.update(updateOptions(
+            build(["Entity A"], "reportFilter"),
+            { width: 800, height: 600 },
+            { jsonFilters: hostFilter }
+        ));
+        expect(mock.element.querySelector(".profile-lens-header-title")?.textContent)
+            .toBe("Entity A");
+
+        visual.update(updateOptions(
+            build(["Entity A"], "localOnly"),
+            { width: 800, height: 600 },
+            { jsonFilters: undefined }
+        ));
+        expect(mock.applyJsonFilter).toHaveBeenCalledTimes(2);
+        expect(mock.applyJsonFilter.mock.calls[1].slice(1)).toEqual(["general", "filter", 1]);
+    });
+
+    it("uses a fresh exit snapshot after removing only the visual-owned filter", () => {
+        const { mock, visual } = mount();
+        const build = (mode: "reportFilter" | "localOnly"): powerbi.DataView =>
+            buildMatrixDataView({
+                entities: ["Entity A", "Entity B", "Entity C"],
+                bands: ["Band 1"],
+                profiles: ["Metric A"],
+                objects: {
+                    context: { mode: "grid" },
+                    interaction: { mode }
+                }
+            });
+        visual.update(updateOptions(build("reportFilter")));
+        mock.element.querySelector<HTMLElement>(".profile-lens-context")
+            ?.dispatchEvent(pointer("click", { clientX: 250, clientY: 250 }));
+        expect(mock.element.querySelector(".profile-lens-header-title")?.textContent)
+            .toBe("Entity B");
+
+        const externalC = [{
+            target: { table: "Table", column: "Entity" },
+            operator: "In",
+            values: ["Entity C"],
+            filterType: 1
+        } as unknown as powerbi.IFilter];
+        visual.update(updateOptions(
+            build("localOnly"),
+            { width: 800, height: 600 },
+            { jsonFilters: externalC }
+        ));
+        expect(mock.applyJsonFilter.mock.calls[1].slice(1)).toEqual(["general", "filter", 1]);
+
+        visual.update(updateOptions(
+            build("reportFilter"),
+            { width: 800, height: 600 },
+            { jsonFilters: undefined }
+        ));
+        expect(mock.element.querySelector(".profile-lens-header-title")?.textContent)
+            .toBe("Entity C");
+        expect(mock.element.querySelector(".profile-lens-context")
+            ?.getAttribute("aria-activedescendant")).toBe("context:entity:2");
+    });
+
+    it("ignores delayed B echo after rapid B to C activation", () => {
+        const { mock, visual } = mount();
+        const dataView = buildMatrixDataView({
+            entities: ["Entity A", "Entity B", "Entity C"],
+            bands: ["Band 1"],
+            profiles: ["Metric A"],
+            objects: {
+                context: { mode: "grid" },
+                interaction: { mode: "reportFilter" }
+            }
+        });
+        visual.update(updateOptions(dataView));
+        const surface = mock.element.querySelector<HTMLElement>(".profile-lens-context");
+        const press = (key: string): void => {
+            const event = new Event("keydown", { bubbles: true, cancelable: true });
+            Object.assign(event, { key });
+            surface?.dispatchEvent(event);
+        };
+        surface?.focus();
+        press("ArrowRight");
+        press("Enter");
+        press("ArrowDown");
+        press("Enter");
+        expect(mock.applyJsonFilter).toHaveBeenCalledTimes(2);
+        expect(mock.element.querySelector(".profile-lens-header-title")?.textContent)
+            .toBe("Entity C");
+
+        const filterFor = (value: string): powerbi.IFilter => ({
+            target: { table: "Table", column: "Entity" },
+            operator: "In",
+            values: [value],
+            filterType: 1
+        } as unknown as powerbi.IFilter);
+        visual.update(updateOptions(dataView, { width: 800, height: 600 }, {
+            jsonFilters: [filterFor("Entity B")]
+        }));
+        expect(mock.element.querySelector(".profile-lens-header-title")?.textContent)
+            .toBe("Entity C");
+        visual.update(updateOptions(dataView, { width: 800, height: 600 }, {
+            jsonFilters: [filterFor("Entity C")]
+        }));
+        expect(mock.element.querySelector(".profile-lens-header-title")?.textContent)
+            .toBe("Entity C");
+
+        const localView = buildMatrixDataView({
+            entities: ["Entity A", "Entity B", "Entity C"],
+            bands: ["Band 1"],
+            profiles: ["Metric A"],
+            objects: {
+                context: { mode: "grid" },
+                interaction: { mode: "localOnly" }
+            }
+        });
+        visual.update(updateOptions(localView, { width: 800, height: 600 }, {
+            jsonFilters: undefined
+        }));
+        expect(mock.applyJsonFilter).toHaveBeenCalledTimes(3);
+        expect(mock.applyJsonFilter.mock.calls[2].slice(1)).toEqual(["general", "filter", 1]);
+    });
+
+    it("keeps the newest B ownership through B to C to B echoes", () => {
+        const { mock, visual } = mount();
+        const dataView = buildMatrixDataView({
+            entities: ["Entity A", "Entity B", "Entity C"],
+            bands: ["Band 1"],
+            profiles: ["Metric A"],
+            objects: {
+                context: { mode: "grid" },
+                interaction: { mode: "reportFilter" }
+            }
+        });
+        visual.update(updateOptions(dataView));
+        const surface = mock.element.querySelector<HTMLElement>(".profile-lens-context");
+        const press = (key: string): void => {
+            const event = new Event("keydown", { bubbles: true, cancelable: true });
+            Object.assign(event, { key });
+            surface?.dispatchEvent(event);
+        };
+        surface?.focus();
+        press("ArrowRight");
+        press("Enter");
+        press("ArrowDown");
+        press("Enter");
+        press("ArrowRight");
+        press("Enter");
+        const filterFor = (value: string): powerbi.IFilter => ({
+            target: { table: "Table", column: "Entity" },
+            operator: "In",
+            values: [value],
+            filterType: 1
+        } as unknown as powerbi.IFilter);
+        for (const value of ["Entity B", "Entity C", "Entity B"]) {
+            visual.update(updateOptions(dataView, { width: 800, height: 600 }, {
+                jsonFilters: [filterFor(value)]
+            }));
+            expect(mock.element.querySelector(".profile-lens-header-title")?.textContent)
+                .toBe("Entity B");
+        }
+        expect(mock.applyJsonFilter).toHaveBeenCalledTimes(3);
+    });
+
+    it("consumes a stale empty echo without relinquishing the newest write", () => {
+        const { mock, visual } = mount();
+        const dataView = buildMatrixDataView({
+            entities: ["Entity A", "Entity B", "Entity C"],
+            bands: ["Band 1"],
+            profiles: ["Metric A"],
+            objects: {
+                context: { mode: "grid" },
+                interaction: { mode: "reportFilter" }
+            }
+        });
+        visual.update(updateOptions(dataView));
+        const surface = mock.element.querySelector<HTMLElement>(".profile-lens-context");
+        const press = (key: string): void => {
+            const event = new Event("keydown", { bubbles: true, cancelable: true });
+            Object.assign(event, { key });
+            surface?.dispatchEvent(event);
+        };
+        surface?.focus();
+        press("ArrowRight");
+        press("Enter");
+        press("ArrowDown");
+        press("Enter");
+        visual.update(updateOptions(dataView, { width: 800, height: 600 }, { jsonFilters: [] }));
+        expect(mock.element.querySelector(".profile-lens-header-title")?.textContent)
+            .toBe("Entity C");
+        expect(mock.applyJsonFilter).toHaveBeenCalledTimes(2);
+    });
+
+    it("preserves unrelated filters while settling rapid visual writes", () => {
+        const { mock, visual } = mount();
+        const dataView = buildMatrixDataView({
+            entities: ["Entity A", "Entity B", "Entity C"],
+            bands: ["Band 1"],
+            profiles: ["Metric A"],
+            objects: {
+                context: { mode: "grid" },
+                interaction: { mode: "reportFilter" }
+            }
+        });
+        visual.update(updateOptions(dataView));
+        const surface = mock.element.querySelector<HTMLElement>(".profile-lens-context");
+        const press = (key: string): void => {
+            const event = new Event("keydown", { bubbles: true, cancelable: true });
+            Object.assign(event, { key });
+            surface?.dispatchEvent(event);
+        };
+        surface?.focus();
+        press("ArrowRight");
+        press("Enter");
+        press("ArrowDown");
+        press("Enter");
+        const unrelated = {
+            target: { table: "Table", column: "Band" },
+            operator: "In",
+            values: ["Band 1"],
+            filterType: 1
+        } as unknown as powerbi.IFilter;
+        visual.update(updateOptions(dataView, { width: 800, height: 600 }, {
+            jsonFilters: [unrelated]
+        }));
+        expect(mock.element.querySelector(".profile-lens-header-title")?.textContent)
+            .toBe("Entity C");
+        const entityC = {
+            target: { table: "Table", column: "Entity" },
+            operator: "In",
+            values: ["Entity C"],
+            filterType: 1
+        } as unknown as powerbi.IFilter;
+        visual.update(updateOptions(dataView, { width: 800, height: 600 }, {
+            jsonFilters: [unrelated, entityC]
+        }));
+        expect(mock.element.querySelector(".profile-lens-header-title")?.textContent)
+            .toBe("Entity C");
+    });
+
+    it("bounds skipped duplicate echoes before accepting external replacement", () => {
+        const { mock, visual } = mount();
+        const dataView = buildMatrixDataView({
+            entities: ["Entity A", "Entity B", "Entity C"],
+            bands: ["Band 1"],
+            profiles: ["Metric A"],
+            objects: {
+                context: { mode: "grid" },
+                interaction: { mode: "reportFilter" }
+            }
+        });
+        visual.update(updateOptions(dataView));
+        const surface = mock.element.querySelector<HTMLElement>(".profile-lens-context");
+        const press = (key: string): void => {
+            const event = new Event("keydown", { bubbles: true, cancelable: true });
+            Object.assign(event, { key });
+            surface?.dispatchEvent(event);
+        };
+        surface?.focus();
+        press("ArrowRight");
+        press("Enter");
+        press("ArrowDown");
+        press("Enter");
+        press("ArrowRight");
+        press("Enter");
+
+        const filterFor = (value: string): powerbi.IFilter => ({
+            target: { table: "Table", column: "Entity" },
+            operator: "In",
+            values: [value],
+            filterType: 1
+        } as unknown as powerbi.IFilter);
+        visual.update(updateOptions(dataView, { width: 800, height: 600 }, {
+            jsonFilters: [filterFor("Entity B")]
+        }));
+        expect(mock.element.querySelector(".profile-lens-header-title")?.textContent)
+            .toBe("Entity B");
+        visual.update(updateOptions(dataView, { width: 800, height: 600 }, {
+            jsonFilters: [filterFor("Entity C")]
+        }));
+        expect(mock.element.querySelector(".profile-lens-header-title")?.textContent)
+            .toBe("Entity B");
+        visual.update(updateOptions(dataView, { width: 800, height: 600 }, {
+            jsonFilters: [filterFor("Entity C")]
+        }));
+        expect(mock.element.querySelector(".profile-lens-header-title")?.textContent)
+            .toBe("Entity C");
+    });
+
+    it("does not preserve an older visual echo from a fresh mode-exit snapshot", () => {
+        const { mock, visual } = mount();
+        const build = (mode: "reportFilter" | "localOnly"): powerbi.DataView =>
+            buildMatrixDataView({
+                entities: ["Entity A", "Entity B", "Entity C"],
+                bands: ["Band 1"],
+                profiles: ["Metric A"],
+                objects: {
+                    context: { mode: "grid" },
+                    interaction: { mode }
+                }
+            });
+        visual.update(updateOptions(build("reportFilter")));
+        const surface = mock.element.querySelector<HTMLElement>(".profile-lens-context");
+        const press = (key: string): void => {
+            const event = new Event("keydown", { bubbles: true, cancelable: true });
+            Object.assign(event, { key });
+            surface?.dispatchEvent(event);
+        };
+        surface?.focus();
+        press("ArrowRight");
+        press("Enter");
+        press("ArrowDown");
+        press("Enter");
+        const delayedB = {
+            target: { table: "Table", column: "Entity" },
+            operator: "In",
+            values: ["Entity B"],
+            filterType: 1
+        } as unknown as powerbi.IFilter;
+        visual.update(updateOptions(
+            build("localOnly"),
+            { width: 800, height: 600 },
+            { jsonFilters: [delayedB] }
+        ));
+        visual.update(updateOptions(
+            build("reportFilter"),
+            { width: 800, height: 600 },
+            { jsonFilters: undefined }
+        ));
+        expect(mock.element.querySelector(".profile-lens-header-title")?.textContent)
+            .toBe("Entity A");
+        expect(mock.element.querySelector(".profile-lens-context")
+            ?.getAttribute("aria-activedescendant")).toBe("context:entity:0");
+    });
+
+    it.each([
+        ["stale entity value", { table: "Table", column: "Entity" }, ["Entity C"]],
+        ["unrelated filter target", { table: "Table", column: "Band" }, ["Band 1"]]
+    ])("reconciles %s to the first visible entity", (_name, target, values) => {
+        const { mock, visual } = mount();
+        const dataView = buildMatrixDataView({
+            entities: ["Entity A", "Entity B"],
+            bands: ["Band 1"],
+            profiles: ["Metric A"],
+            objects: {
+                context: { mode: "grid" },
+                interaction: { mode: "reportFilter" }
+            }
+        });
+        visual.update(updateOptions(dataView));
+        const surface = mock.element.querySelector<HTMLElement>(".profile-lens-context");
+        surface?.focus();
+        const right = new Event("keydown", { bubbles: true, cancelable: true });
+        Object.assign(right, { key: "ArrowRight" });
+        surface?.dispatchEvent(right);
+        expect(mock.element.querySelector(".profile-lens-header-title")?.textContent)
+            .toBe("Entity B");
+        expect(mock.applyJsonFilter).not.toHaveBeenCalled();
+
+        visual.update(updateOptions(
+            dataView,
+            { width: 800, height: 600 },
+            {
+                jsonFilters: [{
+                    target,
+                    operator: "In",
+                    values,
+                    filterType: 1
+                } as unknown as powerbi.IFilter]
+            }
+        ));
+        expect(mock.element.querySelector(".profile-lens-header-title")?.textContent)
+            .toBe("Entity A");
+        expect(mock.element.querySelector(".profile-lens-context")
+            ?.getAttribute("aria-activedescendant")).toBe("context:entity:0");
+        expect(mock.applyJsonFilter).not.toHaveBeenCalled();
     });
 
     it("redirects disabled physical focus from context without host mutation", () => {
