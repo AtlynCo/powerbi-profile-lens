@@ -67,6 +67,7 @@ function parseCanonicalZipRecords(bytes) {
         const compressedSize = bytes.readUInt32LE(offset + 20);
         const uncompressedSize = bytes.readUInt32LE(offset + 24);
         const localOffset = bytes.readUInt32LE(offset + 42);
+        const diskNumberStart = bytes.readUInt16LE(offset + 34);
         const name = bytes.subarray(offset + 46, offset + 46 + nameLength).toString("utf8");
         const extra = bytes.subarray(
             offset + 46 + nameLength,
@@ -75,6 +76,7 @@ function parseCanonicalZipRecords(bytes) {
         assertCanonicalArchiveName(name);
         parseExtraFields(extra);
         if ((flags & 0x0001) !== 0) throw new Error("Encrypted ZIP entries are not supported.");
+        if (diskNumberStart !== 0) throw new Error("Split-disk ZIP entries are not supported.");
         if ((flags & 0x0008) !== 0) throw new Error("ZIP data descriptors are not supported.");
         if (![0, 8].includes(method)) throw new Error(`Unsupported ZIP compression method: ${method}`);
         if (localOffsets.has(localOffset)) throw new Error("ZIP entries share a local-header offset.");

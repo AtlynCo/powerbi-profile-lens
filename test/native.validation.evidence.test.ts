@@ -583,6 +583,20 @@ describe("native validation evidence safety", () => {
                 guid
             })).rejects.toThrow(/unmatched local record|data gap/i);
 
+            const splitDisk = Buffer.from(validBytes);
+            let splitDiskEocd = splitDisk.length - 22;
+            while (splitDiskEocd >= 0 &&
+                splitDisk.readUInt32LE(splitDiskEocd) !== 0x06054b50) splitDiskEocd--;
+            const splitDiskCentral = splitDisk.readUInt32LE(splitDiskEocd + 16);
+            splitDisk.writeUInt16LE(1, splitDiskCentral + 34);
+            const splitDiskPath = path.join(temp, "split-disk.pbix");
+            fs.writeFileSync(splitDiskPath, splitDisk);
+            await expect(verifyPbixVisualParity({
+                packagePath,
+                pbixPath: splitDiskPath,
+                guid
+            })).rejects.toThrow(/split-disk/i);
+
             const missing = await verifyPbixVisualParity({
                 packagePath,
                 pbixPath: await writePbix("missing.pbix"),

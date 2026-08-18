@@ -110,8 +110,9 @@ function Recover-StaleSnapshotAclJournals {
         $final = $temporary.FullName.Substring(0, $temporary.FullName.Length - 4)
         if (Test-Path $final) {
             Remove-Item $temporary.FullName -Force
-        } elseif (-not [RecoveryMove]::MoveFileEx($temporary.FullName, $final, 0x1 -bor 0x8)) {
-            throw "Stale recovery journal rename could not be completed"
+        } else {
+            # ACL mutation starts only after final journal publication, so a lone temp is pre-mutation.
+            Remove-Item $temporary.FullName -Force
         }
     }
     $results = @()
