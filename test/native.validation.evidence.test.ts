@@ -285,7 +285,7 @@ describe("native validation evidence safety", () => {
         if (dirty) return;
         execFileSync(process.execPath, [path.join(root, "scripts", "release-manifest-worker.cjs")], {
             cwd: root
-        }, 30_000);
+        });
         const outputPath = path.join(root, "dist", "release-manifest.json");
         const worker = JSON.parse(fs.readFileSync(outputPath, "utf8")) as {
             contract: { viewportNavigation?: unknown };
@@ -299,7 +299,7 @@ describe("native validation evidence safety", () => {
         expect(wrapped.contract.viewportNavigation).toBeDefined();
         expect(wrapped.proofBoundary).toContain("primary-drag");
         expect(wrapped.proofBoundary).toContain("min/max wheel gestures");
-    });
+    }, 30_000);
 
     it("proves final PBIVIZ payload parity and rejects embedded drift", async () => {
         const packagePath = currentPackagePath;
