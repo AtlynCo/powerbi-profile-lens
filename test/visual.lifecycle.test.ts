@@ -165,20 +165,33 @@ describe("interaction", () => {
         expect(items.map((item) => item.displayName)).toContain("Band");
     });
 
-    it("makes no host mutation when interactions are disabled", () => {
+    it("makes disabled controls nonfocusable and ignores keyboard activation", () => {
         const { mock, visual } = mount({ allowInteractions: false });
         visual.update(updateOptions(dataView()));
-        const target = targets(mock.element)[0];
+        const renderedTargets = targets(mock.element);
+        const target = renderedTargets[1];
         target.dispatchEvent(pointer("click"));
         target.dispatchEvent(pointer("pointerover"));
         target.dispatchEvent(pointer("contextmenu"));
+        const enter = new Event("keydown", { bubbles: true, cancelable: true });
+        Object.assign(enter, { key: "Enter" });
+        target.dispatchEvent(enter);
+        const arrow = new Event("keydown", { bubbles: true, cancelable: true });
+        Object.assign(arrow, { key: "ArrowRight" });
+        target.dispatchEvent(arrow);
         mock.element.querySelector<HTMLElement>(".profile-lens")?.dispatchEvent(pointer("contextmenu"));
         const entity = mock.element.querySelector<HTMLElement>('[data-entity-index="1"]');
         entity?.dispatchEvent(pointer("click"));
         expect(mock.selection.select).not.toHaveBeenCalled();
         expect(mock.selection.showContextMenu).not.toHaveBeenCalled();
         expect(mock.tooltip.show).not.toHaveBeenCalled();
-        expect(targets(mock.element).length).toBeGreaterThan(0);
+        expect(renderedTargets.length).toBeGreaterThan(1);
+        expect(target.getAttribute("role")).toBe("button");
+        expect(target.getAttribute("aria-disabled")).toBe("true");
+        expect(renderedTargets.every((element) => element.getAttribute("tabindex") === "-1"))
+            .toBe(true);
+        expect(mock.element.querySelector('[data-entity-index="0"]')?.getAttribute("tabindex"))
+            .toBe("-1");
         const codes = [...mock.element.querySelectorAll(".profile-lens-diagnostic")]
             .map((node) => node.getAttribute("data-code"));
         expect(codes).toContain("interactionsDisabled");
@@ -358,6 +371,24 @@ describe("accessibility and theming", () => {
         const diagnostic = mock.element.querySelector('[data-code="zeroDenominator"]');
         expect(diagnostic).not.toBeNull();
         expect(diagnostic?.textContent).toContain("2");
+    });
+
+    it("rejects negative profile values before drawing a magnitude", () => {
+        const { mock, visual } = mount();
+        visual.update(updateOptions(buildMatrixDataView({
+            entities: ["Entity A"],
+            bands: ["Negative", "Positive"],
+            profiles: ["Metric A"],
+            value: ({ bandIndex }) => bandIndex === 0 ? -10 : 20
+        })));
+        const rendered = targets(mock.element);
+        expect(rendered[0].querySelector("rect")?.getAttribute("stroke-dasharray")).toBe("2 2");
+        expect(rendered[1].querySelector("rect")?.hasAttribute("stroke-dasharray")).toBe(false);
+        expect(rendered[0].getAttribute("aria-label")).toContain("negative value unsupported");
+        expect(mock.element.querySelector('[data-code="negativeProfileValues"]')?.textContent)
+            .toContain("1");
+        expect(mock.element.querySelector("tbody tr:first-child td")?.textContent)
+            .toBe("negative value unsupported");
     });
 
     it("shows progressive landing guidance before the contract is complete", () => {

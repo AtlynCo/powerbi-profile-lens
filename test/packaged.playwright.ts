@@ -168,6 +168,22 @@ test.describe("packaged visual in a real browser", () => {
         expect(String(afterEscape)).toContain("profile-lens");
     });
 
+    test("removes disabled controls from keyboard navigation and exposes ARIA state", async ({ page }) => {
+        await mount(page, { allowInteractions: false });
+        const targets = page.locator(".profile-lens-target");
+        await expect(targets.first()).toHaveAttribute("role", "button");
+        await expect(targets.first()).toHaveAttribute("aria-disabled", "true");
+        await expect(targets.locator('[tabindex="0"]')).toHaveCount(0);
+        await expect(page.locator('.profile-lens-entity-option[tabindex="0"]')).toHaveCount(0);
+        await expect(page.locator(".profile-lens-period-slider")).toHaveAttribute("tabindex", "-1");
+
+        await targets.first().dispatchEvent("keydown", { key: "Enter" });
+        const calls = await page.evaluate(() => (window as unknown as {
+            profileLensHost: { calls: Record<string, number> };
+        }).profileLensHost.calls);
+        expect(calls.select).toBe(0);
+    });
+
     test("uses the host high contrast colors", async ({ page }) => {
         await mount(page, { highContrast: true });
         const fills = await page.evaluate(() =>

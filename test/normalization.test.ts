@@ -40,6 +40,30 @@ describe("normalization", () => {
         expect(frame.isProportional).toBe(false);
     });
 
+    it.each([
+        "raw",
+        "shareOfProfile",
+        "shareWithinSeries",
+        "indexToMaximum",
+        "alreadyPercent"
+    ] as const)("rejects negative profile values in %s mode", (mode) => {
+        const frame = normalizeFrame(
+            [cell(0, -10), cell(1, 20)],
+            [0],
+            { ...settings, mode },
+            false
+        );
+        expect(frame.profiles[0].cells[0]).toMatchObject({
+            raw: -10,
+            display: null,
+            state: "negativeValue"
+        });
+        expect(frame.negativeValueCount).toBe(1);
+        expect(frame.profiles[0].axisMaximum).toBe(
+            mode === "raw" || mode === "alreadyPercent" ? 20 : 1
+        );
+    });
+
     it("divides by the profile total in share of profile mode", () => {
         const frame = normalizeFrame(
             [cell(0, 10, 0), cell(1, 30, 0), cell(0, 10, 1), cell(1, 50, 1)],

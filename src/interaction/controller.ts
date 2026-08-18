@@ -64,7 +64,10 @@ export class InteractionController {
             this.focusKey = this.orderedKeys[0] ?? null;
         }
         for (const target of targets) {
-            target.element.setAttribute("tabindex", target.key === this.focusKey ? "0" : "-1");
+            target.element.setAttribute(
+                "tabindex",
+                this.allowInteractions && target.key === this.focusKey ? "0" : "-1"
+            );
             this.attachTarget(target);
         }
         this.attachRootContextMenu();
@@ -96,8 +99,11 @@ export class InteractionController {
         this.on(element, "click", (event) => {
             const pointer = event as MouseEvent;
             pointer.stopPropagation();
+            if (!this.allowInteractions) {
+                return;
+            }
             this.focus(target.key);
-            if (!this.allowInteractions || !target.identity) {
+            if (!target.identity) {
                 return;
             }
             void this.deps.selectionManager
@@ -139,6 +145,9 @@ export class InteractionController {
     }
 
     private handleKeyDown(target: InteractionTarget, event: KeyboardEvent): void {
+        if (!this.allowInteractions) {
+            return;
+        }
         const index = this.orderedKeys.indexOf(target.key);
         if (index < 0) {
             return;

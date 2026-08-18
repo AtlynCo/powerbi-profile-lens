@@ -75,6 +75,7 @@ export function describe(diagnostic: Diagnostic, localization: Localization): st
         case "blankValues":
         case "nonNumericValues":
         case "nonFiniteValues":
+        case "negativeProfileValues":
         case "zeroDenominator":
         case "invalidCoordinates":
         case "conflictingCoordinates":

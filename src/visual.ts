@@ -306,6 +306,7 @@ export class Visual implements IVisual {
             localization: this.localization,
             entityIndex,
             periodIndex,
+            interactive: allowInteractions,
             focusKey: this.controller.currentFocusKey ?? rememberedFocusKey(model),
             selectedKeys,
             measure: this.measure
@@ -365,6 +366,14 @@ export class Visual implements IVisual {
                 severity: severityOf("zeroDenominator"),
                 messageKey: messageKeyFor("zeroDenominator"),
                 rejected: frame.zeroDenominatorCount
+            });
+        }
+        if (frame.negativeValueCount > 0) {
+            statusDiagnostics.push({
+                code: "negativeProfileValues",
+                severity: severityOf("negativeProfileValues"),
+                messageKey: messageKeyFor("negativeProfileValues"),
+                rejected: frame.negativeValueCount
             });
         }
         if (!allowInteractions) {

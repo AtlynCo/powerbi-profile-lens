@@ -74,6 +74,8 @@ export function renderAccessibleTable(container: HTMLElement, input: TableInput)
                 const dataCell = document.createElement("td");
                 if (!cell || cell.state === "missing") {
                     dataCell.textContent = input.localization.get("Table_Missing");
+                } else if (cell.state === "negativeValue") {
+                    dataCell.textContent = input.localization.get("Table_NegativeUnsupported");
                 } else if (cell.state === "zeroDenominator") {
                     dataCell.textContent = input.localization.get("Table_ZeroDenominator");
                 } else {
