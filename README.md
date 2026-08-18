@@ -95,6 +95,11 @@ Escape returns focus to the visual. SVG and Canvas provide semantic parity throu
 status, feature descriptions, and profile table. High contrast, RTL, and reduced motion are supported;
 information is not conveyed by color alone.
 
+Arrow navigation changes local focus only; it never selects or filters by itself. Pointer click or
+Enter/Space is activation: local-only mode performs no host mutation, report-selection mode selects
+the entity identity, and report-filter mode applies the explicit entity filter even when the entity
+was already focused.
+
 ## Provider extension contract
 
 A provider declares an ID and supported modes, checks whether it can handle a bounded

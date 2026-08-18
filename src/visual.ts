@@ -113,7 +113,9 @@ export class Visual implements IVisual {
     private measure: ((text: string, fontSize: number) => number) | undefined;
     private lastViewport = { width: 0, height: 0 };
     private renderedContext: RenderedContextSurface | null = null;
-    private entityFilterActive = false;
+    private visualOwnedEntityFilterActive = false;
+    private visualOwnedEntityFilterValue: unknown = undefined;
+    private visualOwnedFilterBaseline: readonly powerbi.IFilter[] | null = null;
     private lastHostJsonFilters: readonly powerbi.IFilter[] = [];
 
     public constructor(options?: VisualConstructorOptions) {
@@ -204,6 +206,7 @@ export class Visual implements IVisual {
     private applyUpdate(options: VisualUpdateOptions): void {
         const dataView = options.dataViews?.[0];
         const metadataSource = dataView ?? this.lastDataView;
+        const previousInteractionMode = this.settings.interactionMode;
         this.formattingModel = this.formattingService.populateFormattingSettingsModel(
             ProfileLensFormattingModel,
             metadataSource as powerbi.DataView
@@ -260,10 +263,16 @@ export class Visual implements IVisual {
         }
 
         const hasFreshHostFilters = options.jsonFilters !== undefined;
+        const enteredReportFilter = previousInteractionMode !== "reportFilter"
+            && this.settings.interactionMode === "reportFilter";
         if (options.jsonFilters !== undefined) {
             this.lastHostJsonFilters = options.jsonFilters;
         }
-        if (this.settings.interactionMode !== "reportFilter" || hasFreshHostFilters) {
+        if (
+            this.settings.interactionMode !== "reportFilter"
+            || hasFreshHostFilters
+            || enteredReportFilter
+        ) {
             this.synchronizeFilterState(this.lastHostJsonFilters, model, allowInteractions);
         }
         this.renderModel(model, options, allowInteractions);
@@ -653,6 +662,7 @@ export class Visual implements IVisual {
             key: `context:${feature.key}`,
             element: this.contextSurface.root,
             identity,
+            activate: () => this.handleActivatedTarget(feature.key),
             tooltip: () => [
                 { displayName: this.localization.get("Tooltip_Entity"), value: feature.label },
                 ...feature.tooltipValues
@@ -697,16 +707,41 @@ export class Visual implements IVisual {
         }
         this.focusedEntityKey = entity.key;
         this.selectedPeriodKey = null;
-        if (this.settings.interactionMode === "reportFilter") {
+        this.rerenderFromCache();
+    }
+
+    private handleActivatedTarget(entityKey: string): void {
+        if (!this.model || this.settings.interactionMode !== "reportFilter") {
+            return;
+        }
+        const entity = this.model.entities.find((entry) => entry.key === entityKey);
+        if (entity) {
             this.applyEntityFilter(entity);
         }
-        this.rerenderFromCache();
+    }
+
+    private activateEntityHost(entity: ProfileDataModel["entities"][number]): void {
+        if (this.settings.interactionMode === "reportFilter") {
+            this.applyEntityFilter(entity);
+            return;
+        }
+        if (this.settings.interactionMode === "reportSelection" && entity.identity) {
+            void this.selectionManager
+                .select(entity.identity as ISelectionId, false)
+                .then(() => {
+                    this.externalSelection = this.selectionManager.getSelectionIds();
+                    this.rerenderFromCache();
+                });
+        }
     }
 
     private applyEntityFilter(entity: ProfileDataModel["entities"][number]): void {
         const target = this.entityFilterTarget();
         if (!target || entity.value === null || entity.value instanceof Date) {
             return;
+        }
+        if (!this.visualOwnedEntityFilterActive) {
+            this.visualOwnedFilterBaseline = this.lastHostJsonFilters;
         }
         const filter = {
             target,
@@ -715,7 +750,8 @@ export class Visual implements IVisual {
             filterType: 1
         } as unknown as powerbi.IFilter;
         this.host.applyJsonFilter(filter, "general", "filter", 0);
-        this.entityFilterActive = true;
+        this.visualOwnedEntityFilterActive = true;
+        this.visualOwnedEntityFilterValue = entity.value;
     }
 
     private synchronizeFilterState(
@@ -724,19 +760,25 @@ export class Visual implements IVisual {
         allowInteractions: boolean
     ): void {
         if (this.settings.interactionMode !== "reportFilter") {
-            if (this.entityFilterActive && allowInteractions) {
+            if (this.visualOwnedEntityFilterActive && allowInteractions) {
                 this.host.applyJsonFilter(
                     null as unknown as powerbi.IFilter,
                     "general",
                     "filter",
                     1
                 );
-                this.entityFilterActive = false;
+                this.lastHostJsonFilters = this.visualOwnedFilterBaseline
+                    ?? this.lastHostJsonFilters;
+                this.visualOwnedEntityFilterActive = false;
+                this.visualOwnedEntityFilterValue = undefined;
+                this.visualOwnedFilterBaseline = null;
             }
             return;
         }
         const target = this.entityFilterTarget();
-        const filter = filters.find((candidate) => {
+        const matching = filters
+            .map((candidate, index) => ({ candidate, index }))
+            .filter(({ candidate }) => {
             const actual = candidate as unknown as {
                 target?: { table?: string; column?: string };
             };
@@ -744,22 +786,43 @@ export class Visual implements IVisual {
                 && actual.target?.table === target.table
                 && actual.target?.column === target.column;
         });
+        let filter = matching[0]?.candidate;
+        if (this.visualOwnedEntityFilterActive) {
+            const owned = matching.find(({ candidate }) => {
+                const values = (candidate as unknown as { values?: readonly unknown[] }).values;
+                return values?.length === 1 && values[0] === this.visualOwnedEntityFilterValue;
+            });
+            if (owned) {
+                filter = owned.candidate;
+                this.visualOwnedFilterBaseline = filters.filter(
+                    (_candidate, index) => index !== owned.index
+                );
+            } else {
+                this.visualOwnedEntityFilterActive = false;
+                this.visualOwnedEntityFilterValue = undefined;
+                this.visualOwnedFilterBaseline = null;
+            }
+        }
         const values = (filter as unknown as { values?: readonly unknown[] } | undefined)?.values;
         if (!values || values.length !== 1) {
-            if (this.entityFilterActive) {
-                this.focusedEntityKey = model.entities[0]?.key ?? null;
-                this.controller.setFocusKey(
-                    this.focusedEntityKey ? `context:${this.focusedEntityKey}` : null
-                );
-            }
-            this.entityFilterActive = false;
+            this.focusedEntityKey = model.entities[0]?.key ?? null;
+            this.controller.setFocusKey(
+                this.focusedEntityKey ? `context:${this.focusedEntityKey}` : null
+            );
+            this.visualOwnedEntityFilterActive = false;
+            this.visualOwnedEntityFilterValue = undefined;
+            this.visualOwnedFilterBaseline = null;
             return;
         }
-        this.entityFilterActive = true;
         const match = model.entities.find((entity) => entity.value === values[0]);
         if (match) {
             this.focusedEntityKey = match.key;
             this.controller.setFocusKey(`context:${match.key}`);
+        } else {
+            this.focusedEntityKey = model.entities[0]?.key ?? null;
+            this.controller.setFocusKey(
+                this.focusedEntityKey ? `context:${this.focusedEntityKey}` : null
+            );
         }
     }
 
@@ -867,7 +930,7 @@ export class Visual implements IVisual {
         }
         this.entityElement.removeAttribute("aria-disabled");
         this.entityElement.onfocus = null;
-        const activate = (index: number): void => {
+        const focusEntity = (index: number): void => {
             this.focusedEntityKey = model.entities[index]?.key ?? null;
             this.selectedPeriodKey = null;
             this.rerenderFromCache();
@@ -877,7 +940,11 @@ export class Visual implements IVisual {
         };
         for (const option of options) {
             option.element.addEventListener("click", () => {
-                activate(option.index);
+                focusEntity(option.index);
+                const entity = model.entities[option.index];
+                if (entity) {
+                    this.activateEntityHost(entity);
+                }
             });
             option.element.addEventListener("keydown", (event: KeyboardEvent) => {
                 let next = option.index;
@@ -898,12 +965,19 @@ export class Visual implements IVisual {
                         break;
                     case "Enter":
                     case " ":
-                        break;
+                        event.preventDefault();
+                        {
+                            const entity = model.entities[option.index];
+                            if (entity) {
+                                this.activateEntityHost(entity);
+                            }
+                        }
+                        return;
                     default:
                         return;
                 }
                 event.preventDefault();
-                activate(next);
+                focusEntity(next);
             });
         }
     }
