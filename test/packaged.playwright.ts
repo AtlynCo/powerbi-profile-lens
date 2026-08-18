@@ -200,6 +200,57 @@ test.describe("packaged visual in a real browser", () => {
         expect(calls.select).toBe(0);
     });
 
+    test("redirects physical pointer focus away from disabled entity and period controls", async ({ page }) => {
+        await mount(page, {
+            allowInteractions: false,
+            entities: Array.from({ length: 100 }, (_unused, index) => `Entity ${index + 1}`)
+        });
+        const entity = page.locator('.profile-lens-entity-option[data-entity-index="1"]');
+        const entityContainer = page.locator(".profile-lens-entities");
+        const period = page.locator(".profile-lens-period-slider");
+
+        await entity.click({ force: true });
+        let activeClass = await page.evaluate(() =>
+            document.activeElement?.getAttribute("class") ?? "");
+        expect(activeClass).toBe("profile-lens");
+        await expect(entity).toHaveAttribute("tabindex", "-1");
+
+        const entityBounds = await entityContainer.boundingBox();
+        expect(entityBounds).not.toBeNull();
+        await page.mouse.click(
+            (entityBounds?.x ?? 0) + (entityBounds?.width ?? 0) - 2,
+            (entityBounds?.y ?? 0) + (entityBounds?.height ?? 0) / 2
+        );
+        activeClass = await page.evaluate(() =>
+            document.activeElement?.getAttribute("class") ?? "");
+        expect(activeClass).toBe("profile-lens");
+
+        await period.click({ force: true });
+        activeClass = await page.evaluate(() =>
+            document.activeElement?.getAttribute("class") ?? "");
+        expect(activeClass).toBe("profile-lens");
+        await expect(period).toHaveAttribute("tabindex", "-1");
+    });
+
+    test("keeps every disabled interactive surface out of sequential keyboard focus", async ({ page }) => {
+        await mount(page, {
+            allowInteractions: false,
+            entities: Array.from({ length: 100 }, (_unused, index) => `Entity ${index + 1}`)
+        });
+        const root = page.locator(".profile-lens");
+        await root.focus();
+        await page.keyboard.press("Tab");
+
+        const activeClass = await page.evaluate(() =>
+            document.activeElement?.getAttribute("class") ?? "");
+        expect([
+            "profile-lens-target",
+            "profile-lens-entity-option",
+            "profile-lens-entities",
+            "profile-lens-period-slider"
+        ]).not.toContain(activeClass);
+    });
+
     test("uses the host high contrast colors", async ({ page }) => {
         await mount(page, { highContrast: true });
         const fills = await page.evaluate(() =>

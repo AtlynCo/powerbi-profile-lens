@@ -216,6 +216,35 @@ describe("interaction", () => {
         expect(mock.selection.select).not.toHaveBeenCalled();
     });
 
+    it("redirects pointer-caused focus away from disabled entity and period controls", () => {
+        const { mock, visual } = mount({ allowInteractions: false });
+        visual.update(updateOptions(buildMatrixDataView({
+            entities: ["Entity A", "Entity B"],
+            periods: ["Period 1", "Period 2"],
+            bands: ["Band 1"],
+            profiles: ["Metric A"]
+        })));
+        const root = mock.element.querySelector<HTMLElement>(".profile-lens");
+        const entity = mock.element.querySelector<HTMLElement>('[data-entity-index="1"]');
+        const period = mock.element.querySelector<HTMLElement>(".profile-lens-period-slider");
+        const entityContainer = mock.element.querySelector<HTMLElement>(".profile-lens-entities");
+
+        entity?.dispatchEvent(pointer("pointerdown"));
+        entity?.focus();
+        entity?.dispatchEvent(pointer("click"));
+        expect(document.activeElement).toBe(root);
+        expect(entity?.getAttribute("tabindex")).toBe("-1");
+        expect(entityContainer?.getAttribute("aria-disabled")).toBe("true");
+        expect(entityContainer?.getAttribute("tabindex")).toBe("-1");
+
+        period?.dispatchEvent(pointer("pointerdown"));
+        period?.focus();
+        period?.dispatchEvent(pointer("click"));
+        expect(document.activeElement).toBe(root);
+        expect(period?.getAttribute("tabindex")).toBe("-1");
+        expect(mock.selection.select).not.toHaveBeenCalled();
+    });
+
     it("moves entity list focus and selection with arrow, Home, and End keys", () => {
         const { mock, visual } = mount();
         visual.update(updateOptions(dataView()));

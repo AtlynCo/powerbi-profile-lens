@@ -486,8 +486,15 @@ export class Visual implements IVisual {
         allowInteractions: boolean
     ): void {
         if (!allowInteractions) {
+            this.entityElement.setAttribute("aria-disabled", "true");
+            this.entityElement.onfocus = () => this.root.focus();
+            for (const option of options) {
+                option.element.addEventListener("focus", () => this.root.focus());
+            }
             return;
         }
+        this.entityElement.removeAttribute("aria-disabled");
+        this.entityElement.onfocus = null;
         const activate = (index: number): void => {
             this.focusedEntityKey = model.entities[index]?.key ?? null;
             this.selectedPeriodKey = null;
@@ -536,7 +543,11 @@ export class Visual implements IVisual {
         periodIndex: number,
         allowInteractions: boolean
     ): void {
-        if (!slider || !allowInteractions) {
+        if (!slider) {
+            return;
+        }
+        if (!allowInteractions) {
+            slider.addEventListener("focus", () => this.root.focus());
             return;
         }
         const periods = model.periodsByEntity.get(entityIndex) ?? [];

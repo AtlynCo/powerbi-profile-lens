@@ -106,6 +106,7 @@ export function renderEntityList(
 ): readonly EntityOption[] {
     clear(container);
     container.className = "profile-lens-entities";
+    container.setAttribute("tabindex", "-1");
     if (!input.visible) {
         container.setAttribute("hidden", "hidden");
         return [];
