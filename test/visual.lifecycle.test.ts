@@ -199,6 +199,23 @@ describe("interaction", () => {
             .toBe("true");
     });
 
+    it("redirects pointer-caused focus away from disabled chart targets", () => {
+        const { mock, visual } = mount({ allowInteractions: false });
+        visual.update(updateOptions(dataView()));
+        const root = mock.element.querySelector<HTMLElement>(".profile-lens");
+        const renderedTargets = targets(mock.element);
+        const target = renderedTargets[1];
+
+        target.dispatchEvent(pointer("pointerdown"));
+        target.focus();
+        target.dispatchEvent(pointer("click"));
+
+        expect(document.activeElement).toBe(root);
+        expect(renderedTargets.every((element) => element.getAttribute("tabindex") === "-1"))
+            .toBe(true);
+        expect(mock.selection.select).not.toHaveBeenCalled();
+    });
+
     it("moves entity list focus and selection with arrow, Home, and End keys", () => {
         const { mock, visual } = mount();
         visual.update(updateOptions(dataView()));

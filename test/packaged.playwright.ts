@@ -184,6 +184,22 @@ test.describe("packaged visual in a real browser", () => {
         expect(calls.select).toBe(0);
     });
 
+    test("redirects pointer focus away from disabled chart targets", async ({ page }) => {
+        await mount(page, { allowInteractions: false });
+        const targets = page.locator(".profile-lens-target");
+
+        await targets.nth(1).click({ force: true });
+
+        await expect(targets.locator('[tabindex="0"]')).toHaveCount(0);
+        const activeClass = await page.evaluate(() =>
+            document.activeElement?.getAttribute("class") ?? "");
+        expect(activeClass).toBe("profile-lens");
+        const calls = await page.evaluate(() => (window as unknown as {
+            profileLensHost: { calls: Record<string, number> };
+        }).profileLensHost.calls);
+        expect(calls.select).toBe(0);
+    });
+
     test("uses the host high contrast colors", async ({ page }) => {
         await mount(page, { highContrast: true });
         const fills = await page.evaluate(() =>

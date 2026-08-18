@@ -136,6 +136,10 @@ export class InteractionController {
         });
 
         this.on(element, "focus", () => {
+            if (!this.allowInteractions) {
+                this.deps.root.focus();
+                return;
+            }
             this.focus(target.key);
         });
 
@@ -202,6 +206,9 @@ export class InteractionController {
     }
 
     private focus(key: string): void {
+        if (!this.allowInteractions) {
+            return;
+        }
         if (this.focusKey === key) {
             return;
         }
