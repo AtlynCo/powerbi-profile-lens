@@ -1,6 +1,6 @@
 param(
     [string]$Pbip = "samples\AtlynProfileLensSample\AtlynProfileLensSample.pbip",
-    [string]$Pbix = "",
+    [string]$Pbix,
     [string]$EvidenceDirectory = "dist\release\native-evidence"
 )
 
@@ -8,17 +8,39 @@ $ErrorActionPreference = "Stop"
 . (Join-Path $PSScriptRoot "desktop-guard.ps1")
 . (Join-Path $PSScriptRoot "snapshot-guard.ps1")
 
+$validationMutex = [System.Threading.Mutex]::new(
+    $false,
+    "Global\AtlynProfileLensNativeValidation"
+)
+$mutexOwned = $false
+try {
+    try {
+        $mutexOwned = $validationMutex.WaitOne(0)
+    } catch [System.Threading.AbandonedMutexException] {
+        $mutexOwned = $true
+    }
+    if (-not $mutexOwned) {
+        throw "Another native validation run owns the controlled-run boundary"
+    }
+
 $desktopExe = "C:\Program Files\Microsoft Power BI Desktop\bin\PBIDesktop.exe"
 $root = (Resolve-Path (Join-Path $PSScriptRoot "..\..")).Path
 $visualManifest = Get-Content (Join-Path $root "pbiviz.json") -Raw | ConvertFrom-Json
-$expectedPbixRelative = "dist\release\AtlynProfileLensSample-$($visualManifest.visual.version).pbix"
-if ([string]::IsNullOrWhiteSpace($Pbix)) {
-    $Pbix = $expectedPbixRelative
+if (-not $Pbix) {
+    $Pbix = "dist\release\AtlynProfileLensSample-$($visualManifest.visual.version).pbix"
+}
+$earlyFinalizableEvidence = Join-Path $root "dist\release\native-evidence\native-run.json"
+if (Test-Path $earlyFinalizableEvidence) {
+    Remove-Item $earlyFinalizableEvidence -Force
+}
+if (@(Get-Process -Name PBIDesktop -ErrorAction SilentlyContinue).Count -gt 0) {
+    throw "Desktop ownership blocker: Power BI Desktop is already running"
 }
 $pbipPath = (Resolve-Path (Join-Path $root $Pbip)).Path
 $pbixPath = [System.IO.Path]::GetFullPath((Join-Path $root $Pbix))
 $evidencePath = [System.IO.Path]::GetFullPath((Join-Path $root $EvidenceDirectory))
 $expectedPbipRelative = "samples\AtlynProfileLensSample\AtlynProfileLensSample.pbip"
+$expectedPbixRelative = "dist\release\AtlynProfileLensSample-$($visualManifest.visual.version).pbix"
 $pbipRelative = [System.IO.Path]::GetRelativePath($root, $pbipPath)
 $pbixRelative = [System.IO.Path]::GetRelativePath($root, $pbixPath)
 $evidenceRelative = [System.IO.Path]::GetRelativePath($root, $evidencePath)
@@ -73,6 +95,8 @@ if ($snapshot.fixtureProjectTreeSha256 -ne $computedSampleIntegrity.projectTree.
 }
 $script:observations = @()
 $script:observationSequence = 0
+$script:ownedProcessJobs = @()
+$runId = [Guid]::NewGuid().ToString("N")
 
 function Add-SealedObservation {
     param(
@@ -129,6 +153,8 @@ $pages = @(
 
 function Start-OwnedReport {
     param([string]$Path)
+    $launchBasename = [System.IO.Path]::GetFileNameWithoutExtension($Path)
+    $launchExpectedTitle = "*$launchBasename*"
     $existing = @(Get-Process -Name PBIDesktop -ErrorAction SilentlyContinue)
     if ($existing.Count -gt 0) {
         throw "Desktop ownership blocker: an existing Power BI Desktop process is present"
@@ -167,19 +193,25 @@ function Start-OwnedReport {
         }
     }
     $known = @($existing.Id)
-    Start-Process $desktopExe -ArgumentList "`"$Path`""
+    $job = Start-OwnedProcessJob -Executable $desktopExe -Argument $Path -WorkingDirectory $root
+    $script:ownedProcessJobs += $job
     $deadline = (Get-Date).AddMinutes(5)
     while ((Get-Date) -lt $deadline) {
         Start-Sleep -Seconds 3
         $candidates = @(Get-Process -Name PBIDesktop -ErrorAction SilentlyContinue |
             Where-Object { $known -notcontains $_.Id -and $_.MainWindowHandle -ne [IntPtr]::Zero } |
-            Where-Object { [NativeDesktopGuard]::Title($_.MainWindowHandle) -like $expectedTitle })
+            Where-Object { [NativeDesktopGuard]::Title($_.MainWindowHandle) -like $launchExpectedTitle })
         if ($candidates.Count -gt 1) {
             throw "Multiple newly owned Desktop windows match the expected report"
         }
         if ($candidates.Count -eq 1) {
             $candidate = $candidates[0]
-            Assert-OwnedForeground -ProcessId $candidate.Id -ExpectedTitle $expectedTitle | Out-Null
+            if (-not (Test-OwnedJobMembership -Process $candidate -Job $job)) {
+                throw "Expected Desktop window is not a member of the owned process job"
+            }
+            $candidate | Add-Member -NotePropertyName OwnedJob -NotePropertyValue $job
+            Assert-OwnedForeground -ProcessId $candidate.Id -ExpectedTitle $launchExpectedTitle | Out-Null
+            $script:expectedTitle = $launchExpectedTitle
             return $candidate
         }
     }
@@ -249,23 +281,29 @@ function Invoke-SaveAs {
 }
 
 function Close-OwnedReport {
-    param([int]$ProcessId)
-    $process = Get-OwnedDesktop -ProcessId $ProcessId -ExpectedTitle $expectedTitle
-    $process.CloseMainWindow() | Out-Null
-    if (-not $process.WaitForExit(30000)) {
-        Stop-Process -Id $ProcessId
-        (Get-Process -Id $ProcessId).WaitForExit(10000)
-    }
+    param($Job)
+    return Invoke-OwnedProcessCleanup -Job $Job
 }
 
-$snapshotGuard = Open-SnapshotReadLocks -SnapshotRoot $snapshotRoot
+$snapshotGuard = Open-SnapshotReadLocks -SnapshotRoot $snapshotRoot `
+    -ExpectedFileCount $snapshot.manifest.files
+$guardsRestored = $false
+$cleanupCompleted = $false
+$primaryFailure = $null
+$secondaryFailure = $null
+$cleanupFailure = $null
+$pbixReadLock = $null
+$releasePbixReadLock = $null
+$ownedCleanupIncomplete = $false
 try {
 $snapshotLockEvidence = $snapshotGuard.evidence
 New-Item -ItemType Directory -Force -Path (Split-Path $pbixPath), $evidencePath | Out-Null
 if (Test-Path $pbixPath) { Remove-Item $pbixPath -Force }
+$finalizableEvidencePath = Join-Path $evidencePath "native-run.json"
 
 $record = [ordered]@{
     schemaVersion = 1
+    runId = $runId
     sourceCommit = $sourceCommit
     automation = $sourceState.automation
     startedAt = (Get-Date).ToUniversalTime().ToString("o")
@@ -308,15 +346,43 @@ try {
         bytes = (Get-Item $pbixPath).Length
         sha256 = (Get-FileHash $pbixPath -Algorithm SHA256).Hash.ToLowerInvariant()
     }
-    Close-OwnedReport -ProcessId $process.Id
+    $writerCleanup = Close-OwnedReport -Job $process.OwnedJob
+    if (-not $writerCleanup.complete) {
+        throw "The owned Desktop writer process did not exit"
+    }
+    $releasePbixReadLock = Open-PbixReadLock -Path $pbixPath
+    $pbixSnapshotJson = & node (Join-Path $root "scripts\native-pbix-snapshot.cjs") $pbixPath
+    if ($LASTEXITCODE -ne 0) { throw "PBIX snapshot creation failed" }
+    $pbixSnapshot = $pbixSnapshotJson | ConvertFrom-Json
+    $pbixSnapshotPath = Join-Path $root $pbixSnapshot.logicalPath.Replace("/", "\")
+    $pbixReadLock = Open-PbixReadLock -Path $pbixSnapshotPath
+    $record.pbixSnapshot = $pbixSnapshot
+    $record.pbixTitleGuard = [ordered]@{
+        basename = [System.IO.Path]::GetFileNameWithoutExtension($pbixSnapshot.basename)
+        snapshotSha256 = $pbixSnapshot.snapshot.sha256
+        runId = $runId
+    }
+    $record.releasePbixLock = [ordered]@{
+        logicalPath = ($pbixRelative -replace "\\", "/")
+        sha256 = $pbixSnapshot.original.sha256
+        bytes = $pbixSnapshot.original.bytes
+        heldThroughEvidencePublication = $true
+    }
 
-    $process = Start-OwnedReport -Path $pbixPath
+    $process = Start-OwnedReport -Path $pbixSnapshotPath
     $record.passes += [ordered]@{
         kind = "pbix-reopen"
         report = $reportName
         pages = Invoke-PagePass -ProcessId $process.Id
     }
-    Close-OwnedReport -ProcessId $process.Id
+    $readerCleanup = Close-OwnedReport -Job $process.OwnedJob
+    if (-not $readerCleanup.complete) {
+        throw "The owned Desktop reader process did not exit"
+    }
+    $verifiedPbixSnapshotJson = & node (Join-Path $root "scripts\native-pbix-snapshot.cjs") `
+        --verify $pbixSnapshot.token
+    if ($LASTEXITCODE -ne 0) { throw "PBIX snapshot changed during reopen" }
+    $verifiedPbixSnapshot = $verifiedPbixSnapshotJson | ConvertFrom-Json
     $record.pbixAfterReopen = [ordered]@{
         bytes = (Get-Item $pbixPath).Length
         sha256 = (Get-FileHash $pbixPath -Algorithm SHA256).Hash.ToLowerInvariant()
@@ -325,27 +391,99 @@ try {
     if (-not $record.pbixStable) { throw "PBIX bytes changed across reopen without an intentional save" }
     Add-SealedObservation -Id "pbix-offline-reopen" -Scenario "pbixOfflineReopen" `
         -ActionKind "reopen-verify" -LogicalName "owned-report" -ControlType "Window" `
-        -AutomationId "" -Before @{ sha256 = $record.pbixBeforeReopen.sha256 } `
-        -After @{ sha256 = $record.pbixAfterReopen.sha256 } `
+        -AutomationId "" -Before @{ sha256 = $pbixSnapshot.snapshot.sha256 } `
+        -After @{ sha256 = $verifiedPbixSnapshot.snapshot.sha256 } `
         -ExpectedPredicate @{ kind = "unchanged" }
     $record.outcome = "native-run-completed"
     $record.observations = $script:observations
 } catch {
     $record.outcome = "blocked"
     $record.error = $_.Exception.Message
-    throw
+    $primaryFailure = $_
 } finally {
+    $cleanupSummaries = @()
+    foreach ($ownedJob in $script:ownedProcessJobs) {
+        try {
+            $cleanup = Invoke-OwnedProcessCleanup -Job $ownedJob
+        } catch {
+            $cleanup = [ordered]@{
+                graceful = $false
+                forced = $false
+                complete = $false
+                activeProcessCount = $null
+                errors = @("cleanup threw")
+            }
+        }
+        $cleanupSummaries += [ordered]@{
+            graceful = $cleanup.graceful
+            forced = $cleanup.forced
+            complete = $cleanup.complete
+            activeProcessCount = $cleanup.activeProcessCount
+            errorCount = $cleanup.errors.Count
+        }
+        if (-not $cleanup.complete) { $ownedCleanupIncomplete = $true }
+    }
+    $cleanupCompleted = $true
+    $record.cleanup = [ordered]@{
+        ownedProcessCount = $script:ownedProcessJobs.Count
+        outcomes = $cleanupSummaries
+        allExited = -not $ownedCleanupIncomplete
+    }
+    if ($ownedCleanupIncomplete) {
+        $cleanupFailure = [System.Exception]::new("Owned Desktop cleanup is incomplete")
+    }
+    if ($pbixReadLock -and -not $ownedCleanupIncomplete) {
+        $pbixReadLock.Dispose()
+        $pbixReadLock = $null
+    }
     $record.completedAt = (Get-Date).ToUniversalTime().ToString("o")
     $record.observations = $script:observations
     $finalSnapshotJson = & node (Join-Path $root "scripts\native-snapshot.cjs") `
         --verify $snapshot.token $snapshot.manifest.sha256
     if ($LASTEXITCODE -ne 0) {
-        throw "Native snapshot changed before evidence persistence"
+        $secondaryFailure = [System.Exception]::new(
+            "Native snapshot changed before evidence persistence"
+        )
     }
+}
+} finally {
+    if (-not $cleanupCompleted) {
+        foreach ($ownedJob in $script:ownedProcessJobs) {
+            try {
+                $cleanup = Invoke-OwnedProcessCleanup -Job $ownedJob
+                if (-not $cleanup.complete) { $ownedCleanupIncomplete = $true }
+            } catch {
+                $ownedCleanupIncomplete = $true
+                if (-not $cleanupFailure) { $cleanupFailure = $_ }
+            }
+        }
+    }
+    if ($pbixReadLock -and -not $ownedCleanupIncomplete) {
+        $pbixReadLock.Dispose()
+    }
+    if (-not $ownedCleanupIncomplete) {
+        try {
+            Close-SnapshotReadLocks -Guard $snapshotGuard
+            $guardsRestored = $true
+        } catch {
+            if (-not $cleanupFailure) { $cleanupFailure = $_ }
+        }
+    } elseif (-not $cleanupFailure) {
+        $cleanupFailure = [System.Exception]::new(
+            "Snapshot protections retained because an owned Desktop process remains"
+        )
+    }
+}
+
+$failure = Select-RunFailure -PrimaryFailure $primaryFailure `
+    -CleanupFailure (Select-RunFailure -PrimaryFailure $cleanupFailure -CleanupFailure $secondaryFailure)
+$record.guardsRestored = $guardsRestored
+if ($failure -or -not $guardsRestored -or -not $record.cleanup.allExited) {
+    $record.outcome = "blocked"
+}
+try {
     $preSanitizeSourceJson = & node (Join-Path $root "scripts\native-source-integrity.cjs")
-    if ($LASTEXITCODE -ne 0) {
-        throw "Automation source changed before evidence sanitization"
-    }
+    if ($LASTEXITCODE -ne 0) { throw "Automation source changed before evidence sanitization" }
     $preSanitizeSource = $preSanitizeSourceJson | ConvertFrom-Json
     if ($preSanitizeSource.sourceCommit -ne $sourceCommit -or
         $preSanitizeSource.automation.sha256 -ne $sourceState.automation.sha256) {
@@ -353,10 +491,12 @@ try {
     }
     $sanitizedJson = ($record | ConvertTo-Json -Depth 12 -Compress) |
         & node (Join-Path $root "scripts\native-evidence-sanitize.cjs")
-    if ($LASTEXITCODE -ne 0) {
-        throw "Evidence sanitization failed; no evidence was written"
+    if ($LASTEXITCODE -ne 0) { throw "Evidence sanitization failed" }
+    $outputPath = if ($failure -or -not $guardsRestored -or -not $record.cleanup.allExited) {
+        Join-Path $evidencePath "native-failure.json"
+    } else {
+        $finalizableEvidencePath
     }
-    $outputPath = Join-Path $evidencePath "native-run.json"
     Set-Content -Path $outputPath -Value $sanitizedJson
     & node (Join-Path $root "scripts\native-evidence-sanitize.cjs") --check $outputPath
     if ($LASTEXITCODE -ne 0) {
@@ -374,7 +514,14 @@ try {
         Remove-Item $outputPath -Force
         throw "Automation source identity changed after evidence sanitization"
     }
+} catch {
+    if (-not $failure) { $failure = $_ }
 }
+if ($failure) { throw $failure }
 } finally {
-    Close-SnapshotReadLocks -Guard $snapshotGuard
+    if ($releasePbixReadLock -and -not $ownedCleanupIncomplete) {
+        $releasePbixReadLock.Dispose()
+    }
+    if ($mutexOwned) { $validationMutex.ReleaseMutex() }
+    $validationMutex.Dispose()
 }

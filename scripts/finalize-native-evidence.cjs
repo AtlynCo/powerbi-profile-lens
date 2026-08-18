@@ -1,6 +1,7 @@
 const crypto = require("node:crypto");
 const fs = require("node:fs");
 const path = require("node:path");
+const writeFileAtomic = require("write-file-atomic");
 const {
     assertBoundSourceMatchesCommit,
     computeAutomationIntegrity
@@ -9,6 +10,8 @@ const { assertEvidenceSafe } = require("./native-evidence-sanitize.cjs");
 const { verifyPbixVisualParity } = require("./sample-resource-parity.cjs");
 const { deriveScenarioOutcomes } = require("./native-observations.cjs");
 const { verifySnapshot } = require("./native-snapshot.cjs");
+const { verifyPbixSnapshot } = require("./native-pbix-snapshot.cjs");
+const { acquirePbixPublicationLock } = require("./pbix-publication-lock.cjs");
 
 const REQUIRED_SCENARIOS = [
     "fieldWells",
@@ -38,20 +41,38 @@ async function finalizeNativeEvidence(root) {
         "release",
         `AtlynProfileLensSample-${visualManifest.visual.version}.pbix`
     );
+    const target = path.join(
+        root,
+        "docs",
+        "native-validation",
+        `${visualManifest.visual.name}-${visualManifest.visual.version}.json`
+    );
+    const previousTarget = fs.existsSync(target) ? fs.readFileSync(target) : null;
+    const publicationLock = await acquirePbixPublicationLock(root, pbixPath);
+    try {
     const run = JSON.parse(fs.readFileSync(source, "utf8"));
     assertEvidenceSafe(run, [process.env.USERNAME, process.env.USER]);
     if (run.outcome !== "native-run-completed") {
         throw new Error("The native runner did not complete.");
+    }
+    if (run.cleanup?.allExited !== true || run.guardsRestored !== true) {
+        throw new Error("Owned-process cleanup or snapshot-guard restoration is incomplete.");
     }
     const snapshot = verifySnapshot(
         root,
         run.snapshot?.token,
         run.snapshot?.manifest?.sha256
     );
-    if (run.snapshot?.lock?.mode !== "os-file-share-and-directory-deny-acl" ||
-        run.snapshot?.lock?.writesDeletesAndAdditionsDenied !== true ||
+    if (JSON.stringify(run.snapshot?.manifest) !== JSON.stringify(snapshot.manifest)) {
+        throw new Error("Recorded snapshot manifest differs from the exact verified snapshot.");
+    }
+    if (run.snapshot?.lock?.mode !==
+            "controlled-run-file-read-locks-and-phase-manifests" ||
+        run.snapshot?.lock?.writesAndDeletesDeniedForExpectedFiles !== true ||
+        run.snapshot?.lock?.directoryAdditionsRequirePhaseDetection !== true ||
+        run.snapshot?.lock?.adversarialSameUserImmutability !== false ||
         run.snapshot?.lock?.lockedFiles !== snapshot.manifest.files ||
-        !(run.snapshot?.lock?.guardedDirectories > 0)) {
+        !/^[0-9a-f]{32}$/.test(run.runId ?? "")) {
         throw new Error("Snapshot lock evidence is incomplete.");
     }
     const nativeScenarios = deriveScenarioOutcomes(run.observations, {
@@ -68,9 +89,20 @@ async function finalizeNativeEvidence(root) {
     if (run.automation?.sha256 !== automation.sha256) {
         throw new Error("Native automation differs from the completed run.");
     }
+    const pbixSnapshot = verifyPbixSnapshot(root, run.pbixSnapshot?.token);
+    if (pbixSnapshot.snapshot.sha256 !== run.pbixSnapshot?.snapshot?.sha256 ||
+        pbixSnapshot.snapshot.sha256 !== run.pbixSnapshot?.original?.sha256) {
+        throw new Error("PBIX snapshot does not match the stable release PBIX.");
+    }
+    if (run.pbixTitleGuard?.basename !== path.parse(pbixSnapshot.basename).name ||
+        run.pbixTitleGuard?.snapshotSha256 !== pbixSnapshot.token ||
+    run.pbixTitleGuard?.runId !== run.runId) {
+        throw new Error("PBIX title ownership guard is not bound to the snapshot and run.");
+    }
+    const pbixSnapshotPath = path.join(root, pbixSnapshot.logicalPath);
     const pbixParity = await verifyPbixVisualParity({
         packagePath,
-        pbixPath,
+        pbixPath: pbixSnapshotPath,
         guid: visualManifest.visual.guid
     });
     if (pbixParity.activeParity !== true) {
@@ -109,7 +141,10 @@ async function finalizeNativeEvidence(root) {
             sha256: sha256(packageBytes)
         },
         sample: run.sample,
-        snapshot: run.snapshot,
+        snapshot: {
+            ...run.snapshot,
+            manifest: snapshot.manifest
+        },
         observations: run.observations,
         pbix: {
             path: `dist/release/${path.basename(pbixPath)}`,
@@ -119,18 +154,29 @@ async function finalizeNativeEvidence(root) {
             embeddedVisualParity: true,
             parity: pbixParity
         },
+        pbixSnapshot: run.pbixSnapshot,
         nativeScenarios,
         boundaries: run.boundaries ?? []
     };
     assertEvidenceSafe(evidence, [process.env.USERNAME, process.env.USER]);
-    const target = path.join(
-        root,
-        "docs",
-        "native-validation",
-        `${visualManifest.visual.name}-${visualManifest.visual.version}.json`
-    );
-    fs.writeFileSync(target, `${JSON.stringify(evidence, null, 2)}\n`);
+    const releasePbixBytes = fs.readFileSync(pbixPath);
+    if (releasePbixBytes.length !== pbixSnapshot.snapshot.bytes ||
+        sha256(releasePbixBytes) !== pbixSnapshot.token) {
+        throw new Error("Release PBIX changed before evidence publication.");
+    }
+    await publicationLock.verifyAlive();
+    writeFileAtomic.sync(target, `${JSON.stringify(evidence, null, 2)}\n`);
+    try {
+        await publicationLock.verifyAlive();
+    } catch (error) {
+        if (previousTarget) writeFileAtomic.sync(target, previousTarget);
+        else fs.rmSync(target, { force: true });
+        throw error;
+    }
     return target;
+    } finally {
+        await publicationLock.release().catch(() => {});
+    }
 }
 
 module.exports = { REQUIRED_SCENARIOS, finalizeNativeEvidence };

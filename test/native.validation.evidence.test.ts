@@ -2,6 +2,7 @@
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
+import * as zlib from "node:zlib";
 import { createRequire } from "node:module";
 import { execFileSync } from "node:child_process";
 import { describe, expect, it } from "vitest";
@@ -15,6 +16,7 @@ const currentPackagePath = path.join(
     "dist",
     `${visualManifest.visual.name}.${visualManifest.visual.version}.pbiviz`
 );
+const currentPbixName = `AtlynProfileLensSample-${visualManifest.visual.version}.pbix`;
 const require = createRequire(import.meta.url);
 const { computeSampleIntegrity } = require("../scripts/sample-integrity.cjs") as {
     computeSampleIntegrity(options: {
@@ -45,9 +47,16 @@ const { verifySampleResourceParity } = require("../scripts/sample-resource-parit
     }): Promise<{ parity: boolean; payload: { sha256: string }; embedded: Array<{ sha256: string }> }>;
 };
 const {
+    assertUniqueArchiveNames,
+    crc32,
+    parseExtraFields,
     requireCanonicalPbixResource,
+    validateZipPayloads,
     verifyPbixVisualParity
 } = require("../scripts/sample-resource-parity.cjs") as {
+    assertUniqueArchiveNames(records: Array<{ name: string }>): void;
+    crc32(bytes: Buffer): number;
+    parseExtraFields(extra: Buffer): void;
     requireCanonicalPbixResource(names: string[], guid: string): string;
     verifyPbixVisualParity(options: {
         packagePath: string;
@@ -58,6 +67,15 @@ const {
         activeParity: boolean;
         activePointer: { status: string };
     }>;
+    validateZipPayloads(bytes: Buffer, records: Array<{
+        name: string;
+        method: number;
+        dataStart: number;
+        dataEnd: number;
+        compressedSize: number;
+        uncompressedSize: number;
+        crc32: number;
+    }>): void;
 };
 const {
     SCENARIO_REQUIREMENTS,
@@ -74,6 +92,32 @@ const {
 const { manifest: snapshotManifest, verifySnapshot } = require("../scripts/native-snapshot.cjs") as {
     manifest(directory: string): { sha256: string };
     verifySnapshot(root: string, token: string, expected: string): { manifest: { sha256: string } };
+};
+const { acquirePbixPublicationLock } = require("../scripts/pbix-publication-lock.cjs") as {
+    acquirePbixPublicationLock(
+        root: string,
+        pbixPath: string
+    ): Promise<{
+        processId: number;
+        assertAlive(): void;
+        verifyAlive(): Promise<void>;
+        release(): Promise<unknown>;
+    }>;
+};
+const {
+    createPbixSnapshot,
+    expectedPbixName,
+    verifyPbixSnapshot
+} = require("../scripts/native-pbix-snapshot.cjs") as {
+    createPbixSnapshot(root: string, source: string): {
+        token: string;
+        basename: string;
+        logicalPath: string;
+        original: { sha256: string };
+        snapshot: { sha256: string };
+    };
+    expectedPbixName(root: string): string;
+    verifyPbixSnapshot(root: string, token: string): { snapshot: { sha256: string } };
 };
 const JSZip = require("jszip") as {
     loadAsync(bytes: Buffer): Promise<{ files: Record<string, { async(kind: string): Promise<Buffer> }> }>;
@@ -169,18 +213,20 @@ describe("native validation evidence safety", () => {
             fs.rmSync(temp, { recursive: true, force: true });
         }
 
-        const actualOutput = path.join(
-            root,
-            "dist",
-            "release",
-            "native-evidence",
-            "native-run.json"
-        );
-        if (fs.existsSync(actualOutput)) {
-            expect(() => assertEvidenceSafe(
-                JSON.parse(fs.readFileSync(actualOutput, "utf8")) as unknown,
-                [process.env.USERNAME ?? "", process.env.USER ?? ""]
-            )).not.toThrow();
+        for (const filename of ["native-run.json", "native-failure.json"]) {
+            const actualOutput = path.join(
+                root,
+                "dist",
+                "release",
+                "native-evidence",
+                filename
+            );
+            if (fs.existsSync(actualOutput)) {
+                expect(() => assertEvidenceSafe(
+                    JSON.parse(fs.readFileSync(actualOutput, "utf8")) as unknown,
+                    [process.env.USERNAME ?? "", process.env.USER ?? ""]
+                )).not.toThrow();
+            }
         }
     });
 
@@ -208,10 +254,10 @@ describe("native validation evidence safety", () => {
                 path.join(root, "scripts", "native-validation", "run-desktop-validation.ps1"),
                 "utf8"
             );
-            const release = fs.readFileSync(
-                path.join(root, "scripts", "release-manifest.cjs"),
-                "utf8"
-            );
+            const release = [
+                "release-manifest.cjs",
+                "release-manifest-worker.cjs"
+            ].map((file) => fs.readFileSync(path.join(root, "scripts", file), "utf8")).join("\n");
             expect(runner).toContain("native-source-integrity.cjs");
             expect(runner).toContain("$visualManifest.visual.version");
             expect(runner).not.toContain("AtlynProfileLensSample-1.2.0.0.pbix");
@@ -224,6 +270,36 @@ describe("native validation evidence safety", () => {
             fs.rmSync(temp, { recursive: true, force: true });
         }
     });
+
+    it("keeps the lock wrapper schema-identical to the 1.3 manifest worker", () => {
+        if (!fs.existsSync(currentPackagePath)) return;
+        const dirty = execFileSync("git", [
+            "status",
+            "--porcelain",
+            "--untracked-files=all",
+            "--",
+            "scripts",
+            "docs/native-validation",
+            "samples/AtlynProfileLensSample"
+        ], { cwd: root }).toString().trim();
+        if (dirty) return;
+        execFileSync(process.execPath, [path.join(root, "scripts", "release-manifest-worker.cjs")], {
+            cwd: root
+        });
+        const outputPath = path.join(root, "dist", "release-manifest.json");
+        const worker = JSON.parse(fs.readFileSync(outputPath, "utf8")) as {
+            contract: { viewportNavigation?: unknown };
+            proofBoundary: string;
+        };
+        execFileSync(process.execPath, [path.join(root, "scripts", "release-manifest.cjs")], {
+            cwd: root
+        });
+        const wrapped = JSON.parse(fs.readFileSync(outputPath, "utf8")) as typeof worker;
+        expect(wrapped).toEqual(worker);
+        expect(wrapped.contract.viewportNavigation).toBeDefined();
+        expect(wrapped.proofBoundary).toContain("primary-drag");
+        expect(wrapped.proofBoundary).toContain("min/max wheel gestures");
+    }, 30_000);
 
     it("proves final PBIVIZ payload parity and rejects embedded drift", async () => {
         const packagePath = currentPackagePath;
@@ -341,17 +417,20 @@ describe("native validation evidence safety", () => {
         fs.rmSync(temp, { recursive: true, force: true });
     });
 
-    it("uses OS file sharing to block snapshot writes", () => {
+    it("locks expected files and detects directory-set additions at phase checks", () => {
         const temp = fs.mkdtempSync(path.join(os.tmpdir(), "profile-lens-lock-"));
-        const file = path.join(temp, "locked.pbip");
+        const snapshot = path.join(temp, "dist", "release", "native-snapshot", "a".repeat(64));
+        fs.mkdirSync(snapshot, { recursive: true });
+        const file = path.join(snapshot, "locked.pbip");
         fs.writeFileSync(file, "locked");
-        const escaped = temp.replaceAll("'", "''");
+        const snapshotEscaped = snapshot.replaceAll("'", "''");
+        const before = snapshotManifest(snapshot).sha256;
         const command = ". 'scripts\\native-validation\\snapshot-guard.ps1'; "
-            + `$guard = Open-SnapshotReadLocks -SnapshotRoot '${escaped}'; `
+            + `$guard = Open-SnapshotReadLocks -SnapshotRoot '${snapshotEscaped}' -ExpectedFileCount 1; `
             + "try { "
-            + `try { [IO.File]::Open('${escaped}\\locked.pbip','Open','Write','None').Dispose(); 'writable' } `
+            + `try { [IO.File]::Open('${snapshotEscaped}\\locked.pbip','Open','Write','None').Dispose(); 'writable' } `
             + "catch { 'write-blocked' }; "
-            + `try { [IO.File]::WriteAllText('${escaped}\\added.txt','x'); 'addition-allowed' } `
+            + `try { [IO.File]::WriteAllText('${snapshotEscaped}\\added.txt','x'); 'addition-allowed' } `
             + "catch { 'addition-blocked' } "
             + "} finally { Close-SnapshotReadLocks -Guard $guard }";
         try {
@@ -359,20 +438,217 @@ describe("native validation evidence safety", () => {
                 cwd: root
             }).toString();
             expect(output).toContain("write-blocked");
-            expect(output).toContain("addition-blocked");
+            expect(output).toContain("addition-allowed");
+            expect(snapshotManifest(snapshot).sha256).not.toBe(before);
         } finally {
             fs.rmSync(temp, { recursive: true, force: true });
         }
     });
 
+    it("cleans an injected owned process failure without masking the original error", () => {
+        const marker = path.join(
+            fs.mkdtempSync(path.join(os.tmpdir(), "profile-lens-process-")),
+            "child.txt"
+        );
+        const launchScript = path.join(path.dirname(marker), "launch.ps1");
+        fs.writeFileSync(
+            launchScript,
+            `$c=Start-Process pwsh -ArgumentList '-NoProfile','-Command','Start-Sleep 60' -PassThru\n`
+                + `Set-Content -Path '${marker.replaceAll("'", "''")}' -Value $c.Id\n`
+                + "Start-Sleep 60\n"
+        );
+        const command = ". 'scripts\\native-validation\\desktop-guard.ps1'; "
+            + `$job=Start-OwnedProcessJob -Executable (Get-Command pwsh).Source `
+            + `-Argument '${launchScript.replaceAll("'", "''")}' -WorkingDirectory '${path.dirname(marker).replaceAll("'", "''")}'; `
+            + `while(-not(Test-Path '${marker.replaceAll("'", "''")}')){Start-Sleep -Milliseconds 100}; `
+            + `$childId=[int](Get-Content '${marker.replaceAll("'", "''")}'); `
+            + "$primary=[Exception]::new('original-post-launch-failure'); "
+            + "$cleanup=Invoke-OwnedProcessCleanup -Job $job; "
+            + "$cleanupAgain=Invoke-OwnedProcessCleanup -Job $job; "
+            + "$selected=Select-RunFailure -PrimaryFailure $primary -CleanupFailure ([Exception]::new('cleanup')); "
+            + "if(-not $cleanup.complete -or -not $cleanup.forced -or "
+            + "$cleanupAgain.forced -ne $cleanup.forced -or "
+            + "(Get-Process -Id $childId -ErrorAction SilentlyContinue)){throw 'leak'}; $selected.Message";
+        try {
+            const output = execFileSync("pwsh", ["-NoProfile", "-Command", command], {
+                cwd: root
+            }).toString();
+            expect(output).toContain("original-post-launch-failure");
+        } finally {
+            fs.rmSync(path.dirname(marker), { recursive: true, force: true });
+        }
+    });
+
+    it("closes a zero-process job despite graceful-close diagnostics", () => {
+        const temp = fs.mkdtempSync(path.join(os.tmpdir(), "profile-lens-job-zero-"));
+        const script = path.join(temp, "exit.ps1");
+        fs.writeFileSync(script, "exit 0\n");
+        const command = ". 'scripts\\native-validation\\desktop-guard.ps1'; "
+            + `$job=Start-OwnedProcessJob -Executable (Get-Command pwsh).Source `
+            + `-Argument '${script.replaceAll("'", "''")}' -WorkingDirectory '${temp.replaceAll("'", "''")}'; `
+            + "Start-Sleep 1; $result=Invoke-OwnedProcessCleanup -Job $job "
+            + "-GracefulCloser {param($j) throw 'injected graceful diagnostic'}; "
+            + "if(-not $result.complete -or -not $job.closed -or $result.errors.Count -ne 1){throw 'not terminal'}; 'terminal'";
+        try {
+            expect(execFileSync("pwsh", ["-NoProfile", "-Command", command], {
+                cwd: root
+            }).toString()).toContain("terminal");
+        } finally {
+            fs.rmSync(temp, { recursive: true, force: true });
+        }
+    });
+
+    it("content-addresses and read-locks the PBIX reopen snapshot", () => {
+        const temp = fs.mkdtempSync(path.join(os.tmpdir(), "profile-lens-pbix-lock-"));
+        fs.copyFileSync(path.join(root, "pbiviz.json"), path.join(temp, "pbiviz.json"));
+        const source = path.join(temp, currentPbixName);
+        fs.writeFileSync(source, "stable pbix");
+        expect(() => createPbixSnapshot(temp, path.join(temp, "wrong.pbix")))
+            .toThrow(/basename/i);
+        const snapshot = createPbixSnapshot(temp, source);
+        expect(path.basename(snapshot.logicalPath)).toBe(currentPbixName);
+        fs.writeFileSync(source, "replacement");
+        expect(verifyPbixSnapshot(temp, snapshot.token).snapshot.sha256)
+            .toBe(snapshot.snapshot.sha256);
+        const target = path.join(temp, snapshot.logicalPath);
+        const command = ". 'scripts\\native-validation\\snapshot-guard.ps1'; "
+            + `$lock=Open-PbixReadLock -Path '${target.replaceAll("'", "''")}'; `
+            + "try { "
+            + `try {[IO.File]::WriteAllText('${target.replaceAll("'", "''")}','attack');'replaced'}catch{'replace-blocked'}; `
+            + `try {[IO.File]::Delete('${target.replaceAll("'", "''")}');'deleted'}catch{'delete-blocked'} `
+            + "} finally {$lock.Dispose()}";
+        try {
+            const output = execFileSync("pwsh", ["-NoProfile", "-Command", command], {
+                cwd: root
+            }).toString();
+            expect(output).toContain("replace-blocked");
+            expect(output).toContain("delete-blocked");
+            expect(verifyPbixSnapshot(temp, snapshot.token).snapshot.sha256)
+                .toBe(snapshot.snapshot.sha256);
+        } finally {
+            fs.rmSync(temp, { recursive: true, force: true });
+        }
+    });
+
+    it("derives active PBIX paths from an arbitrary manifest version", () => {
+        const temp = fs.mkdtempSync(path.join(os.tmpdir(), "profile-lens-version-"));
+        fs.writeFileSync(path.join(temp, "pbiviz.json"), JSON.stringify({
+            visual: { version: "9.8.7.6" }
+        }));
+        const expected = "AtlynProfileLensSample-9.8.7.6.pbix";
+        const source = path.join(temp, expected);
+        fs.writeFileSync(source, "arbitrary version");
+        try {
+            expect(expectedPbixName(temp)).toBe(expected);
+            const snapshot = createPbixSnapshot(temp, source);
+            expect(snapshot.basename).toBe(expected);
+            expect(snapshot.logicalPath).toContain(`/${expected}`);
+        } finally {
+            fs.rmSync(temp, { recursive: true, force: true });
+        }
+    });
+
+    it("holds the exact release PBIX through publication", async () => {
+        const temp = fs.mkdtempSync(path.join(os.tmpdir(), "profile-lens-publication-"));
+        const pbix = path.join(temp, currentPbixName);
+        fs.writeFileSync(pbix, "release bytes");
+        const lock = await acquirePbixPublicationLock(root, pbix);
+        try {
+            lock.assertAlive();
+            await lock.verifyAlive();
+            expect(() => fs.writeFileSync(pbix, "replacement")).toThrow();
+            expect(() => fs.rmSync(pbix)).toThrow();
+        } finally {
+            await lock.release();
+            await lock.release();
+            fs.rmSync(temp, { recursive: true, force: true });
+        }
+    });
+
+    it("detects premature PBIX lock-helper exit without hanging release", async () => {
+        const temp = fs.mkdtempSync(path.join(os.tmpdir(), "profile-lens-lock-exit-"));
+        const pbix = path.join(temp, currentPbixName);
+        fs.writeFileSync(pbix, "release bytes");
+        const lock = await acquirePbixPublicationLock(root, pbix);
+        const output = path.join(temp, "atomic-output.json");
+        process.kill(lock.processId);
+        await expect(lock.verifyAlive()).rejects.toThrow(/exited|liveness/i);
+        try {
+            lock.assertAlive();
+            fs.writeFileSync(output, "{}");
+        } catch {}
+        expect(fs.existsSync(output)).toBe(false);
+        await expect(lock.release()).resolves.toBeDefined();
+        await expect(lock.release()).resolves.toBeDefined();
+        fs.rmSync(temp, { recursive: true, force: true });
+    });
+
+    it("requires exact DEFLATE stream consumption for every ZIP entry", () => {
+        const payload = Buffer.from("canonical deflate payload");
+        const compressed = zlib.deflateRawSync(payload);
+        const record = (bytes: Buffer) => [{
+            name: "entry.bin",
+            method: 8,
+            dataStart: 0,
+            dataEnd: bytes.length,
+            compressedSize: bytes.length,
+            uncompressedSize: payload.length,
+            crc32: crc32(payload)
+        }];
+        expect(() => validateZipPayloads(compressed, record(compressed))).not.toThrow();
+
+        const trailing = Buffer.concat([compressed, Buffer.from([0x42])]);
+        expect(() => validateZipPayloads(trailing, record(trailing)))
+            .toThrow(/trailing compressed bytes/i);
+
+        const zeroPadded = Buffer.concat([compressed, Buffer.alloc(4)]);
+        expect(() => validateZipPayloads(zeroPadded, record(zeroPadded)))
+            .toThrow(/trailing compressed bytes/i);
+
+        const concatenated = Buffer.concat([
+            compressed,
+            zlib.deflateRawSync(Buffer.from("second stream"))
+        ]);
+        expect(() => validateZipPayloads(concatenated, record(concatenated)))
+            .toThrow(/trailing compressed bytes/i);
+
+        const truncated = compressed.subarray(0, compressed.length - 1);
+        expect(() => validateZipPayloads(truncated, record(truncated)))
+            .toThrow(/decompression failed/i);
+
+        const storedRecord = [{
+            name: "stored.bin",
+            method: 0,
+            dataStart: 0,
+            dataEnd: payload.length,
+            compressedSize: payload.length,
+            uncompressedSize: payload.length,
+            crc32: crc32(payload)
+        }];
+        expect(() => validateZipPayloads(payload, storedRecord)).not.toThrow();
+    });
+
     it("requires one exact canonical PBIX resource and an active metadata pointer", async () => {
         const guid = "atlynProfileLens";
         const canonical = `Report/CustomVisuals/${guid}/resources/${guid}.pbiviz.json`;
+        expect(() => assertUniqueArchiveNames([
+            { name: "malicious/first" },
+            { name: "resources/atlynProfileLens.pbiviz.json" },
+            { name: "resources/atlynProfileLens.pbiviz.json" }
+        ])).toThrow(/duplicate/i);
+        expect(() => assertUniqueArchiveNames([
+            { name: "RESOURCES/ATLYNPROFILELENS.PBIVIZ.JSON" },
+            { name: "resources/atlynProfileLens.pbiviz.json" }
+        ])).toThrow(/case-ambiguous/i);
         expect(requireCanonicalPbixResource([canonical], guid)).toBe(canonical);
         expect(() => requireCanonicalPbixResource([canonical, canonical], guid)).toThrow(/duplicate/i);
         expect(() => requireCanonicalPbixResource([
             `Report/FooCustomVisuals/${guid}/resources/${guid}.pbiviz.json`
         ], guid)).toThrow(/noncanonical|decoy/i);
+        const unicodePathOverride = Buffer.alloc(5);
+        unicodePathOverride.writeUInt16LE(0x7075, 0);
+        unicodePathOverride.writeUInt16LE(1, 2);
+        expect(() => parseExtraFields(unicodePathOverride)).toThrow(/Unicode path overrides/i);
         expect(() => requireCanonicalPbixResource([
             `report/CustomVisuals/${guid}/resources/${guid}.pbiviz.json`
         ], guid)).toThrow(/noncanonical|decoy/i);
@@ -423,6 +699,133 @@ describe("native validation evidence safety", () => {
             expect(resolved.presenceParity).toBe(true);
             expect(resolved.activeParity).toBe(true);
             expect(resolved.activePointer.status).toBe("resolved");
+
+            const splitBytes = fs.readFileSync(await writePbix("split.pbix", activeLayout));
+            const localSignature = splitBytes.indexOf(Buffer.from([0x50, 0x4b, 0x03, 0x04]));
+            const localNameLength = splitBytes.readUInt16LE(localSignature + 26);
+            expect(localNameLength).toBeGreaterThan(0);
+            splitBytes[localSignature + 30] = "X".charCodeAt(0);
+            const splitPath = path.join(temp, "split-view.pbix");
+            fs.writeFileSync(splitPath, splitBytes);
+            await expect(verifyPbixVisualParity({
+                packagePath,
+                pbixPath: splitPath,
+                guid
+            })).rejects.toThrow(/local and central records disagree/i);
+
+            const invalidNames = fs.readFileSync(await writePbix("invalid-names.pbix", activeLayout));
+            const invalidLocal = invalidNames.indexOf(Buffer.from([0x50, 0x4b, 0x03, 0x04]));
+            let invalidEocd = invalidNames.length - 22;
+            while (invalidEocd >= 0 &&
+                invalidNames.readUInt32LE(invalidEocd) !== 0x06054b50) invalidEocd--;
+            const invalidCentral = invalidNames.readUInt32LE(invalidEocd + 16);
+            invalidNames[invalidLocal + 30] = 0x80;
+            invalidNames[invalidCentral + 46] = 0x81;
+            const invalidNamesPath = path.join(temp, "invalid-names-view.pbix");
+            fs.writeFileSync(invalidNamesPath, invalidNames);
+            await expect(verifyPbixVisualParity({
+                packagePath,
+                pbixPath: invalidNamesPath,
+                guid
+            })).rejects.toThrow(/UTF-8|Non-ASCII/i);
+
+            const forgedCrc = fs.readFileSync(await writePbix("forged-crc-source.pbix", activeLayout));
+            let crcEocd = forgedCrc.length - 22;
+            while (crcEocd >= 0 && forgedCrc.readUInt32LE(crcEocd) !== 0x06054b50) crcEocd--;
+            const crcCentral = forgedCrc.readUInt32LE(crcEocd + 16);
+            const crcName = forgedCrc.indexOf(Buffer.from(canonical), crcCentral);
+            const crcRecord = crcName - 46;
+            const crcLocal = forgedCrc.readUInt32LE(crcRecord + 42);
+            const wrongCrc = (forgedCrc.readUInt32LE(crcRecord + 16) + 1) >>> 0;
+            forgedCrc.writeUInt32LE(wrongCrc, crcLocal + 14);
+            forgedCrc.writeUInt32LE(wrongCrc, crcRecord + 16);
+            const forgedCrcPath = path.join(temp, "forged-crc.pbix");
+            fs.writeFileSync(forgedCrcPath, forgedCrc);
+            await expect(verifyPbixVisualParity({
+                packagePath,
+                pbixPath: forgedCrcPath,
+                guid
+            })).rejects.toThrow(/CRC32/i);
+
+            const forgedSize = fs.readFileSync(await writePbix("forged-size-source.pbix", activeLayout));
+            let sizeEocd = forgedSize.length - 22;
+            while (sizeEocd >= 0 && forgedSize.readUInt32LE(sizeEocd) !== 0x06054b50) sizeEocd--;
+            const sizeCentral = forgedSize.readUInt32LE(sizeEocd + 16);
+            const sizeName = forgedSize.indexOf(Buffer.from(canonical), sizeCentral);
+            const sizeRecord = sizeName - 46;
+            const sizeLocal = forgedSize.readUInt32LE(sizeRecord + 42);
+            const forgedUncompressed = forgedSize.readUInt32LE(sizeLocal + 22) + 1;
+            forgedSize.writeUInt32LE(forgedUncompressed, sizeLocal + 22);
+            forgedSize.writeUInt32LE(forgedUncompressed, sizeRecord + 24);
+            const forgedSizePath = path.join(temp, "forged-size.pbix");
+            fs.writeFileSync(forgedSizePath, forgedSize);
+            await expect(verifyPbixVisualParity({
+                packagePath,
+                pbixPath: forgedSizePath,
+                guid
+            })).rejects.toThrow(/size metadata/i);
+
+            const BombZip = require("jszip") as new () => {
+                file(entry: string, value: string | Buffer): unknown;
+                generateAsync(options: { type: string; compression: string }): Promise<Buffer>;
+            };
+            const bomb = new BombZip();
+            bomb.file(canonical, payload as Buffer);
+            bomb.file("Report/Layout", activeLayout);
+            bomb.file("unrelated.bin", Buffer.alloc(2 * 1024 * 1024));
+            const bombPath = path.join(temp, "unrelated-bomb.pbix");
+            fs.writeFileSync(bombPath, await bomb.generateAsync({
+                type: "nodebuffer",
+                compression: "DEFLATE"
+            }));
+            await expect(verifyPbixVisualParity({
+                packagePath,
+                pbixPath: bombPath,
+                guid
+            })).rejects.toThrow(/compression ratio/i);
+
+            const validBytes = fs.readFileSync(await writePbix("unmatched-source.pbix", activeLayout));
+            const prefix = Buffer.alloc(30);
+            prefix.writeUInt32LE(0x04034b50, 0);
+            prefix.writeUInt16LE(20, 4);
+            const unmatched = Buffer.concat([prefix, validBytes]);
+            let eocd = unmatched.length - 22;
+            while (eocd >= 0 && unmatched.readUInt32LE(eocd) !== 0x06054b50) eocd--;
+            const entryCount = unmatched.readUInt16LE(eocd + 10);
+            const originalCentralStart = unmatched.readUInt32LE(eocd + 16);
+            const centralStart = originalCentralStart + prefix.length;
+            unmatched.writeUInt32LE(centralStart, eocd + 16);
+            let central = centralStart;
+            for (let index = 0; index < entryCount; index++) {
+                unmatched.writeUInt32LE(
+                    unmatched.readUInt32LE(central + 42) + prefix.length,
+                    central + 42
+                );
+                central += 46 + unmatched.readUInt16LE(central + 28)
+                    + unmatched.readUInt16LE(central + 30)
+                    + unmatched.readUInt16LE(central + 32);
+            }
+            const unmatchedPath = path.join(temp, "unmatched-local.pbix");
+            fs.writeFileSync(unmatchedPath, unmatched);
+            await expect(verifyPbixVisualParity({
+                packagePath,
+                pbixPath: unmatchedPath,
+                guid
+            })).rejects.toThrow(/unmatched local record|data gap/i);
+
+            const splitDisk = Buffer.from(validBytes);
+            let splitDiskEocd = splitDisk.length - 22;
+            while (splitDiskEocd >= 0 &&
+                splitDisk.readUInt32LE(splitDiskEocd) !== 0x06054b50) splitDiskEocd--;
+            const splitDiskCentral = splitDisk.readUInt32LE(splitDiskEocd + 16);
+            splitDisk.writeUInt16LE(1, splitDiskCentral + 34);
+            const splitDiskPath = path.join(temp, "split-disk.pbix");
+            fs.writeFileSync(splitDiskPath, splitDisk);
+            await expect(verifyPbixVisualParity({
+                packagePath,
+                pbixPath: splitDiskPath,
+                guid
+            })).rejects.toThrow(/split-disk/i);
 
             const missing = await verifyPbixVisualParity({
                 packagePath,

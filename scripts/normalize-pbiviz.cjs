@@ -24,6 +24,35 @@ function assert(condition, message) {
     }
 }
 
+function assertRawUniqueNames(bytes) {
+        let eocd = -1;
+        for (let offset = bytes.length - 22; offset >= Math.max(0, bytes.length - 65_557); offset--) {
+            if (bytes.readUInt32LE(offset) === 0x06054b50) {
+                eocd = offset;
+                break;
+            }
+        }
+        assert(eocd >= 0, "source ZIP has no EOCD");
+        const entries = bytes.readUInt16LE(eocd + 10);
+        const centralSize = bytes.readUInt32LE(eocd + 12);
+        const start = bytes.readUInt32LE(eocd + 16);
+        assert(start + centralSize === eocd, "source central directory bounds do not match EOCD");
+        const names = new Map();
+        let offset = start;
+        for (let index = 0; index < entries; index++) {
+            assert(bytes.readUInt32LE(offset) === 0x02014b50, "source central directory is malformed");
+            const nameLength = bytes.readUInt16LE(offset + 28);
+            const extraLength = bytes.readUInt16LE(offset + 30);
+            const commentLength = bytes.readUInt16LE(offset + 32);
+            const name = bytes.subarray(offset + 46, offset + 46 + nameLength).toString("utf8");
+            const key = name.toLowerCase();
+            assert(!names.has(key), `source ZIP has duplicate/case-ambiguous entries: ${name}`);
+            names.set(key, name);
+            offset += 46 + nameLength + extraLength + commentLength;
+    }
+    assert(offset === start + centralSize, "source central directory count/size mismatch");
+}
+
 (async () => {
     assert(fs.existsSync(packageDirectory), "dist directory is missing");
     const packages = fs.readdirSync(packageDirectory).filter((entry) => entry.endsWith(".pbiviz"));
@@ -31,7 +60,9 @@ function assert(condition, message) {
     assert(packages[0] === packageName, `package filename must be ${packageName}`);
     assert(fs.statSync(packagePath).size > 0, "PBIVIZ is empty");
 
-    const source = await JSZip.loadAsync(fs.readFileSync(packagePath));
+    const sourceBytes = fs.readFileSync(packagePath);
+    assertRawUniqueNames(sourceBytes);
+    const source = await JSZip.loadAsync(sourceBytes);
     const normalized = new JSZip();
     for (const name of Object.keys(source.files).sort()) {
         const entry = source.files[name];
