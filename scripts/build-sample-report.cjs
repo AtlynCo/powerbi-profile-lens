@@ -20,21 +20,31 @@ const reportRoot = path.join(sampleRoot, `${sampleName}.Report`);
 const modelRoot = path.join(sampleRoot, `${sampleName}.SemanticModel`);
 const table = "ProfileFacts";
 
-const ENTITIES = ["Product A", "Team B", "Facility C", "Seat 04"];
-const WORLD_KEYS = ["USA", "CAN", "MEX", "NE:KOS"];
-const STATE_KEYS = ["06", "60", "72", "78"];
-const COUNTY_KEYS = ["06037", "60010", "72001", "78010"];
+const ENTITIES = [
+    "Product A", "Team B", "Facility C", "Seat 04", "Unit E",
+    "Unit F", "Unit G", "Unit H", "Unit I"
+];
+const WORLD_KEYS = ["USA", "CAN", "MEX", "NE:KOS", "FRA", "NOR", "NE:SOL", " USA ", "fra"];
+const STATE_KEYS = ["06", "60", "72", "78", "11", "66", "69", "XX", "06"];
+const COUNTY_KEYS = [
+    "06037", "60010", "72001", "78010", "11001", "66010", "69085", " 06037", "06037"
+];
 const PERIODS = ["Period 1", "Period 2"];
 const BANDS = ["Band 1", "Band 2", "Band 3", "Band 4", "Band 5"];
 const SERIES = ["Series X", "Series Y"];
-const METRICS = ["Metric A", "Metric B", "Metric C"];
-const LATITUDES = [47.61, 40.71, 51.51, -33.87];
-const LONGITUDES = [-122.33, -74.01, -0.13, 151.21];
+const METRICS = ["Metric A", "Metric B", "Metric C", "Metric D", "Metric E", "Metric F"];
+const LATITUDES = [47.61, 40.71, 51.51, -33.87, 48.86, 59.91, -9.43, 35.68, 43.30];
+const LONGITUDES = [-122.33, -74.01, -0.13, 151.21, 2.35, 10.75, 159.96, 139.69, 5.37];
 const GEOMETRIES = [
     "POLYGON ((-122.36 47.59, -122.30 47.59, -122.30 47.63, -122.36 47.63, -122.36 47.59))",
     "POLYGON ((-74.04 40.69, -73.98 40.69, -73.98 40.73, -74.04 40.73, -74.04 40.69))",
     "POLYGON ((-0.16 51.49, -0.10 51.49, -0.10 51.53, -0.16 51.53, -0.16 51.49))",
-    "POLYGON ((151.18 -33.89, 151.24 -33.89, 151.24 -33.85, 151.18 -33.85, 151.18 -33.89))"
+    "POLYGON ((151.18 -33.89, 151.24 -33.89, 151.24 -33.85, 151.18 -33.85, 151.18 -33.89))",
+    "POLYGON ((2.32 48.84, 2.38 48.84, 2.38 48.88, 2.32 48.88, 2.32 48.84))",
+    "POLYGON ((10.72 59.89, 10.78 59.89, 10.78 59.93, 10.72 59.93, 10.72 59.89))",
+    "POLYGON ((159.93 -9.45, 159.99 -9.45, 159.99 -9.41, 159.93 -9.41, 159.93 -9.45))",
+    "POLYGON ((139.66 35.66, 139.72 35.66, 139.72 35.70, 139.66 35.70, 139.66 35.66))",
+    "POLYGON ((5.34 43.28, 5.40 43.28, 5.40 43.32, 5.34 43.32, 5.34 43.28))"
 ];
 
 function writeJson(filePath, value) {
@@ -67,7 +77,7 @@ function buildRows() {
                         `        {"${entity}", "${WORLD_KEYS[entityIndex]}", `
                         + `"${STATE_KEYS[entityIndex]}", "${COUNTY_KEYS[entityIndex]}", `
                         + `"${period}", "${band}", ${bandIndex + 1}, "${series}", `
-                        + `${values[0]}, ${values[1]}, ${values[2]}, `
+                        + `${values.join(", ")}, `
                         + `${LATITUDES[entityIndex]}, ${LONGITUDES[entityIndex]}, `
                         + `"${GEOMETRIES[entityIndex]}"}`
                     );
@@ -276,7 +286,12 @@ function visualJson(name, hierarchyProperties, withSeries, metrics, options = {}
             objects: {
                 data: [{
                     properties: {
-                        normalization: { expr: { Literal: { Value: "'shareOfProfile'" } } }
+                        normalization: { expr: {
+                            Literal: { Value: `'${options.normalization ?? "shareOfProfile"}'` }
+                        } },
+                        percentScale: { expr: {
+                            Literal: { Value: `'${options.percentScale ?? "fraction"}'` }
+                        } }
                     }
                 }],
                 layout: [{
@@ -305,6 +320,13 @@ function visualJson(name, hierarchyProperties, withSeries, metrics, options = {}
                 diagnostics: [{
                     properties: {
                         showDiagnostics: { expr: { Literal: { Value: "true" } } }
+                    }
+                }],
+                interaction: [{
+                    properties: {
+                        mode: { expr: {
+                            Literal: { Value: `'${options.interactionMode ?? "reportSelection"}'` }
+                        } }
                     }
                 }]
             },
@@ -442,6 +464,94 @@ const pages = [
                 contextValue: true
             }
         }]
+    },
+    {
+        name: "pageSixProfiles",
+        displayName: "9 - Six profiles and interaction modes",
+        visuals: [
+            {
+                name: "visualSixProfiles",
+                hierarchy: ["Entity", "Period", "Band"],
+                series: true,
+                metrics: METRICS,
+                options: {
+                    contextMode: "grid",
+                    contextValue: true,
+                    position: { x: 40, y: 40, z: 0, height: 800, width: 740, tabOrder: 0 }
+                }
+            },
+            {
+                name: "visualLocalOnly",
+                hierarchy: ["Entity", "Band"],
+                series: false,
+                metrics: ["Metric A", "Metric B"],
+                options: {
+                    contextMode: "hex",
+                    contextValue: true,
+                    interactionMode: "localOnly",
+                    position: { x: 820, y: 40, z: 1, height: 800, width: 740, tabOrder: 1 }
+                }
+            }
+        ]
+    },
+    {
+        name: "pageNormalizations",
+        displayName: "10 - Normalization modes",
+        visuals: [
+            ["Raw", "raw", "fraction"],
+            ["Profile share", "shareOfProfile", "fraction"],
+            ["Series share", "shareWithinSeries", "fraction"],
+            ["Maximum index", "indexToMaximum", "fraction"],
+            ["Already percent", "alreadyPercent", "percent"]
+        ].map(([label, normalization, percentScale], index) => ({
+            name: `visual${label.replaceAll(" ", "")}`,
+            hierarchy: ["Entity", "Band"],
+            series: normalization === "shareWithinSeries",
+            metrics: ["Metric A", "Metric B"],
+            options: {
+                normalization,
+                percentScale,
+                contextLayout: "profileOnly",
+                position: {
+                    x: 30 + (index % 3) * 520,
+                    y: 30 + Math.floor(index / 3) * 430,
+                    z: index,
+                    height: 390,
+                    width: 490,
+                    tabOrder: index
+                }
+            }
+        }))
+    },
+    {
+        name: "pageWorldDiagnostics",
+        displayName: "11 - World 50m exact-key diagnostics",
+        visuals: [{
+            name: "visualWorldDiagnostics",
+            hierarchy: ["WorldKey", "Band"],
+            series: false,
+            metrics: ["Metric A", "Metric B"],
+            options: {
+                contextMode: "builtInPack",
+                contextPack: "worldCountries",
+                worldDetail: "50m",
+                packKeyMode: "isoAlpha3CaseFold",
+                contextValue: true
+            }
+        }]
+    },
+    {
+        name: "pageAuthoring",
+        displayName: "12 - Progressive authoring landing",
+        visuals: [{
+            name: "visualProgressiveAuthoring",
+            hierarchy: [],
+            series: false,
+            metrics: [],
+            options: {
+                contextLayout: "profileOnly"
+            }
+        }]
     }
 ];
 
@@ -449,9 +559,12 @@ fs.rmSync(sampleRoot, { recursive: true, force: true });
 
 writeText(path.join(sampleRoot, "README.md"), `# Atlyn Profile Lens offline PBIP sample
 
-Generated by \`npm run sample:pbip\`. The eight pages retain the two profile examples and add
+Generated by \`npm run sample:pbip\`. The twelve pages retain the two profile examples and add
 nongeographic grid and hex layouts, bound WGS84 points, strict WKT polygons, and offline world,
-US state/equivalent, and US county/equivalent pack examples.
+US state/equivalent, and US county/equivalent pack examples. Focused pages cover six profile
+measures, both interaction modes, all normalization modes, Natural Earth 50m, ordinary FRA/NOR
+joins, documented NE fallback keys, exact-key mismatch/duplicate diagnostics, and an empty visual
+for progressive native field-well authoring.
 
 The semantic model contains only a synthetic DAX \`DATATABLE\` with generic product, team, facility,
 seat, exact cartographic text keys, period, band, series, and metric labels. Every metric is

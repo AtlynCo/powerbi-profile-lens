@@ -153,6 +153,13 @@
                   "Value": "'shareOfProfile'"
                 }
               }
+            },
+            "percentScale": {
+              "expr": {
+                "Literal": {
+                  "Value": "'fraction'"
+                }
+              }
             }
           }
         }
@@ -211,6 +218,19 @@
               "expr": {
                 "Literal": {
                   "Value": "true"
+                }
+              }
+            }
+          }
+        }
+      ],
+      "interaction": [
+        {
+          "properties": {
+            "mode": {
+              "expr": {
+                "Literal": {
+                  "Value": "'reportSelection'"
                 }
               }
             }

@@ -8,7 +8,11 @@
     "pageBoundPolygons",
     "pageWorldPack",
     "pageStatePack",
-    "pageCountyPack"
+    "pageCountyPack",
+    "pageSixProfiles",
+    "pageNormalizations",
+    "pageWorldDiagnostics",
+    "pageAuthoring"
   ],
   "activePageName": "pageProfileOnly"
 }

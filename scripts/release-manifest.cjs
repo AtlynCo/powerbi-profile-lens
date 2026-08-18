@@ -30,6 +30,21 @@ if (packages[0] !== expectedName) {
 
 const packagePath = path.join(packageDirectory, expectedName);
 const packageBuffer = fs.readFileSync(packagePath);
+const nativeEvidenceRelativePath = path.join(
+    "docs",
+    "native-validation",
+    `${manifest.visual.name}-${manifest.visual.version}.json`
+);
+const nativeEvidencePath = path.join(root, nativeEvidenceRelativePath);
+const nativeEvidence = fs.existsSync(nativeEvidencePath)
+    ? JSON.parse(fs.readFileSync(nativeEvidencePath, "utf8"))
+    : null;
+const pbixRelativePath = path.join(
+    "dist",
+    "release",
+    `AtlynProfileLensSample-${manifest.visual.version}.pbix`
+);
+const pbixMetadata = fileMetadata(pbixRelativePath);
 const runtimeLicenseSource = fs.readFileSync(
     path.join(root, "src", "runtimeLicenses.ts"),
     "utf8"
@@ -122,7 +137,10 @@ const releaseManifest = {
             path: portablePath(sampleRoot),
             format: "PBIP",
             files: sampleFiles.filter(Boolean).length,
-            pbixStatus: "Blocked for submission: no .pbix is produced or claimed. Before Partner Center submission, create a native offline PBIX from this PBIP in Power BI Desktop, embed this exact PBIVIZ hash, close and reopen it, complete native validation, and add it to the submission materials."
+            pbix: pbixMetadata,
+            pbixStatus: pbixMetadata && nativeEvidence?.outcome === "validated"
+                ? "A genuine Desktop-produced PBIX is present and tied to the native evidence record."
+                : "Blocked for submission: no validated native PBIX is claimed. Create it from this PBIP in Power BI Desktop, close and reopen it, prove embedded visual parity and stable bytes, and complete native validation before submission."
         }
     },
     package: {
@@ -146,6 +164,21 @@ const releaseManifest = {
             .digest("hex")
     },
     contextPacks,
+    nativeValidation: nativeEvidence
+        ? {
+            outcome: nativeEvidence.outcome,
+            evidence: fileMetadata(nativeEvidenceRelativePath),
+            desktopVersion: nativeEvidence.desktopVersion,
+            startedAt: nativeEvidence.startedAt,
+            completedAt: nativeEvidence.completedAt,
+            pbivizSha256: nativeEvidence.pbiviz?.sha256 ?? null,
+            pbixSha256: nativeEvidence.pbix?.sha256 ?? null,
+            boundaries: nativeEvidence.boundaries ?? []
+        }
+        : {
+            outcome: "not-run",
+            evidence: null
+        },
     contract: {
         dataViewMappings: 1,
         mappingKind: "matrix",
@@ -155,7 +188,7 @@ const releaseManifest = {
             .map((role) => role.name)
     },
     hashPolicy: "PBIVIZ ZIP entries are sorted and normalized to a fixed UTC anchored DOS timestamp, DEFLATE level 9, and DOS platform metadata before hashing, so the hash does not depend on the build machine's timezone or platform.",
-    proofBoundary: "Automated unit, pack-pipeline and packaged-browser probes prove strict bounded parsing, exact offline world/state/county joins, deterministic source hashes and generated packs, complete declared territory coverage, point/grid/hex/bound-geometry providers, SVG/Canvas semantic and host-identity parity, physical hit testing, bounded Canvas surfaces, responsive layout through 80x80, disabled physical focus, high contrast, RTL, reduced motion and runtime network abstinence. Native Desktop/Service field wells, segmentation, bookmarks, DirectQuery/Direct Lake, export, pinning, native tooltip rendering and matrix expand/collapse remain unproven. expandCollapse and drilldown are intentionally undeclared. This artifact is not Partner Center submission-ready or certification-complete: a native offline PBIX embedding the exact PBIVIZ hash must be created in Desktop, closed, reopened, validated, and added before submission."
+    proofBoundary: "Automated unit, pack-pipeline and packaged-browser probes prove strict bounded parsing, exact offline world/state/county joins, deterministic source hashes and generated packs, complete declared territory coverage, point/grid/hex/bound-geometry providers, SVG/Canvas semantic and host-identity parity, physical hit testing, bounded Canvas surfaces, responsive layout through 80x80, disabled physical focus, high contrast, RTL, reduced motion and runtime network abstinence. Native Desktop/Service field wells, segmentation, bookmarks, DirectQuery/Direct Lake, export, pinning, native tooltip rendering and matrix expand/collapse remain unproven unless the nativeValidation record explicitly reports a validated observation. expandCollapse and drilldown are intentionally undeclared. This manifest never treats PBIP structure or a blocked Desktop launch as PBIX validation, Microsoft certification, or Partner Center submission."
 };
 
 fs.writeFileSync(
