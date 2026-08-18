@@ -9,7 +9,14 @@ $stream = [System.IO.File]::Open(
 try {
     [Console]::Out.WriteLine("LOCKED")
     [Console]::Out.Flush()
-    [Console]::In.ReadLine() | Out-Null
+    while ($true) {
+        $command = [Console]::In.ReadLine()
+        if ($null -eq $command -or $command -eq "RELEASE") { break }
+        if ($command -eq "PING") {
+            [Console]::Out.WriteLine("ALIVE")
+            [Console]::Out.Flush()
+        }
+    }
 } finally {
     $stream.Dispose()
 }

@@ -34,7 +34,9 @@ function assertRawUniqueNames(bytes) {
         }
         assert(eocd >= 0, "source ZIP has no EOCD");
         const entries = bytes.readUInt16LE(eocd + 10);
+        const centralSize = bytes.readUInt32LE(eocd + 12);
         const start = bytes.readUInt32LE(eocd + 16);
+        assert(start + centralSize === eocd, "source central directory bounds do not match EOCD");
         const names = new Map();
         let offset = start;
         for (let index = 0; index < entries; index++) {
@@ -48,6 +50,7 @@ function assertRawUniqueNames(bytes) {
             names.set(key, name);
             offset += 46 + nameLength + extraLength + commentLength;
     }
+    assert(offset === start + centralSize, "source central directory count/size mismatch");
 }
 
 (async () => {

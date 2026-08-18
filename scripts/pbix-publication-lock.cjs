@@ -70,14 +70,29 @@ async function acquirePbixPublicationLock(root, pbixPath) {
             throw new Error(`PBIX lock helper exited prematurely: ${exitState.code}: ${stderr}`);
         }
     }
+    async function verifyAlive() {
+        assertAlive();
+        child.stdin.write("PING\n");
+        await withTimeout(new Promise((resolve, reject) => {
+            lines.once("line", (line) => {
+                if (line === "ALIVE") resolve();
+                else reject(new Error(`Unexpected PBIX lock acknowledgment: ${line}`));
+            });
+            exitPromise.then((state) => {
+                reject(new Error(`PBIX lock helper exited before acknowledgment: ${state.code}`));
+            });
+        }), 5000, "Timed out verifying PBIX lock liveness.");
+        assertAlive();
+    }
     return {
         processId: child.pid,
         assertAlive,
+        verifyAlive,
         async release() {
             if (released) return exitState;
             released = true;
             if (!exitState) {
-                child.stdin.write("\n");
+                child.stdin.write("RELEASE\n");
                 child.stdin.end();
                 try {
                     await withTimeout(exitPromise, 10000, "Timed out releasing PBIX lock.");

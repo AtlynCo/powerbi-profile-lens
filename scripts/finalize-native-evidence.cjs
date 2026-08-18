@@ -164,10 +164,10 @@ async function finalizeNativeEvidence(root) {
         sha256(releasePbixBytes) !== pbixSnapshot.token) {
         throw new Error("Release PBIX changed before evidence publication.");
     }
-    publicationLock.assertAlive();
+    await publicationLock.verifyAlive();
     writeFileAtomic.sync(target, `${JSON.stringify(evidence, null, 2)}\n`);
     try {
-        publicationLock.assertAlive();
+        await publicationLock.verifyAlive();
     } catch (error) {
         if (previousTarget) writeFileAtomic.sync(target, previousTarget);
         else fs.rmSync(target, { force: true });

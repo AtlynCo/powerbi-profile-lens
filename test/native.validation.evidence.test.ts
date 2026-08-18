@@ -86,6 +86,7 @@ const { acquirePbixPublicationLock } = require("../scripts/pbix-publication-lock
     ): Promise<{
         processId: number;
         assertAlive(): void;
+        verifyAlive(): Promise<void>;
         release(): Promise<unknown>;
     }>;
 };
@@ -489,6 +490,7 @@ describe("native validation evidence safety", () => {
         const lock = await acquirePbixPublicationLock(root, pbix);
         try {
             lock.assertAlive();
+            await lock.verifyAlive();
             expect(() => fs.writeFileSync(pbix, "replacement")).toThrow();
             expect(() => fs.rmSync(pbix)).toThrow();
         } finally {
@@ -505,8 +507,7 @@ describe("native validation evidence safety", () => {
         const lock = await acquirePbixPublicationLock(root, pbix);
         const output = path.join(temp, "atomic-output.json");
         process.kill(lock.processId);
-        await new Promise((resolve) => setTimeout(resolve, 250));
-        expect(() => lock.assertAlive()).toThrow(/prematurely/i);
+        await expect(lock.verifyAlive()).rejects.toThrow(/exited|liveness/i);
         try {
             lock.assertAlive();
             fs.writeFileSync(output, "{}");
