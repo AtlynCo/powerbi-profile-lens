@@ -73,9 +73,12 @@ candidate; record the package name and SHA-256 from `dist/release-manifest.json`
 ## Persistence and service boundary
 
 1. Open the generated PBIP sample and verify all five pages offline.
-2. Save manually, close, and reopen; this repository produces and claims no PBIX.
+2. Use Power BI Desktop to create a native offline PBIX that embeds the exact release-candidate
+   PBIVIZ hash. Close and reopen it, repeat the checklist, and add that PBIX to the submission
+   materials. This repository produces, fabricates, and claims no PBIX.
 3. Test PDF/PowerPoint export, service publication, dashboard pinning, and bookmarks separately.
 4. Record Desktop/service versions, modes tested, package SHA-256, pass/fail evidence, and deviations.
 
 Native results establish only the tested host/package combination. They do not constitute Microsoft
-certification, and this project makes no certification claim.
+certification. Until the exact native PBIX above exists and passes, the artifact is not Partner Center
+submission-ready or certification-complete.

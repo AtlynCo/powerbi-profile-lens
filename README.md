@@ -114,6 +114,11 @@ credentials, refresh, upload, or network dependency.
 If `dist` exists, generation embeds the exact packaged visual resource; otherwise it warns and still
 writes the source project. **No PBIX is produced or claimed.**
 
+This artifact is not Partner Center submission-ready or certification-complete. Before submission, a
+native offline PBIX must be created from the PBIP in Power BI Desktop, must embed this exact PBIVIZ
+hash, and must be closed, reopened, and validated with the native checklist. That PBIX must then be
+added to the submission materials. The repository never fabricates a PBIX.
+
 ## Development
 
 ```powershell
@@ -146,7 +151,7 @@ They do not prove native Desktop field-well behavior, segmentation, bookmarks, s
 exports, dashboard pinning, DirectQuery/Direct Lake behavior, or native expand/collapse/drilldown.
 Run [docs/desktop-validation.md](docs/desktop-validation.md) against the exact package hash.
 
-Certification is not claimed; Microsoft review is separate.
+Certification and Partner Center submission readiness are not claimed; Microsoft review is separate.
 
 ## License
 

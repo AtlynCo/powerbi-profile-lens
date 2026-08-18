@@ -123,6 +123,9 @@
                     },
                     layout: {
                         contextLayout: config.contextLayout || "split"
+                    },
+                    interaction: {
+                        mode: config.interactionMode || "reportSelection"
                     }
                 }
             },
@@ -289,7 +292,9 @@
                 editMode: 0,
                 isInFocus: false,
                 operationKind: 0,
-                jsonFilters: []
+                jsonFilters: Object.prototype.hasOwnProperty.call(updateOptions, "jsonFilters")
+                    ? updateOptions.jsonFilters
+                    : undefined
             });
         };
 
@@ -298,7 +303,8 @@
         window.profileLensUpdate({
             width: options.width,
             height: options.height,
-            dataViews: [dataView]
+            dataViews: [dataView],
+            jsonFilters: []
         });
         return true;
     };
@@ -310,7 +316,8 @@
         window.profileLensUpdate({
             width: width,
             height: height,
-            dataViews: [window.profileLensDataView]
+            dataViews: [window.profileLensDataView],
+            jsonFilters: []
         });
         return true;
     };

@@ -431,6 +431,72 @@ test.describe("packaged visual in a real browser", () => {
         expect(calls.filter).toBe(0);
     });
 
+    test("preserves report-filter context focus until fresh host filters reconcile it", async ({ page }) => {
+        const assertEntity = async (label: string, activeDescendant: string): Promise<void> => {
+            await expect(page.locator(".profile-lens-header-title")).toHaveText(label);
+            await expect(page.locator(".profile-lens-context"))
+                .toHaveAttribute("aria-activedescendant", activeDescendant);
+        };
+        const options = {
+            contextMode: "grid",
+            interactionMode: "reportFilter",
+            entities: ["Entity A", "Entity B"],
+            periods: [],
+            bands: ["Band 1"],
+            series: [],
+            profiles: ["Metric A"]
+        };
+        await mount(page, options);
+        const surface = page.locator(".profile-lens-context");
+        const bounds = await surface.boundingBox();
+        expect(bounds).not.toBeNull();
+        await page.mouse.click(
+            (bounds?.x ?? 0) + (bounds?.width ?? 0) * 0.75,
+            (bounds?.y ?? 0) + (bounds?.height ?? 0) * 0.5
+        );
+        await assertEntity("Entity B", "context:entity:1");
+        expect(await page.evaluate(() => (window as unknown as {
+            profileLensHost: { calls: { filter: number } };
+        }).profileLensHost.calls.filter)).toBe(1);
+
+        await page.evaluate(() => (window as unknown as {
+            profileLensUpdate: (options: unknown) => void;
+            profileLensDataView: unknown;
+        }).profileLensUpdate({
+            width: 1280,
+            height: 620,
+            dataViews: [(window as unknown as { profileLensDataView: unknown }).profileLensDataView],
+            jsonFilters: [{
+                target: { table: "Table", column: "Entity" },
+                operator: "In",
+                values: ["Entity B"],
+                filterType: 1
+            }]
+        }));
+        await assertEntity("Entity B", "context:entity:1");
+
+        await page.evaluate(() => (window as unknown as {
+            profileLensUpdate: (options: unknown) => void;
+            profileLensDataView: unknown;
+        }).profileLensUpdate({
+            width: 1280,
+            height: 620,
+            dataViews: [(window as unknown as { profileLensDataView: unknown }).profileLensDataView],
+            jsonFilters: []
+        }));
+        await assertEntity("Entity A", "context:entity:0");
+
+        await mount(page, options);
+        const keyboardSurface = page.locator(".profile-lens-context");
+        await keyboardSurface.focus();
+        await page.keyboard.press("ArrowRight");
+        await assertEntity("Entity B", "context:entity:1");
+        await expect(keyboardSurface).toBeFocused();
+        expect(await page.evaluate(() => (window as unknown as {
+            profileLensHost: { calls: { filter: number } };
+        }).profileLensHost.calls.filter)).toBe(1);
+    });
+
     test("bounds the semantic entity list while preserving host order", async ({ page }) => {
         await mount(page, {
             contextMode: "hex",

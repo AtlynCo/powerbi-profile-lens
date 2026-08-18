@@ -387,6 +387,106 @@ describe("interaction", () => {
         expect(mock.applyJsonFilter.mock.calls[0].slice(1)).toEqual(["general", "filter", 0]);
     });
 
+    it("preserves pointer-focused report-filter state until a fresh host update reconciles it", () => {
+        const { mock, visual } = mount();
+        const dataView = buildMatrixDataView({
+            entities: ["Entity A", "Entity B"],
+            bands: ["Band 1"],
+            profiles: ["Metric A"],
+            objects: {
+                context: { mode: "grid" },
+                interaction: { mode: "reportFilter" }
+            }
+        });
+        visual.update(updateOptions(dataView));
+        const surface = mock.element.querySelector<HTMLElement>(".profile-lens-context");
+        surface?.dispatchEvent(pointer("click", { clientX: 280, clientY: 250 }));
+
+        expect(mock.element.querySelector(".profile-lens-header-title")?.textContent)
+            .toBe("Entity B");
+        expect(surface?.getAttribute("aria-activedescendant")).toBe("context:entity:1");
+        expect(mock.applyJsonFilter).toHaveBeenCalledTimes(1);
+
+        visual.update(updateOptions(
+            dataView,
+            { width: 800, height: 600 },
+            {
+                jsonFilters: [{
+                    target: { table: "Table", column: "Entity" },
+                    operator: "In",
+                    values: ["Entity B"],
+                    filterType: 1
+                } as unknown as powerbi.IFilter]
+            }
+        ));
+        expect(mock.element.querySelector(".profile-lens-header-title")?.textContent)
+            .toBe("Entity B");
+        expect(surface?.getAttribute("aria-activedescendant")).toBe("context:entity:1");
+
+        visual.update(updateOptions(dataView, { width: 800, height: 600 }, { jsonFilters: [] }));
+        expect(mock.element.querySelector(".profile-lens-header-title")?.textContent)
+            .toBe("Entity A");
+        expect(surface?.getAttribute("aria-activedescendant")).toBe("context:entity:0");
+    });
+
+    it("preserves keyboard-focused report-filter state across cached rerenders", () => {
+        const { mock, visual } = mount();
+        visual.update(updateOptions(buildMatrixDataView({
+            entities: ["Entity A", "Entity B"],
+            bands: ["Band 1"],
+            profiles: ["Metric A"],
+            objects: {
+                context: { mode: "grid" },
+                interaction: { mode: "reportFilter" }
+            }
+        })));
+        const surface = mock.element.querySelector<HTMLElement>(".profile-lens-context");
+        surface?.focus();
+        const right = new Event("keydown", { bubbles: true, cancelable: true });
+        Object.assign(right, { key: "ArrowRight" });
+        surface?.dispatchEvent(right);
+
+        expect(mock.element.querySelector(".profile-lens-header-title")?.textContent)
+            .toBe("Entity B");
+        expect(surface?.getAttribute("aria-activedescendant")).toBe("context:entity:1");
+        expect(document.activeElement).toBe(surface);
+        expect(mock.applyJsonFilter).toHaveBeenCalledTimes(1);
+    });
+
+    it("clears the visual-owned filter when leaving report-filter mode without host filters", () => {
+        const { mock, visual } = mount();
+        const reportFilterView = buildMatrixDataView({
+            entities: ["Entity A", "Entity B"],
+            bands: ["Band 1"],
+            profiles: ["Metric A"],
+            objects: {
+                context: { mode: "grid" },
+                interaction: { mode: "reportFilter" }
+            }
+        });
+        visual.update(updateOptions(reportFilterView));
+        mock.element.querySelector<HTMLElement>(".profile-lens-context")
+            ?.dispatchEvent(pointer("click", { clientX: 280, clientY: 250 }));
+        expect(mock.applyJsonFilter).toHaveBeenCalledTimes(1);
+
+        const localView = buildMatrixDataView({
+            entities: ["Entity A", "Entity B"],
+            bands: ["Band 1"],
+            profiles: ["Metric A"],
+            objects: {
+                context: { mode: "grid" },
+                interaction: { mode: "localOnly" }
+            }
+        });
+        visual.update(updateOptions(
+            localView,
+            { width: 800, height: 600 },
+            { jsonFilters: undefined }
+        ));
+        expect(mock.applyJsonFilter).toHaveBeenCalledTimes(2);
+        expect(mock.applyJsonFilter.mock.calls[1].slice(1)).toEqual(["general", "filter", 1]);
+    });
+
     it("restores explicit report filter focus from jsonFilters", () => {
         const { mock, visual } = mount();
         const filteredView = buildMatrixDataView({

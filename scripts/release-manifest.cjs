@@ -91,7 +91,7 @@ const releaseManifest = {
             path: portablePath(sampleRoot),
             format: "PBIP",
             files: sampleFiles.filter(Boolean).length,
-            pbixStatus: "No .pbix is produced or claimed. Open the PBIP in Power BI Desktop and use Save As to create one manually."
+            pbixStatus: "Blocked for submission: no .pbix is produced or claimed. Before Partner Center submission, create a native offline PBIX from this PBIP in Power BI Desktop, embed this exact PBIVIZ hash, close and reopen it, complete native validation, and add it to the submission materials."
         }
     },
     package: {
@@ -110,7 +110,7 @@ const releaseManifest = {
             .map((role) => role.name)
     },
     hashPolicy: "PBIVIZ ZIP entries are sorted and normalized to a fixed UTC anchored DOS timestamp, DEFLATE level 9, and DOS platform metadata before hashing, so the hash does not depend on the build machine's timezone or platform.",
-    proofBoundary: "Automated unit and packaged-browser probes prove strict bounded parsing, deterministic point/grid/hex/bound-geometry providers, SVG/Canvas semantic and host-identity parity, physical hit testing, bounded Canvas surfaces, responsive layout through 80x80, disabled physical focus, high contrast, RTL, reduced motion and network abstinence. Native Desktop/Service field wells, segmentation, bookmarks, DirectQuery/Direct Lake, export, pinning, native tooltip rendering and matrix expand/collapse remain unproven. expandCollapse and drilldown are intentionally undeclared."
+    proofBoundary: "Automated unit and packaged-browser probes prove strict bounded parsing, deterministic point/grid/hex/bound-geometry providers, SVG/Canvas semantic and host-identity parity, physical hit testing, bounded Canvas surfaces, responsive layout through 80x80, disabled physical focus, high contrast, RTL, reduced motion and network abstinence. Native Desktop/Service field wells, segmentation, bookmarks, DirectQuery/Direct Lake, export, pinning, native tooltip rendering and matrix expand/collapse remain unproven. expandCollapse and drilldown are intentionally undeclared. This artifact is not Partner Center submission-ready or certification-complete: a native offline PBIX embedding the exact PBIVIZ hash must be created in Desktop, closed, reopened, validated, and added before submission."
 };
 
 fs.writeFileSync(

@@ -114,6 +114,7 @@ export class Visual implements IVisual {
     private lastViewport = { width: 0, height: 0 };
     private renderedContext: RenderedContextSurface | null = null;
     private entityFilterActive = false;
+    private lastHostJsonFilters: readonly powerbi.IFilter[] = [];
 
     public constructor(options?: VisualConstructorOptions) {
         if (!options) {
@@ -258,7 +259,13 @@ export class Visual implements IVisual {
             return;
         }
 
-        this.synchronizeFilterState(options.jsonFilters ?? [], model, allowInteractions);
+        const hasFreshHostFilters = options.jsonFilters !== undefined;
+        if (options.jsonFilters !== undefined) {
+            this.lastHostJsonFilters = options.jsonFilters;
+        }
+        if (this.settings.interactionMode !== "reportFilter" || hasFreshHostFilters) {
+            this.synchronizeFilterState(this.lastHostJsonFilters, model, allowInteractions);
+        }
         this.renderModel(model, options, allowInteractions);
     }
 
