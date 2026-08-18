@@ -18,7 +18,7 @@ blind retry or input to an unproven window occurred.
 
 The current prepared fixture is now reproducibly bound by
 `samples/AtlynProfileLensSample/sample-integrity.json` at source commit
-`aaf47ea67f5e5ee5d47ca2ed750bffd1bc94dc94`: project tree
+`858c180a7c62960ff7694ec976f02eafd2cb3092`: project tree
 `b287ce8bbd5c5192940c78ca653373abe9f2a99c02788c2efae4bae564818e3f`, report definition
 `c7b5e4f05b4e86b2d7e3854ef7590ac0ce3570f37b46152c59a5fdae53e6b710`, model definition
 `407a94d172ea8ef05797a2856a96dc49d9aa76046b5ade4210d5417e4518db9c`, generator
