@@ -8,12 +8,14 @@ import {
     viewportOverscroll
 } from "../src/context/viewport/bounds";
 import {
+    cameraFromPinchSnapshot,
     cameraToBasePoint,
     composeSceneTransform,
     inverseProjectPoint,
     panCamera,
     preserveCameraOnResize,
     projectPoint,
+    createPinchSnapshot,
     resetCamera,
     zoomCameraAt
 } from "../src/context/viewport/camera";
@@ -108,6 +110,102 @@ describe("context viewport camera", () => {
         expect(afterScene.y).toBeCloseTo(beforeScene.y, 12);
     });
 
+    it("solves edge-bound pinch zoom and midpoint translation with one final clamp", () => {
+        const viewport = { width: 200, height: 120 };
+        const baseBounds = { minX: 8, maxX: 192, minY: 8, maxY: 112 };
+        const limits = { minZoom: 1, maxZoom: 4, overscroll: 12 };
+        const edgeCamera = clampCameraToBounds(
+            { zoom: 2, panX: -999, panY: 999 },
+            baseBounds,
+            viewport,
+            limits.overscroll
+        );
+        const startMidpoint = { x: 20, y: 100 };
+        const snapshot = createPinchSnapshot(edgeCamera, startMidpoint);
+        const midpoint = { x: 5, y: 115 };
+        const result = cameraFromPinchSnapshot(
+            snapshot,
+            10,
+            midpoint,
+            limits,
+            baseBounds,
+            viewport
+        );
+        const expected = clampCameraToBounds({
+            zoom: limits.maxZoom,
+            panX: midpoint.x - snapshot.baseAnchor.x * limits.maxZoom,
+            panY: midpoint.y - snapshot.baseAnchor.y * limits.maxZoom
+        }, baseBounds, viewport, limits.overscroll);
+        expect(result).toEqual(expected);
+        const transformed = {
+            minX: baseBounds.minX * result.zoom + result.panX,
+            maxX: baseBounds.maxX * result.zoom + result.panX,
+            minY: baseBounds.minY * result.zoom + result.panY,
+            maxY: baseBounds.maxY * result.zoom + result.panY
+        };
+        expect(transformed.minX).toBeLessThanOrEqual(limits.overscroll);
+        expect(transformed.maxX).toBeGreaterThanOrEqual(viewport.width - limits.overscroll);
+        expect(transformed.minY).toBeLessThanOrEqual(limits.overscroll);
+        expect(transformed.maxY).toBeGreaterThanOrEqual(viewport.height - limits.overscroll);
+    });
+
+    it("keeps min/max pinch clamps continuous from the gesture snapshot", () => {
+        const viewport = { width: 240, height: 180 };
+        const baseBounds = { minX: 8, maxX: 232, minY: 8, maxY: 172 };
+        const limits = { minZoom: 1, maxZoom: 4, overscroll: 18 };
+        const camera = { zoom: 2, panX: -120, panY: -90 };
+        const midpoint = { x: 120, y: 90 };
+        const snapshot = createPinchSnapshot(camera, midpoint);
+        const maximum = cameraFromPinchSnapshot(
+            snapshot,
+            100,
+            midpoint,
+            limits,
+            baseBounds,
+            viewport
+        );
+        const beyondMaximum = cameraFromPinchSnapshot(
+            snapshot,
+            1_000,
+            midpoint,
+            limits,
+            baseBounds,
+            viewport
+        );
+        const minimum = cameraFromPinchSnapshot(
+            snapshot,
+            0.001,
+            midpoint,
+            limits,
+            baseBounds,
+            viewport
+        );
+        const beyondMinimum = cameraFromPinchSnapshot(
+            snapshot,
+            0.0001,
+            midpoint,
+            limits,
+            baseBounds,
+            viewport
+        );
+        expect(maximum.zoom).toBe(4);
+        expect(beyondMaximum).toEqual(maximum);
+        expect(minimum.zoom).toBe(1);
+        expect(beyondMinimum).toEqual(minimum);
+
+        const shifted = cameraFromPinchSnapshot(
+            snapshot,
+            100,
+            { x: midpoint.x + 1, y: midpoint.y + 1 },
+            limits,
+            baseBounds,
+            viewport
+        );
+        expect(shifted.zoom).toBe(maximum.zoom);
+        expect(Math.abs(shifted.panX - maximum.panX)).toBeLessThanOrEqual(1);
+        expect(Math.abs(shifted.panY - maximum.panY)).toBeLessThanOrEqual(1);
+    });
+
     it("clamps zoom and pan without allowing the scene to be lost", () => {
         const viewport = { width: 200, height: 120 };
         const baseBounds = { minX: 8, maxX: 192, minY: 8, maxY: 112 };
@@ -142,6 +240,40 @@ describe("context viewport camera", () => {
         expect(transformed.maxY).toBeGreaterThanOrEqual(viewport.height - limits.overscroll);
         expect(clampCameraToBounds(panned, baseBounds, viewport, limits.overscroll))
             .toEqual(panned);
+    });
+
+    it("does not re-anchor a fractional camera already at either zoom limit", () => {
+        const viewport = { width: 320, height: 300 };
+        const baseBounds = { minX: 8, maxX: 312, minY: 8, maxY: 292 };
+        const limits = { minZoom: 1.3, maxZoom: 7.3, overscroll: 24 };
+        const maximum = clampCameraToBounds(
+            { zoom: 7.3, panX: -1008, panY: -938.7 },
+            baseBounds,
+            viewport,
+            limits.overscroll
+        );
+        const minimum = clampCameraToBounds(
+            { zoom: 1.3, panX: -48.2, panY: -39.1 },
+            baseBounds,
+            viewport,
+            limits.overscroll
+        );
+        expect(zoomCameraAt(
+            maximum,
+            1.2,
+            { x: 1, y: 149 },
+            limits,
+            baseBounds,
+            viewport
+        )).toEqual(maximum);
+        expect(zoomCameraAt(
+            minimum,
+            0.8,
+            { x: 319, y: 151 },
+            limits,
+            baseBounds,
+            viewport
+        )).toEqual(minimum);
     });
 
     it("preserves the viewed scene center across a valid resize", () => {

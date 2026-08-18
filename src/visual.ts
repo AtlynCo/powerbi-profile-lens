@@ -83,7 +83,9 @@ import {
     viewportOverscroll
 } from "./context/viewport/bounds";
 import {
+    cameraFromPinchSnapshot,
     composeSceneTransform,
+    createPinchSnapshot,
     panCamera,
     preserveCameraOnResize,
     resetCamera,
@@ -93,6 +95,7 @@ import { contextSceneIdentity } from "./context/viewport/identity";
 import type {
     CameraLimits,
     ContextCamera,
+    ContextPinchSnapshot,
     ContextViewportSession
 } from "./context/viewport/contract";
 
@@ -377,6 +380,7 @@ export class Visual implements IVisual {
         );
 
         const theme = resolveTheme(this.host.colorPalette, this.settings);
+        this.applyThemeVariables(theme);
         const contextScene = this.resolveContextScene(model);
         const scene = contextScene.scene;
         const hasContext = scene.features.length > 0 && scene.mode !== "none";
@@ -765,8 +769,9 @@ export class Visual implements IVisual {
                     rtl: this.resolveDirection() === "rtl",
                     panBy: (deltaX, deltaY) => this.panContextCamera(deltaX, deltaY),
                     zoomAt: (factor, x, y) => this.zoomContextCamera(factor, x, y),
-                    pinchBy: (factor, x, y, deltaX, deltaY) =>
-                        this.pinchContextCamera(factor, x, y, deltaX, deltaY),
+                    beginPinch: (x, y) => this.beginContextPinch(x, y),
+                    pinchTo: (snapshot, ratio, x, y) =>
+                        this.pinchContextCamera(snapshot, ratio, x, y),
                     reset: () => this.resetContextCamera(),
                     moveEnd: () => {
                         this.contextMetrics.moveEnds++;
@@ -893,30 +898,29 @@ export class Visual implements IVisual {
         ));
     }
 
+    private beginContextPinch(x: number, y: number): ContextPinchSnapshot | null {
+        const session = this.viewportSession;
+        if (!session || !this.canNavigateContext()) {
+            return null;
+        }
+        return createPinchSnapshot(session.camera, { x, y });
+    }
+
     private pinchContextCamera(
-        factor: number,
+        snapshot: ContextPinchSnapshot,
+        distanceRatio: number,
         x: number,
-        y: number,
-        deltaX: number,
-        deltaY: number
+        y: number
     ): boolean {
         const session = this.viewportSession;
         if (!session || !this.canNavigateContext()) {
             return false;
         }
         const limits = this.cameraLimits(session.viewport);
-        const zoomed = zoomCameraAt(
-            session.camera,
-            factor,
+        return this.applyContextCamera(cameraFromPinchSnapshot(
+            snapshot,
+            distanceRatio,
             { x, y },
-            limits,
-            session.baseBounds,
-            session.viewport
-        );
-        return this.applyContextCamera(panCamera(
-            zoomed,
-            deltaX,
-            deltaY,
             limits,
             session.baseBounds,
             session.viewport
@@ -1306,6 +1310,23 @@ export class Visual implements IVisual {
             return this.settings.direction;
         }
         return this.localization.isRightToLeft ? "rtl" : "ltr";
+    }
+
+    private applyThemeVariables(theme: ReturnType<typeof resolveTheme>): void {
+        const selected = theme.isHighContrast
+            ? theme.foregroundSelected
+            : this.settings.contextSelectedColor;
+        this.root.style.setProperty("--profile-lens-foreground", theme.foreground);
+        this.root.style.setProperty("--profile-lens-background", theme.background);
+        this.root.style.setProperty("--profile-lens-selected", selected);
+        this.root.style.setProperty(
+            "--profile-lens-muted",
+            theme.isHighContrast ? theme.foreground : "#605E5C"
+        );
+        this.root.style.setProperty(
+            "--profile-lens-border",
+            theme.isHighContrast ? theme.foreground : "#E1DFDD"
+        );
     }
 
     private formatPrimitive(value: powerbi.PrimitiveValue): string {

@@ -49,6 +49,8 @@ candidate; record the package name and SHA-256 from `dist/release-manifest.json`
    synthetic and physical two-pointer pinch, Shift+Arrow, `+`/`-`, Home, and the reset control.
 7. Confirm cursor/midpoint zoom anchoring, bounded pan, fixed center probe, and viewed-center
    preservation on resize. The probe must not change the Entity/header/profile in this release.
+   At both zoom limits and scene edges, confirm pinch remains continuous after one pointer lifts and
+   wheel input stays contained without changing the camera.
 8. During multi-step county pan/zoom, confirm scene, raster, picking-surface, and spatial-index build
    counts remain unchanged; record camera-frame and picking metrics.
 
@@ -91,6 +93,9 @@ candidate; record the package name and SHA-256 from `dist/release-manifest.json`
    the smallest responsive layout.
 5. Confirm the context is one Tab stop, the reset button is not another sequential stop, probe and
    gesture help are described, plain Arrow remains entity browsing, and RTL mirrors Shift+Left/Right.
+6. Exercise both dark and light host high-contrast palettes. Confirm computed reset/help/attribution,
+   context background, focus, disabled, selected, and probe colors use the host palette at large and
+   small context sizes.
 
 ## Persistence and service boundary
 

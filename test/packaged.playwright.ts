@@ -408,36 +408,190 @@ test.describe("packaged visual in a real browser", () => {
         ]).not.toContain(activeClass);
     });
 
-    test("uses the host high contrast colors", async ({ page }) => {
+    test("uses dark and light host high contrast colors for navigation chrome", async ({ page }) => {
+        const cases = [
+            {
+                name: "dark",
+                foreground: "#FFFFFF",
+                background: "#000000",
+                selected: "#00FF00",
+                foregroundRgb: "rgb(255, 255, 255)",
+                backgroundRgb: "rgb(0, 0, 0)",
+                selectedRgb: "rgb(0, 255, 0)"
+            },
+            {
+                name: "light",
+                foreground: "#000000",
+                background: "#FFFFFF",
+                selected: "#0000FF",
+                foregroundRgb: "rgb(0, 0, 0)",
+                backgroundRgb: "rgb(255, 255, 255)",
+                selectedRgb: "rgb(0, 0, 255)"
+            }
+        ];
+        for (const value of cases) {
+            const options = {
+                highContrast: true,
+                highContrastForeground: value.foreground,
+                highContrastBackground: value.background,
+                highContrastSelected: value.selected,
+                contextMode: "grid",
+                navigationEnabled: true
+            };
+            await mount(page, options);
+            const fills = await page.evaluate(() =>
+                Array.from(document.querySelectorAll(".profile-lens-target rect"))
+                    .slice(0, 4)
+                    .map((node) => ({
+                        fill: node.getAttribute("fill"),
+                        stroke: node.getAttribute("stroke")
+                    })));
+            expect(fills.length, value.name).toBeGreaterThan(0);
+            for (const entry of fills) {
+                expect(entry.stroke, value.name).toBe(value.foreground);
+                expect(
+                    entry.fill === value.foreground || entry.fill?.startsWith("url(#"),
+                    value.name
+                ).toBe(true);
+            }
+            const contextFeature = page.locator(
+                ".profile-lens-context-svg [data-context-key]"
+            ).first();
+            await expect(contextFeature).toHaveAttribute("fill", value.background);
+            await expect(contextFeature).toHaveAttribute("stroke", value.foreground);
+            await expect(page.locator(".profile-lens-context-outline").first())
+                .toHaveAttribute("stroke", value.selected);
+            await expect(page.locator(".profile-lens-context-probe circle").nth(1))
+                .toHaveAttribute("stroke", value.selected);
+            await expect(page.locator(".profile-lens-context-probe circle").first())
+                .toHaveAttribute("fill", value.background);
+
+            const surface = page.locator(".profile-lens-context");
+            const reset = page.locator(".profile-lens-context-reset");
+            const help = page.locator(".profile-lens-context-help");
+            await expect(help).toBeVisible();
+            const computed = await page.evaluate(() => {
+                const root = document.querySelector<HTMLElement>(".profile-lens")!;
+                const surface = document.querySelector<HTMLElement>(".profile-lens-context")!;
+                const reset = document.querySelector<HTMLButtonElement>(
+                    ".profile-lens-context-reset"
+                )!;
+                const help = document.querySelector<HTMLElement>(".profile-lens-context-help")!;
+                const attribution = document.querySelector<HTMLElement>(
+                    ".profile-lens-context-attribution"
+                )!;
+                reset.focus();
+                const resetStyle = getComputedStyle(reset);
+                const resetFocusOutline = resetStyle.outlineColor;
+                surface.focus();
+                return {
+                    variables: {
+                        foreground: root.style.getPropertyValue("--profile-lens-foreground"),
+                        background: root.style.getPropertyValue("--profile-lens-background"),
+                        selected: root.style.getPropertyValue("--profile-lens-selected")
+                    },
+                    surface: {
+                        color: getComputedStyle(surface).color,
+                        background: getComputedStyle(surface).backgroundColor,
+                        outline: getComputedStyle(surface).outlineColor
+                    },
+                    reset: {
+                        color: resetStyle.color,
+                        background: resetStyle.backgroundColor,
+                        border: resetStyle.borderColor,
+                        focusOutline: resetFocusOutline
+                    },
+                    help: {
+                        color: getComputedStyle(help).color,
+                        background: getComputedStyle(help).backgroundColor
+                    },
+                    attribution: {
+                        color: getComputedStyle(attribution).color,
+                        background: getComputedStyle(attribution).backgroundColor
+                    }
+                };
+            });
+            expect(computed.variables).toEqual({
+                foreground: value.foreground,
+                background: value.background,
+                selected: value.selected
+            });
+            expect(computed.surface).toEqual({
+                color: value.foregroundRgb,
+                background: value.backgroundRgb,
+                outline: value.foregroundRgb
+            });
+            expect(computed.reset).toEqual({
+                color: value.foregroundRgb,
+                background: value.backgroundRgb,
+                border: value.foregroundRgb,
+                focusOutline: value.selectedRgb
+            });
+            expect(computed.help).toEqual({
+                color: value.foregroundRgb,
+                background: value.backgroundRgb
+            });
+            expect(computed.attribution).toEqual({
+                color: value.foregroundRgb,
+                background: value.backgroundRgb
+            });
+            await expect(surface).toBeFocused();
+            await expect(reset).toHaveAttribute("tabindex", "-1");
+
+            await mount(page, { ...options, allowInteractions: false });
+            const disabled = page.locator(".profile-lens-context-reset");
+            await expect(disabled).toBeHidden();
+            await expect(disabled).toBeDisabled();
+            const disabledStyle = await disabled.evaluate((node) => {
+                const style = getComputedStyle(node);
+                return {
+                    color: style.color,
+                    background: style.backgroundColor,
+                    border: style.borderColor,
+                    borderStyle: style.borderStyle,
+                    opacity: style.opacity
+                };
+            });
+            expect(disabledStyle).toEqual({
+                color: value.foregroundRgb,
+                background: value.backgroundRgb,
+                border: value.foregroundRgb,
+                borderStyle: "dashed",
+                opacity: "1"
+            });
+            await expect(page.locator(".profile-lens-context")).toHaveAttribute("tabindex", "-1");
+            await expect(page.locator(".profile-lens-context"))
+                .not.toHaveClass(/profile-lens-context-navigation-active/);
+        }
+    });
+
+    test("keeps high contrast navigation chrome bounded in a small tile", async ({ page }) => {
         await mount(page, {
             highContrast: true,
+            highContrastForeground: "#FFFFFF",
+            highContrastBackground: "#000000",
+            highContrastSelected: "#00FF00",
             contextMode: "grid",
-            navigationEnabled: true
+            contextLayout: "locatorInset",
+            navigationEnabled: true,
+            width: 398,
+            height: 298
         });
-        const fills = await page.evaluate(() =>
-            Array.from(document.querySelectorAll(".profile-lens-target rect"))
-                .slice(0, 4)
-                .map((node) => ({
-                    fill: node.getAttribute("fill"),
-                    stroke: node.getAttribute("stroke")
-                })));
-        expect(fills.length).toBeGreaterThan(0);
-        for (const entry of fills) {
-            expect(entry.stroke).toBe("#FFFFFF");
-            expect(entry.fill === "#FFFFFF" || entry.fill?.startsWith("url(#")).toBe(true);
-        }
-        const contextFeature = page.locator(".profile-lens-context-svg [data-context-key]").first();
-        await expect(contextFeature).toHaveAttribute("fill", "#000000");
-        await expect(contextFeature).toHaveAttribute("stroke", "#FFFFFF");
-        await expect(page.locator(".profile-lens-context-svg [data-context-key]").nth(1))
-            .toHaveAttribute("stroke", "#FFFFFF");
-        await expect(page.locator(".profile-lens-context-outline").first())
-            .toHaveAttribute("stroke", "#00FF00");
-        await expect(page.locator(".profile-lens-context-probe circle").nth(1))
-            .toHaveAttribute("stroke", "#00FF00");
-        await expect(page.locator(".profile-lens-context-probe circle").first())
-            .toHaveAttribute("fill", "#000000");
-        await expect(page.locator(".profile-lens-high-contrast")).toHaveCount(1);
+        const surface = page.locator(".profile-lens-context");
+        await expect(surface).toBeVisible();
+        await expect(page.locator(".profile-lens-context-help")).toBeHidden();
+        const reset = page.locator(".profile-lens-context-reset");
+        await expect(reset).toBeVisible();
+        const bounded = await reset.evaluate((node) => {
+            const control = node.getBoundingClientRect();
+            const surface = node.parentElement!.getBoundingClientRect();
+            return control.left >= surface.left
+                && control.top >= surface.top
+                && control.right <= surface.right
+                && control.bottom <= surface.bottom;
+        });
+        expect(bounded).toBe(true);
+        await expect(page.locator(".profile-lens-context-probe")).toHaveCount(1);
     });
 
     test("runs the tooltip and context menu lifecycle exactly once per gesture", async ({ page }) => {
@@ -463,6 +617,112 @@ test.describe("packaged visual in a real browser", () => {
 
         await page.locator(".profile-lens").click({ button: "right", position: { x: 2, y: 2 } });
         expect((await readCalls()).contextMenu).toBe(2);
+    });
+
+    test("contains physical wheel input at clamped min/max zoom with one settle", async ({ page }) => {
+        await mount(page, {
+            contextMode: "grid",
+            navigationEnabled: true,
+            minZoom: 7.3,
+            maxZoom: 7.3,
+            periods: [],
+            bands: ["Band 1"],
+            series: [],
+            profiles: ["Metric A"]
+        });
+        const surface = page.locator(".profile-lens-context");
+        const before = await surface.evaluate((node) => {
+            const root = node as HTMLElement & {
+                __profileLensContextMetrics: { cameraFrames: number; moveEnds: number };
+            };
+            const container = document.getElementById("visual-root")!;
+            container.style.position = "fixed";
+            container.style.inset = "0 auto auto 0";
+            document.body.style.height = "3000px";
+            window.scrollTo(0, 200);
+            const state = {
+                defaults: [] as boolean[],
+                bubbled: 0,
+                windowScroll: window.scrollY,
+                rootScroll: root.scrollTop
+            };
+            root.addEventListener("wheel", (event) => {
+                state.defaults.push(event.defaultPrevented);
+            });
+            document.body.addEventListener("wheel", () => {
+                state.bubbled++;
+            });
+            (window as unknown as { __wheelContainment: typeof state }).__wheelContainment = state;
+            return {
+                cameraFrames: root.__profileLensContextMetrics.cameraFrames,
+                moveEnds: root.__profileLensContextMetrics.moveEnds
+            };
+        });
+        const bounds = await surface.boundingBox();
+        expect(bounds).not.toBeNull();
+        await page.mouse.move(
+            (bounds?.x ?? 0) + (bounds?.width ?? 0) / 2,
+            (bounds?.y ?? 0) + (bounds?.height ?? 0) / 2
+        );
+        await page.mouse.wheel(0, 120);
+        await page.mouse.wheel(0, -120);
+        await page.waitForTimeout(150);
+        const result = await surface.evaluate((node) => {
+            const root = node as HTMLElement & {
+                __profileLensContextMetrics: { cameraFrames: number; moveEnds: number };
+            };
+            const zero = new WheelEvent("wheel", {
+                bubbles: true,
+                cancelable: true,
+                deltaY: 0,
+                deltaMode: 0,
+                clientX: 10,
+                clientY: 10
+            });
+            const invalid = new WheelEvent("wheel", {
+                bubbles: true,
+                cancelable: true,
+                deltaY: 0,
+                deltaMode: 0,
+                clientX: 10,
+                clientY: 10
+            });
+            Object.defineProperty(invalid, "deltaY", { value: Number.NaN });
+            root.dispatchEvent(zero);
+            root.dispatchEvent(invalid);
+            const state = (window as unknown as {
+                __wheelContainment: {
+                    defaults: boolean[];
+                    bubbled: number;
+                    windowScroll: number;
+                    rootScroll: number;
+                };
+            }).__wheelContainment;
+            return {
+                cameraFrames: root.__profileLensContextMetrics.cameraFrames,
+                moveEnds: root.__profileLensContextMetrics.moveEnds,
+                defaults: state.defaults,
+                bubbled: state.bubbled,
+                windowScrollBefore: state.windowScroll,
+                windowScrollAfter: window.scrollY,
+                rootScrollBefore: state.rootScroll,
+                rootScrollAfter: root.scrollTop,
+                zeroPrevented: zero.defaultPrevented,
+                invalidPrevented: invalid.defaultPrevented
+            };
+        });
+        expect(result.cameraFrames).toBe(before.cameraFrames);
+        expect(result.moveEnds - before.moveEnds).toBe(1);
+        expect(result.defaults).toEqual([true, true, false, false]);
+        expect(result.bubbled).toBe(2);
+        expect(result.windowScrollAfter).toBe(result.windowScrollBefore);
+        expect(result.rootScrollAfter).toBe(result.rootScrollBefore);
+        expect(result.zeroPrevented).toBe(false);
+        expect(result.invalidPrevented).toBe(false);
+        const calls = await page.evaluate(() => (window as unknown as {
+            profileLensHost: { calls: { select: number; filter: number } };
+        }).profileLensHost.calls);
+        expect(calls).toMatchObject({ select: 0, filter: 0 });
     });
 
     test("makes no external network request and no recurring work after settling", async ({ page }) => {
@@ -972,6 +1232,82 @@ test.describe("packaged visual in a real browser", () => {
         expect(canvas.selected).toBe(svg.selected);
         expect(canvas.tooltip).toBe(svg.tooltip);
         expect(canvas.context).toBe(svg.context);
+    });
+
+    test("keeps snapshot pinch and two-to-one rebase transforms identical in SVG and Canvas", async ({ page }) => {
+        const exercise = async (threshold: number) => {
+            await mount(page, {
+                contextMode: "grid",
+                navigationEnabled: true,
+                svgFeatureThreshold: threshold,
+                entities: ["Entity A", "Entity B"],
+                periods: [],
+                bands: ["Band 1"],
+                series: [],
+                profiles: ["Metric A"]
+            });
+            const result = await page.locator(".profile-lens-context").evaluate((node) => {
+                const root = node as HTMLElement & {
+                    __profileLensContextMetrics: { cameraFrames: number; moveEnds: number };
+                };
+                const bounds = root.getBoundingClientRect();
+                const fire = (type: string, id: number, x: number, y: number) => {
+                    root.dispatchEvent(new PointerEvent(type, {
+                        bubbles: true,
+                        cancelable: true,
+                        pointerId: id,
+                        pointerType: "touch",
+                        button: 0,
+                        clientX: bounds.left + x,
+                        clientY: bounds.top + y
+                    }));
+                };
+                const matrix = () => {
+                    const transform = root.querySelector(".profile-lens-context-outline-layer")
+                        ?.getAttribute("transform") ?? "";
+                    const values = transform
+                        .match(/-?\d+(?:\.\d+)?(?:e[+-]?\d+)?/gi)
+                        ?.map(Number) ?? [];
+                    if (values.length !== 6) throw new Error(`invalid pinch transform ${transform}`);
+                    return values;
+                };
+                const before = { ...root.__profileLensContextMetrics };
+                fire("pointerdown", 51, 90, 130);
+                fire("pointerdown", 52, 210, 170);
+                fire("pointermove", 51, 70, 120);
+                fire("pointermove", 52, 250, 190);
+                const pinched = matrix();
+                fire("pointerup", 52, 250, 190);
+                const afterLift = matrix();
+                fire("pointermove", 51, 82, 126);
+                const rebased = matrix();
+                fire("pointerup", 51, 82, 126);
+                return {
+                    pinched,
+                    afterLift,
+                    rebased,
+                    cameraFrames:
+                        root.__profileLensContextMetrics.cameraFrames - before.cameraFrames,
+                    moveEnds: root.__profileLensContextMetrics.moveEnds - before.moveEnds
+                };
+            });
+            expect(result.afterLift).toEqual(result.pinched);
+            expect(result.rebased[0]).toBeCloseTo(result.pinched[0], 12);
+            expect(result.rebased[3]).toBeCloseTo(result.pinched[3], 12);
+            expect(result.rebased[4] - result.pinched[4]).toBeGreaterThanOrEqual(0);
+            expect(result.rebased[4] - result.pinched[4]).toBeLessThanOrEqual(12);
+            expect(result.rebased[5] - result.pinched[5]).toBeGreaterThanOrEqual(0);
+            expect(result.rebased[5] - result.pinched[5]).toBeLessThanOrEqual(6);
+            expect(result.cameraFrames).toBe(3);
+            expect(result.moveEnds).toBe(1);
+            await expect(page.locator(".profile-lens-header-title")).toHaveText("Entity A");
+            return result;
+        };
+        const svg = await exercise(500);
+        const canvas = await exercise(1);
+        expect(canvas.pinched).toEqual(svg.pinched);
+        expect(canvas.afterLift).toEqual(svg.afterLift);
+        expect(canvas.rebased).toEqual(svg.rebased);
     });
 
     test("does not focus a fallback feature when physical drag enters a partial scene", async ({ page }) => {

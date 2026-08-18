@@ -1,6 +1,11 @@
 import type { ScenePoint, SceneTransform, Viewport } from "../contract";
 import { clampCameraToBounds } from "./bounds";
-import type { CameraLimits, ContextCamera, SceneBounds } from "./contract";
+import type {
+    CameraLimits,
+    ContextCamera,
+    ContextPinchSnapshot,
+    SceneBounds
+} from "./contract";
 
 export const DEFAULT_CAMERA: ContextCamera = {
     zoom: 1,
@@ -103,6 +108,9 @@ export function zoomCameraAt(
     assertLimits(limits);
     const baseAnchor = cameraToBasePoint(anchor, camera);
     const zoom = Math.min(Math.max(camera.zoom * factor, limits.minZoom), limits.maxZoom);
+    if (zoom === camera.zoom) {
+        return clampCameraToBounds(camera, baseBounds, viewport, limits.overscroll);
+    }
     return clampCameraToBounds({
         zoom,
         panX: anchor.x - baseAnchor.x * zoom,
@@ -128,6 +136,45 @@ export function cameraForPinch(
         panX: midpoint.x - baseAnchor.x * clampedZoom,
         panY: midpoint.y - baseAnchor.y * clampedZoom
     }, baseBounds, viewport, limits.overscroll);
+}
+
+export function createPinchSnapshot(
+    camera: ContextCamera,
+    midpoint: ScenePoint
+): ContextPinchSnapshot {
+    assertCamera(camera);
+    assertPoint(midpoint);
+    return {
+        baseAnchor: cameraToBasePoint(midpoint, camera),
+        zoom: camera.zoom
+    };
+}
+
+export function cameraFromPinchSnapshot(
+    snapshot: ContextPinchSnapshot,
+    distanceRatio: number,
+    midpoint: ScenePoint,
+    limits: CameraLimits,
+    baseBounds: SceneBounds,
+    viewport: Viewport
+): ContextCamera {
+    assertPoint(snapshot.baseAnchor);
+    assertFinite(snapshot.zoom, "Pinch snapshot zoom");
+    if (snapshot.zoom <= 0) {
+        throw new Error("Pinch snapshot zoom must be positive.");
+    }
+    assertFinite(distanceRatio, "Pinch distance ratio");
+    if (distanceRatio <= 0) {
+        throw new Error("Pinch distance ratio must be positive.");
+    }
+    return cameraForPinch(
+        snapshot.baseAnchor,
+        midpoint,
+        snapshot.zoom * distanceRatio,
+        limits,
+        baseBounds,
+        viewport
+    );
 }
 
 export function preserveCameraOnResize(
