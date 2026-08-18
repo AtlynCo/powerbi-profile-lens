@@ -297,7 +297,8 @@ describe("native validation evidence safety", () => {
         const wrapped = JSON.parse(fs.readFileSync(outputPath, "utf8")) as typeof worker;
         expect(wrapped).toEqual(worker);
         expect(wrapped.contract.viewportNavigation).toBeDefined();
-        expect(wrapped.proofBoundary).toContain("primary-drag and wheel gestures");
+        expect(wrapped.proofBoundary).toContain("primary-drag");
+        expect(wrapped.proofBoundary).toContain("min/max wheel gestures");
     });
 
     it("proves final PBIVIZ payload parity and rejects embedded drift", async () => {
