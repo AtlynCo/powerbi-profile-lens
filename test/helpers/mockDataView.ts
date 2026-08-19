@@ -31,6 +31,7 @@ export interface MatrixInput {
     readonly duplicateFirstBand?: boolean;
     readonly objects?: powerbi.DataViewObjects;
     readonly segment?: boolean;
+    readonly unloadedEntityIndexes?: readonly number[];
 }
 
 function metadata(
@@ -165,7 +166,9 @@ export function buildMatrixDataView(input: MatrixInput): DataView {
     };
 
     const entityNodes = input.entities.map((entity, entityIndex) => {
-        const children = hasPeriods
+        const children = input.unloadedEntityIndexes?.includes(entityIndex)
+            ? []
+            : hasPeriods
             ? (input.periods ?? []).map((period, periodIndex) => ({
                 ...node(period, `period:${entityIndex}:${periodIndex}`),
                 children: buildBandNodes(entityIndex, periodIndex)

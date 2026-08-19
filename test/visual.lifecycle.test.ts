@@ -66,17 +66,41 @@ function setSurfaceBounds(
 }
 
 function contextMetrics(root: HTMLElement): {
+    providerBuilds: number;
     sceneBuilds: number;
+    sceneIndexBuilds: number;
     svgGeometryBuilds: number;
+    canvasRasterBuilds: number;
+    canvasPickingBuilds: number;
     cameraFrames: number;
     moveEnds: number;
+    probeResolutions: number;
+    probeTransitions: number;
+    probeDedupes: number;
+    profilePartialUpdates: number;
+    hostSelectionRequests: number;
+    hostSelectionResolved: number;
+    hostSelectionRejected: number;
+    hostSelectionStale: number;
 } {
     return (root as HTMLElement & {
         __profileLensContextMetrics: {
+            providerBuilds: number;
             sceneBuilds: number;
+            sceneIndexBuilds: number;
             svgGeometryBuilds: number;
+            canvasRasterBuilds: number;
+            canvasPickingBuilds: number;
             cameraFrames: number;
             moveEnds: number;
+            probeResolutions: number;
+            probeTransitions: number;
+            probeDedupes: number;
+            profilePartialUpdates: number;
+            hostSelectionRequests: number;
+            hostSelectionResolved: number;
+            hostSelectionRejected: number;
+            hostSelectionStale: number;
         };
     }).__profileLensContextMetrics;
 }
@@ -433,13 +457,11 @@ describe("interaction", () => {
             }
         })));
         const surface = mock.element.querySelector<HTMLElement>(".profile-lens-context");
-        expect(surface?.getAttribute("aria-setsize")).toBe("2");
+        expect(surface?.getAttribute("aria-setsize")).toBe("177");
         expect(surface?.getAttribute("aria-description")).toContain("Natural Earth 5.1.1");
-        const options = [...mock.element.querySelectorAll("[role='option']")];
-        expect(options.map((entry) => entry.getAttribute("aria-label"))).toEqual([
-            expect.stringContaining("United States of America"),
-            expect.stringContaining("Kosovo")
-        ]);
+        expect(mock.element.querySelector("[data-context-key='USA']")).not.toBeNull();
+        expect(mock.element.querySelector("[data-context-key='NE:KOS']")).not.toBeNull();
+        expect(mock.element.querySelectorAll("[role='option']").length).toBeLessThanOrEqual(100);
         expect(mock.element.querySelector('[data-code="malformedPackKey"]')?.textContent)
             .toContain(" usa");
     });
@@ -459,8 +481,26 @@ describe("interaction", () => {
             }
         })));
         expect(mock.element.querySelector(".profile-lens-context")?.getAttribute("aria-setsize"))
-            .toBe("2");
+            .toBe("56");
         expect(mock.element.querySelector('[data-code="malformedPackKey"]')).not.toBeNull();
+    });
+
+    it("keeps bound Context values in semantic option descriptions", () => {
+        const { mock, visual } = mount();
+        visual.update(updateOptions(buildMatrixDataView({
+            entities: ["Entity A", "Entity B"],
+            bands: ["Band 1"],
+            profiles: ["Metric A"],
+            contextValue: (entityIndex) => entityIndex + 2.5,
+            objects: {
+                context: { mode: "grid" },
+                navigation: { enabled: false }
+            }
+        })));
+        expect(mock.element.querySelector("[id='context:entity:0']")
+            ?.getAttribute("aria-label")).toContain("Context value: 2.5");
+        expect(mock.element.querySelector("[id='context:entity:1']")
+            ?.getAttribute("aria-label")).toContain("Context value: 3.5");
     });
 
     it.each([
@@ -546,7 +586,7 @@ describe("interaction", () => {
         }
     );
 
-    it("starts context navigation from no-context local focus after context re-entry", () => {
+    it("lets auto probe focus supersede no-context focus after context re-entry", () => {
         const { mock, visual } = mount();
         const build = (contextMode: "none" | "grid"): powerbi.DataView =>
             buildMatrixDataView({
@@ -566,13 +606,15 @@ describe("interaction", () => {
         visual.update(updateOptions(build("grid")));
         const surface = mock.element.querySelector<HTMLElement>(".profile-lens-context");
         surface?.focus();
-        expect(surface?.getAttribute("aria-activedescendant")).toBe("context:entity:1");
-        const down = new Event("keydown", { bubbles: true, cancelable: true });
-        Object.assign(down, { key: "ArrowDown" });
-        surface?.dispatchEvent(down);
+        expect(surface?.getAttribute("aria-activedescendant")).toBe("context:entity:3");
         expect(mock.element.querySelector(".profile-lens-header-title")?.textContent)
             .toBe("Entity D");
-        expect(surface?.getAttribute("aria-activedescendant")).toBe("context:entity:3");
+        const up = new Event("keydown", { bubbles: true, cancelable: true });
+        Object.assign(up, { key: "ArrowUp" });
+        surface?.dispatchEvent(up);
+        expect(mock.element.querySelector(".profile-lens-header-title")?.textContent)
+            .toBe("Entity B");
+        expect(surface?.getAttribute("aria-activedescendant")).toBe("context:entity:1");
         expect(mock.applyJsonFilter).not.toHaveBeenCalled();
         expect(mock.selection.select).not.toHaveBeenCalled();
     });
@@ -602,7 +644,88 @@ describe("interaction", () => {
         expect(mock.applyJsonFilter).not.toHaveBeenCalled();
     });
 
-    it("pans without selecting, then preserves ordinary click activation", async () => {
+    it("applies migration-safe auto/on/off navigation behavior", () => {
+        const render = (
+            entities: readonly string[],
+            enabled: boolean | undefined,
+            allowInteractions = true,
+            profileOnly = false
+        ) => {
+            resetDocument();
+            const { mock, visual } = mount({ allowInteractions });
+            visual.update(updateOptions(buildMatrixDataView({
+                entities,
+                bands: ["Band 1"],
+                profiles: ["Metric A"],
+                objects: {
+                    context: { mode: "grid" },
+                    ...(profileOnly ? { layout: { contextLayout: "profileOnly" } } : {}),
+                    ...(enabled === undefined ? {} : { navigation: { enabled } })
+                }
+            })));
+            const surface = mock.element.querySelector<HTMLElement>(".profile-lens-context")!;
+            return {
+                active: surface.classList.contains("profile-lens-context-navigation-active"),
+                probe: mock.element.querySelector(".profile-lens-context-probe"),
+                hidden: surface.hasAttribute("hidden")
+            };
+        };
+        expect(render(["Entity A", "Entity B"], undefined)).toMatchObject({
+            active: true,
+            probe: expect.anything(),
+            hidden: false
+        });
+        expect(render(["Entity A"], undefined)).toEqual({
+            active: false,
+            probe: null,
+            hidden: false
+        });
+        expect(render(["Entity A", "Entity B"], false)).toEqual({
+            active: false,
+            probe: null,
+            hidden: false
+        });
+        expect(render(["Entity A"], true)).toMatchObject({
+            active: true,
+            probe: expect.anything(),
+            hidden: false
+        });
+        expect(render(["Entity A", "Entity B"], undefined, false)).toEqual({
+            active: false,
+            probe: null,
+            hidden: false
+        });
+        expect(render(["Entity A", "Entity B"], undefined, true, true)).toEqual({
+            active: false,
+            probe: null,
+            hidden: true
+        });
+    });
+
+    it("keeps one profile roving tab stop alongside probe-driven Context focus", () => {
+        const { mock, visual } = mount();
+        visual.update(updateOptions(buildMatrixDataView({
+            entities: ["Entity A", "Entity B", "Entity C", "Entity D"],
+            bands: ["Band 1", "Band 2"],
+            profiles: ["Metric A"],
+            objects: { context: { mode: "grid" } }
+        })));
+        const surface = mock.element.querySelector<HTMLElement>(".profile-lens-context")!;
+        setSurfaceBounds(surface, 320, 300);
+        const profileTabStops = () => [...mock.element.querySelectorAll(".profile-lens-target")]
+            .filter((target) => target.getAttribute("tabindex") === "0");
+        expect(profileTabStops()).toHaveLength(1);
+        expect(surface.getAttribute("tabindex")).toBe("0");
+        surface.focus();
+        surface.dispatchEvent(key("keydown", "+"));
+        expect(document.activeElement).toBe(surface);
+        surface.dispatchEvent(key("keydown", "ArrowLeft", { shiftKey: true }));
+        expect(document.activeElement).toBe(surface);
+        expect(profileTabStops()).toHaveLength(1);
+        expect(surface.getAttribute("aria-activedescendant")).toMatch(/^context:/);
+    });
+
+    it("keeps movement local until settle and preserves ordinary click activation", async () => {
         const { mock, visual } = mount();
         visual.update(updateOptions(buildMatrixDataView({
             entities: ["Entity A", "Entity B"],
@@ -631,6 +754,7 @@ describe("interaction", () => {
             clientX: 80,
             clientY: 250
         }));
+        expect(mock.selection.select).not.toHaveBeenCalled();
         surface.dispatchEvent(pointer("contextmenu", {
             clientX: 80,
             clientY: 250
@@ -640,12 +764,13 @@ describe("interaction", () => {
             clientX: 80,
             clientY: 250
         }));
+        await Promise.resolve();
         surface.dispatchEvent(pointer("click", {
             clientX: 80,
             clientY: 250
         }));
         expect(layer.getAttribute("transform")).not.toBe(before);
-        expect(mock.selection.select).not.toHaveBeenCalled();
+        expect(mock.selection.select).toHaveBeenCalledTimes(1);
         expect(mock.selection.showContextMenu).not.toHaveBeenCalled();
         expect(mock.tooltip.show).not.toHaveBeenCalled();
         expect(mock.element.querySelector(".profile-lens-header-title")?.textContent)
@@ -667,10 +792,10 @@ describe("interaction", () => {
             clientY: 250
         }));
         await Promise.resolve();
-        expect(mock.selection.select).toHaveBeenCalledTimes(1);
+        expect(mock.selection.select).toHaveBeenCalledTimes(2);
     });
 
-    it("does not focus a fallback feature when the current entity is absent from the scene", () => {
+    it("does not invent a fallback when the probe resolves no feature", () => {
         const { mock, visual } = mount();
         visual.update(updateOptions(buildMatrixDataView({
             entities: ["UNKNOWN", "USA"],
@@ -689,34 +814,427 @@ describe("interaction", () => {
         setSurfaceBounds(surface, 320, 300);
         surface.focus();
         expect(mock.element.querySelector(".profile-lens-header-title")?.textContent)
+            .toBe("No Context feature at the center probe");
+        expect(mock.element.querySelector(".profile-lens-table")?.textContent)
+            .toContain("No data in current report context");
+        expect(mock.element.querySelector(".profile-lens-probe-announcement")?.textContent)
+            .toContain("no Context feature");
+        expect(mock.selection.select).not.toHaveBeenCalled();
+    });
+
+    it("restores ordinary Entity focus when Context is removed", () => {
+        const { mock, visual } = mount();
+        const build = (mode: "builtInPack" | "none") => buildMatrixDataView({
+            entities: ["UNKNOWN", "USA"],
+            bands: ["Band 1"],
+            profiles: ["Metric A"],
+            objects: {
+                context: {
+                    mode,
+                    pack: "worldCountries",
+                    packKeyMode: "canonical"
+                }
+            }
+        });
+        visual.update(updateOptions(build("builtInPack")));
+        expect(mock.element.querySelector(".profile-lens-header-title")?.textContent)
+            .toBe("No Context feature at the center probe");
+        visual.update(updateOptions(build("none")));
+        expect(mock.element.querySelector(".profile-lens-header-title")?.textContent)
             .toBe("UNKNOWN");
+        expect(mock.element.querySelectorAll(".profile-lens-target").length).toBeGreaterThan(0);
+        expect(mock.element.querySelector(".profile-lens-table")?.textContent)
+            .not.toContain("No data in current report context");
+        expect(mock.element.querySelector(".profile-lens-status")?.getAttribute("role"))
+            .toBe("status");
+        expect(mock.element.querySelector(".profile-lens-status")?.getAttribute("aria-live"))
+            .toBe("polite");
+    });
+
+    it("does not revive a stale render session after the DataView becomes non-renderable", () => {
+        const { mock, visual } = mount();
+        visual.update(updateOptions(buildMatrixDataView({
+            entities: ["Entity A", "Entity B"],
+            bands: ["Band 1"],
+            profiles: ["Metric A"],
+            objects: { context: { mode: "grid" } }
+        })));
+        visual.update(updateOptions(buildMatrixDataView({
+            entities: [],
+            bands: ["Band 1"],
+            profiles: ["Metric A"]
+        })));
+        expect(mock.element.querySelector(".profile-lens-header")?.hasAttribute("hidden")).toBe(true);
+        expect(mock.element.querySelector(".profile-lens-landing")?.hasAttribute("hidden"))
+            .toBe(false);
+        mock.selection.onSelectCallback?.([mockSelectionId("|node:entity:0")]);
+        expect(mock.element.querySelector(".profile-lens-header")?.hasAttribute("hidden")).toBe(true);
+        expect(mock.element.querySelector(".profile-lens-landing")?.hasAttribute("hidden"))
+            .toBe(false);
+        expect(mock.element.querySelectorAll(".profile-lens-target")).toHaveLength(0);
+    });
+
+    it("uses an exact loaded fallback only for no-feature without selecting it", () => {
+        const { mock, visual } = mount();
+        visual.update(updateOptions(buildMatrixDataView({
+            entities: ["WLD", "USA"],
+            bands: ["Band 1"],
+            profiles: ["Metric A"],
+            objects: {
+                context: {
+                    mode: "builtInPack",
+                    pack: "worldCountries",
+                    packKeyMode: "canonical"
+                },
+                navigation: {
+                    fallbackEntityKey: "WLD"
+                }
+            }
+        })));
+        expect(mock.element.querySelector(".profile-lens-header-title")?.textContent).toBe("WLD");
+        expect(mock.element.querySelector(".profile-lens-header-subtitle")?.textContent)
+            .toContain("Showing configured fallback Entity");
+        expect(mock.element.querySelector(".profile-lens-table")?.textContent)
+            .not.toContain("No data in current report context");
+        expect(mock.selection.select).not.toHaveBeenCalled();
+        expect(mock.element.querySelectorAll(".profile-lens-context-outline")).toHaveLength(0);
+        expect(mock.element.querySelector(".profile-lens-context")
+            ?.getAttribute("aria-activedescendant")).toBeNull();
+        expect(mock.element.querySelector(".profile-lens-probe-announcement")?.textContent)
+            .toContain("configured fallback Entity WLD");
+    });
+
+    it("does not let fallback mask a known no-data backdrop feature", () => {
+        const { mock, visual } = mount();
+        visual.update(updateOptions(buildMatrixDataView({
+            entities: ["WLD", "USA"],
+            bands: ["Band 1"],
+            profiles: ["Metric A"],
+            objects: {
+                context: {
+                    mode: "builtInPack",
+                    pack: "worldCountries",
+                    packKeyMode: "canonical"
+                },
+                navigation: { fallbackEntityKey: "WLD" },
+                interaction: { mode: "reportSelection" }
+            }
+        })));
+        const surface = mock.element.querySelector<HTMLElement>(".profile-lens-context")!;
+        setSurfaceBounds(surface, 320, 300);
+        surface.focus();
+        surface.dispatchEvent(key("keydown", "Enter"));
+        expect(mock.element.querySelector(".profile-lens-header-title")?.textContent)
+            .not.toBe("WLD");
+        expect(mock.element.querySelector(".profile-lens-table")?.textContent)
+            .toContain("No data in current report context");
+        expect(mock.selection.select).not.toHaveBeenCalled();
+    });
+
+    it("clears profile values and suppresses settle selection for unloaded detail", () => {
+        const { mock, visual } = mount();
+        visual.update(updateOptions(buildMatrixDataView({
+            entities: [
+                "Entity A", "Entity B", "Entity C",
+                "Entity D", "Entity E", "Entity F",
+                "Entity G", "Entity H", "Entity I"
+            ],
+            unloadedEntityIndexes: [4],
+            bands: ["Band 1"],
+            profiles: ["Metric A"],
+            objects: {
+                context: { mode: "grid" },
+                interaction: { mode: "reportSelection" }
+            }
+        })));
+        const surface = mock.element.querySelector<HTMLElement>(".profile-lens-context")!;
+        setSurfaceBounds(surface, 320, 300);
+        surface.focus();
+        expect(mock.element.querySelector(".profile-lens-header-title")?.textContent)
+            .toBe("Entity E");
+        expect(mock.element.querySelector(".profile-lens-header-subtitle")?.textContent)
+            .toContain("not loaded");
+        expect(mock.element.querySelector(".profile-lens-table")?.textContent)
+            .toContain("not loaded");
+        expect(mock.element.querySelector(".profile-lens-status-summary")?.textContent)
+            .toContain("not loaded");
+        expect(mock.element.querySelector(".profile-lens-status-summary")?.textContent)
+            .not.toContain("No data in current report context");
+        expect(mock.element.querySelector(".profile-lens-probe-announcement")?.textContent)
+            .toContain("not loaded");
+        surface.dispatchEvent(key("keydown", "ArrowLeft", { shiftKey: true }));
+        expect(mock.selection.select).not.toHaveBeenCalled();
+    });
+
+    it("restores unloaded probe presentation after a lifecycle resize", () => {
+        const { mock, visual } = mount();
+        const view = buildMatrixDataView({
+            entities: [
+                "Entity A", "Entity B", "Entity C",
+                "Entity D", "Entity E", "Entity F",
+                "Entity G", "Entity H", "Entity I"
+            ],
+            unloadedEntityIndexes: [4],
+            bands: ["Band 1"],
+            profiles: ["Metric A"],
+            objects: { context: { mode: "grid" } }
+        });
+        visual.update(updateOptions(view, { width: 800, height: 600 }));
+        expect(mock.element.querySelector(".profile-lens-header-subtitle")?.textContent)
+            .toContain("not loaded");
+        visual.update(updateOptions(view, { width: 1000, height: 700 }));
+        expect(mock.element.querySelector(".profile-lens-header-title")?.textContent)
+            .toBe("Entity E");
+        expect(mock.element.querySelector(".profile-lens-header-subtitle")?.textContent)
+            .toContain("not loaded");
+        expect(mock.element.querySelector(".profile-lens-table")?.textContent)
+            .toContain("not loaded");
+    });
+
+    it("reasserts probe focus after explicit spatial browsing when the camera next moves", () => {
+        const { mock, visual } = mount();
+        visual.update(updateOptions(buildMatrixDataView({
+            entities: ["Entity A", "Entity B", "Entity C", "Entity D"],
+            bands: ["Band 1"],
+            profiles: ["Metric A"],
+            objects: {
+                context: { mode: "grid" },
+                interaction: { mode: "localOnly" }
+            }
+        })));
+        const surface = mock.element.querySelector<HTMLElement>(".profile-lens-context")!;
+        surface.focus();
+        const probeTitle = mock.element.querySelector(".profile-lens-header-title")?.textContent;
+        surface.dispatchEvent(key("keydown", "ArrowUp"));
+        const browsedTitle = mock.element.querySelector(".profile-lens-header-title")?.textContent;
+        expect(browsedTitle).not.toBe(probeTitle);
+        surface.dispatchEvent(key("keydown", "+"));
+        const restoredTitle =
+            mock.element.querySelector(".profile-lens-header-title")?.textContent;
+        expect(restoredTitle).not.toBe(browsedTitle);
+        expect(mock.element.querySelector(".profile-lens-probe-announcement")?.textContent)
+            .toContain(restoredTitle);
+        expect(mock.selection.select).not.toHaveBeenCalled();
+    });
+
+    it("does not run a redundant partial profile render when full focus already matches", () => {
+        const { mock, visual } = mount();
+        visual.update(updateOptions(buildMatrixDataView({
+            entities: ["Entity A", "Entity B"],
+            bands: ["Band 1"],
+            profiles: ["Metric A"],
+            objects: {
+                context: { mode: "grid" },
+                navigation: { enabled: false }
+            }
+        })));
+        const surface = mock.element.querySelector<HTMLElement>(".profile-lens-context")!;
+        expect(contextMetrics(surface).profilePartialUpdates).toBe(0);
+        expect(mock.element.querySelectorAll(".profile-lens-target").length).toBeGreaterThan(0);
+    });
+
+    it("activates the current probed Entity after keyboard camera movement", async () => {
+        const { mock, visual } = mount();
+        visual.update(updateOptions(buildMatrixDataView({
+            entities: ["Entity A", "Entity B", "Entity C", "Entity D"],
+            bands: ["Band 1"],
+            profiles: ["Metric A"],
+            objects: {
+                context: { mode: "grid" },
+                interaction: { mode: "reportSelection" }
+            }
+        })));
+        const surface = mock.element.querySelector<HTMLElement>(".profile-lens-context")!;
+        setSurfaceBounds(surface, 320, 300);
+        surface.focus();
+        surface.dispatchEvent(key("keydown", "+"));
+        surface.dispatchEvent(key("keydown", "+"));
+        surface.dispatchEvent(key("keydown", "ArrowLeft", { shiftKey: true }));
+        const currentTitle =
+            mock.element.querySelector(".profile-lens-header-title")?.textContent ?? "";
+        mock.selection.select.mockClear();
+        surface.dispatchEvent(key("keydown", "Enter"));
+        await Promise.resolve();
+        expect(mock.element.querySelector(".profile-lens-header-title")?.textContent)
+            .toBe(currentTitle);
+        expect(mock.selection.select).toHaveBeenCalledTimes(1);
+        const identity = mock.selection.select.mock.calls[0][0] as { getKey: () => string };
+        expect(identity.getKey()).toContain(
+            `entity:${["Entity A", "Entity B", "Entity C", "Entity D"].indexOf(currentTitle)}`
+        );
+    });
+
+    it("keeps external Entity selection as an overlay without taking over probe focus", () => {
+        const { mock, visual } = mount();
+        visual.update(updateOptions(buildMatrixDataView({
+            entities: ["Entity A", "Entity B", "Entity C", "Entity D"],
+            bands: ["Band 1"],
+            profiles: ["Metric A"],
+            objects: {
+                context: { mode: "grid" },
+                interaction: { mode: "localOnly" }
+            }
+        })));
+        const title = mock.element.querySelector(".profile-lens-header-title")?.textContent;
+        mock.selection.onSelectCallback?.([mockSelectionId("|node:entity:0")]);
+        expect(mock.element.querySelector(".profile-lens-header-title")?.textContent).toBe(title);
+        expect(mock.element.querySelectorAll(".profile-lens-context-outline").length)
+            .toBeGreaterThanOrEqual(2);
+        expect(mock.selection.select).not.toHaveBeenCalled();
+    });
+
+    it("updates probe focus without rebuilding provider, scene, geometry, or picking", () => {
+        const { mock, visual } = mount();
+        visual.update(updateOptions(buildMatrixDataView({
+            entities: ["Entity A", "Entity B", "Entity C", "Entity D"],
+            bands: ["Band 1"],
+            profiles: ["Metric A"],
+            objects: {
+                context: { mode: "grid" },
+                interaction: { mode: "localOnly" }
+            }
+        })));
+        const surface = mock.element.querySelector<HTMLElement>(".profile-lens-context")!;
+        setSurfaceBounds(surface, 320, 300);
+        surface.focus();
+        const initialTitle = mock.element.querySelector(".profile-lens-header-title")?.textContent;
+        const before = { ...contextMetrics(surface) };
+        surface.dispatchEvent(key("keydown", "+"));
+        surface.dispatchEvent(key("keydown", "+"));
+        for (let index = 0; index < 6; index++) {
+            surface.dispatchEvent(key("keydown", "ArrowLeft", { shiftKey: true }));
+        }
+        const after = contextMetrics(surface);
+        expect(mock.element.querySelector(".profile-lens-header-title")?.textContent)
+            .not.toBe(initialTitle);
+        expect(after.providerBuilds).toBe(before.providerBuilds);
+        expect(after.sceneBuilds).toBe(before.sceneBuilds);
+        expect(after.sceneIndexBuilds).toBe(before.sceneIndexBuilds);
+        expect(after.svgGeometryBuilds).toBe(before.svgGeometryBuilds);
+        expect(after.canvasRasterBuilds).toBe(before.canvasRasterBuilds);
+        expect(after.canvasPickingBuilds).toBe(before.canvasPickingBuilds);
+        expect(after.profilePartialUpdates).toBeGreaterThan(before.profilePartialUpdates);
+        expect(after.profilePartialUpdates - before.profilePartialUpdates)
+            .toBeLessThan(after.probeResolutions - before.probeResolutions);
+        expect(mock.element.querySelector(".profile-lens-status")?.getAttribute("role"))
+            .toBe("group");
+        expect(mock.element.querySelector(".profile-lens-status")?.getAttribute("aria-live"))
+            .toBe("off");
+        expect(mock.element.querySelector(".profile-lens-probe-announcement")?.getAttribute("role"))
+            .toBe("status");
+        expect(mock.selection.select).not.toHaveBeenCalled();
+    });
+
+    it("keeps local focus stable across deferred out-of-order Entity selections", async () => {
+        const { mock, visual } = mount({ selectionBehavior: "deferred" });
+        visual.update(updateOptions(buildMatrixDataView({
+            entities: ["Entity A", "Entity B", "Entity C", "Entity D"],
+            bands: ["Band 1"],
+            profiles: ["Metric A"],
+            objects: {
+                context: { mode: "grid" },
+                navigation: { enabled: false },
+                interaction: { mode: "reportSelection" }
+            }
+        })));
+        const surface = mock.element.querySelector<HTMLElement>(".profile-lens-context")!;
+        surface.focus();
+        surface.dispatchEvent(key("keydown", "Enter"));
+        surface.dispatchEvent(key("keydown", "ArrowRight"));
+        surface.dispatchEvent(key("keydown", "Enter"));
+        surface.dispatchEvent(key("keydown", "ArrowLeft"));
+        surface.dispatchEvent(key("keydown", "Enter"));
+        expect(mock.selection.select).toHaveBeenCalledTimes(3);
+        expect(mock.selection.pending).toHaveLength(3);
+        expect(mock.element.querySelector(".profile-lens-header-title")?.textContent)
+            .toBe("Entity A");
+
+        mock.selection.resolvePending(1);
+        await Promise.resolve();
+        mock.selection.resolvePending(0);
+        await Promise.resolve();
+        mock.selection.resolvePending(0);
+        await Promise.resolve();
+
+        const metrics = contextMetrics(surface);
+        expect(metrics.hostSelectionStale).toBe(2);
+        expect(metrics.hostSelectionResolved).toBe(1);
+        expect(mock.element.querySelector(".profile-lens-header-title")?.textContent)
+            .toBe("Entity A");
+    });
+
+    it("surfaces a rejected host selection without changing local focus or retrying", async () => {
+        const { mock, visual } = mount({ selectionBehavior: "reject" });
+        visual.update(updateOptions(buildMatrixDataView({
+            entities: ["Entity A", "Entity B"],
+            bands: ["Band 1"],
+            profiles: ["Metric A"],
+            objects: {
+                context: { mode: "grid" },
+                navigation: { enabled: false },
+                interaction: { mode: "reportSelection" }
+            }
+        })));
+        const surface = mock.element.querySelector<HTMLElement>(".profile-lens-context")!;
+        surface.focus();
+        surface.dispatchEvent(key("keydown", "Enter"));
+        await Promise.resolve();
+        await Promise.resolve();
+        expect(mock.selection.select).toHaveBeenCalledTimes(1);
+        expect(contextMetrics(surface).hostSelectionRejected).toBe(1);
+        expect(mock.element.querySelector('[data-code="hostSelectionRejected"]')).not.toBeNull();
+        expect(mock.element.querySelector(".profile-lens-header-title")?.textContent)
+            .toBe("Entity A");
+        visual.update(updateOptions(undefined, { width: 900, height: 700 }));
+        expect(mock.element.querySelector('[data-code="hostSelectionRejected"]')).not.toBeNull();
+    });
+
+    it("does not turn a rejected drag settle into a synthetic-click retry", async () => {
+        const { mock, visual } = mount({ selectionBehavior: "reject" });
+        visual.update(updateOptions(buildMatrixDataView({
+            entities: ["Entity A", "Entity B", "Entity C", "Entity D"],
+            bands: ["Band 1"],
+            profiles: ["Metric A"],
+            objects: {
+                context: { mode: "grid" },
+                navigation: { enabled: true },
+                interaction: { mode: "reportSelection" },
+                diagnostics: { showDiagnostics: false }
+            }
+        })));
+        const surface = mock.element.querySelector<HTMLElement>(".profile-lens-context")!;
+        setSurfaceBounds(surface, 320, 300);
         surface.dispatchEvent(pointer("pointerdown", {
-            pointerId: 1,
+            pointerId: 71,
             button: 0,
             clientX: 120,
             clientY: 150
         }));
         surface.dispatchEvent(pointer("pointermove", {
-            pointerId: 1,
-            clientX: 150,
+            pointerId: 71,
+            clientX: 160,
             clientY: 150
         }));
         surface.dispatchEvent(pointer("pointerup", {
-            pointerId: 1,
-            clientX: 150,
+            pointerId: 71,
+            clientX: 160,
             clientY: 150
         }));
+        await Promise.resolve();
+        await Promise.resolve();
+        expect(mock.element.querySelector(".profile-lens-status")?.getAttribute("role"))
+            .toBe("status");
+        expect(mock.element.querySelector(".profile-lens-status")?.getAttribute("aria-live"))
+            .toBe("polite");
+        expect(mock.element.querySelector(".profile-lens-status-summary")?.textContent)
+            .toContain("Power BI rejected the Entity selection");
+        expect(mock.element.querySelector('[data-code="hostSelectionRejected"]')).toBeNull();
         surface.dispatchEvent(pointer("click", {
-            clientX: 150,
+            clientX: 160,
             clientY: 150
         }));
-        expect(mock.element.querySelector(".profile-lens-header-title")?.textContent)
-            .toBe("UNKNOWN");
-        expect(mock.selection.select).not.toHaveBeenCalled();
-        surface.dispatchEvent(key("keydown", "Enter"));
-        expect(mock.element.querySelector(".profile-lens-header-title")?.textContent)
-            .toBe("USA");
         expect(mock.selection.select).toHaveBeenCalledTimes(1);
+        expect(contextMetrics(surface).hostSelectionRejected).toBe(1);
     });
 
     it("keeps the camera and scene build stable across local focus and selection rerenders", () => {
@@ -820,7 +1338,7 @@ describe("interaction", () => {
             ?.getAttribute("transform")).toBe("matrix(1,0,0,1,0,0)");
     });
 
-    it("zooms by wheel, keyboard, and pinch without changing profile focus", () => {
+    it("zooms by wheel, keyboard, and pinch with probe-driven local focus", () => {
         vi.useFakeTimers();
         try {
             const { mock, visual } = mount();
@@ -835,7 +1353,8 @@ describe("interaction", () => {
                         showCenterProbe: true,
                         showResetControl: true,
                         showGestureHelp: true
-                    }
+                    },
+                    interaction: { mode: "localOnly" }
                 }
             })));
             const surface = mock.element.querySelector<HTMLElement>(".profile-lens-context")!;
@@ -848,7 +1367,8 @@ describe("interaction", () => {
             });
             surface.dispatchEvent(wheel);
             expect(wheel.defaultPrevented).toBe(true);
-            expect(vi.getTimerCount()).toBe(1);
+            expect(vi.getTimerCount()).toBeGreaterThanOrEqual(1);
+            expect(vi.getTimerCount()).toBeLessThanOrEqual(2);
             const afterWheel = mock.element.querySelector(
                 ".profile-lens-context-camera-layer"
             )?.getAttribute("transform");
@@ -895,16 +1415,17 @@ describe("interaction", () => {
             }));
             expect(mock.element.querySelector(".profile-lens-context-camera-layer")
                 ?.getAttribute("transform")).not.toBe("matrix(1,0,0,1,0,0)");
-            expect(mock.element.querySelector(".profile-lens-header-title")?.textContent)
-                .toBe("Entity A");
+            expect(["Entity A", "Entity B"]).toContain(
+                mock.element.querySelector(".profile-lens-header-title")?.textContent
+            );
             expect(mock.selection.select).not.toHaveBeenCalled();
             expect(mock.element.querySelector(".profile-lens-context-probe")).not.toBeNull();
-            expect(surface.getAttribute("aria-description")).toContain("does not change");
+            expect(surface.getAttribute("aria-description")).toContain("updates the local profile");
             expect(surface.getAttribute("aria-keyshortcuts")).toContain("Shift+ArrowLeft");
             expect(mock.element.querySelector(".profile-lens-context-reset")
                 ?.getAttribute("tabindex")).toBe("-1");
 
-            vi.advanceTimersByTime(120);
+            vi.advanceTimersByTime(250);
             expect(vi.getTimerCount()).toBe(0);
             expect(contextMetrics(surface).moveEnds).toBeGreaterThan(0);
         } finally {
@@ -973,11 +1494,56 @@ describe("interaction", () => {
             clientX: 110,
             clientY: 155
         }));
-        expect(mock.selection.select).not.toHaveBeenCalled();
+        expect(mock.selection.select).toHaveBeenCalledTimes(1);
         expect(contextMetrics(surface).moveEnds).toBe(1);
     });
 
-    it("contains finite nonzero wheel gestures at min/max zoom with one settle", () => {
+    it("does not commit a touch gesture that never changes the camera", () => {
+        const { mock, visual } = mount();
+        visual.update(updateOptions(buildMatrixDataView({
+            entities: ["Entity A", "Entity B", "Entity C", "Entity D"],
+            bands: ["Band 1"],
+            profiles: ["Metric A"],
+            objects: {
+                context: { mode: "grid" },
+                navigation: { enabled: true },
+                interaction: { mode: "reportSelection" }
+            }
+        })));
+        const surface = mock.element.querySelector<HTMLElement>(".profile-lens-context")!;
+        setSurfaceBounds(surface, 320, 300);
+        const before = contextMetrics(surface).moveEnds;
+        surface.dispatchEvent(pointer("pointerdown", {
+            pointerId: 31,
+            pointerType: "touch",
+            button: 0,
+            clientX: 100,
+            clientY: 150
+        }));
+        surface.dispatchEvent(pointer("pointerdown", {
+            pointerId: 32,
+            pointerType: "touch",
+            button: 0,
+            clientX: 200,
+            clientY: 150
+        }));
+        surface.dispatchEvent(pointer("pointerup", {
+            pointerId: 32,
+            pointerType: "touch",
+            clientX: 200,
+            clientY: 150
+        }));
+        surface.dispatchEvent(pointer("pointerup", {
+            pointerId: 31,
+            pointerType: "touch",
+            clientX: 100,
+            clientY: 150
+        }));
+        expect(contextMetrics(surface).moveEnds).toBe(before);
+        expect(mock.selection.select).not.toHaveBeenCalled();
+    });
+
+    it("contains clamped wheel input without a no-op settle commit", () => {
         vi.useFakeTimers();
         try {
             const { mock, visual } = mount();
@@ -1017,7 +1583,8 @@ describe("interaction", () => {
             expect(contextMetrics(surface).cameraFrames).toBe(before.cameraFrames);
             expect(vi.getTimerCount()).toBe(1);
             vi.advanceTimersByTime(120);
-            expect(contextMetrics(surface).moveEnds - before.moveEnds).toBe(1);
+            expect(contextMetrics(surface).moveEnds - before.moveEnds).toBe(0);
+            expect(mock.selection.select).not.toHaveBeenCalled();
             expect(vi.getTimerCount()).toBe(0);
 
             const zero = pointer("wheel", {
@@ -1132,6 +1699,9 @@ describe("interaction", () => {
             expect(surface.classList.contains("profile-lens-context-panning")).toBe(false);
             expect(mock.selection.select).not.toHaveBeenCalled();
             expect(mock.selection.showContextMenu).not.toHaveBeenCalled();
+            mock.element.querySelector<HTMLElement>(".profile-lens-target")
+                ?.dispatchEvent(pointer("click", { clientX: 10, clientY: 10 }));
+            expect(mock.selection.select).toHaveBeenCalledTimes(1);
         }
     );
 });
@@ -1166,6 +1736,49 @@ describe("accessibility and theming", () => {
         expect(status?.getAttribute("role")).toBe("status");
         expect(status?.getAttribute("aria-live")).toBe("polite");
         expect(status?.getAttribute("aria-busy")).toBe("false");
+    });
+
+    it("discards a queued probe announcement after explicit keyboard browsing", () => {
+        vi.useFakeTimers();
+        try {
+            const { mock, visual } = mount();
+            visual.update(updateOptions(buildMatrixDataView({
+                entities: [
+                    "Entity A", "Entity B", "Entity C",
+                    "Entity D", "Entity E", "Entity F",
+                    "Entity G", "Entity H", "Entity I"
+                ],
+                bands: ["Band 1"],
+                profiles: ["Metric A"],
+                objects: {
+                    context: { mode: "grid" },
+                    interaction: { mode: "localOnly" }
+                }
+            })));
+            const surface = mock.element.querySelector<HTMLElement>(".profile-lens-context")!;
+            setSurfaceBounds(surface, 320, 300);
+            surface.focus();
+            const announcement = mock.element.querySelector<HTMLElement>(
+                ".profile-lens-probe-announcement"
+            )!;
+            const initialAnnouncement = announcement.textContent;
+            surface.dispatchEvent(key("keydown", "+"));
+            surface.dispatchEvent(key("keydown", "+"));
+            for (let index = 0; index < 5; index++) {
+                surface.dispatchEvent(key("keydown", "ArrowLeft", { shiftKey: true }));
+            }
+            const queuedProbeTitle =
+                mock.element.querySelector(".profile-lens-header-title")?.textContent;
+            expect(vi.getTimerCount()).toBeLessThanOrEqual(1);
+            surface.dispatchEvent(key("keydown", "ArrowUp"));
+            expect(mock.element.querySelector(".profile-lens-header-title")?.textContent)
+                .not.toBe(queuedProbeTitle);
+            expect(vi.getTimerCount()).toBe(0);
+            vi.advanceTimersByTime(250);
+            expect(announcement.textContent).toBe(initialAnnouncement);
+        } finally {
+            vi.useRealTimers();
+        }
     });
 
     it("uses the host high contrast colors and pattern differentiation", () => {
@@ -1260,6 +1873,8 @@ describe("accessibility and theming", () => {
             expect(mock.element.querySelector(".profile-lens")
                 ?.classList.contains("profile-lens-reduced-motion")).toBe(true);
             expect(contextMetrics(surface).cameraFrames).toBeGreaterThan(0);
+            expect(vi.getTimerCount()).toBeLessThanOrEqual(1);
+            vi.advanceTimersByTime(250);
             expect(vi.getTimerCount()).toBe(0);
         } finally {
             vi.useRealTimers();
@@ -1284,6 +1899,24 @@ describe("accessibility and theming", () => {
             .toContain("profile-lens-table-visible");
         const firstCell = mock.element.querySelector("tbody td");
         expect(firstCell?.textContent).toContain("%");
+    });
+
+    it("normalizes legacy navigation booleans in the formatting dropdown", () => {
+        for (const [legacy, expected] of [[false, "off"], [true, "on"]] as const) {
+            resetDocument();
+            const { visual } = mount();
+            visual.update(updateOptions(buildMatrixDataView({
+                entities: ["Entity A", "Entity B"],
+                bands: ["Band 1"],
+                profiles: ["Metric A"],
+                objects: {
+                    context: { mode: "grid" },
+                    navigation: { enabled: legacy }
+                }
+            })));
+            expect(JSON.stringify(visual.getFormattingModel()))
+                .toContain(`"value":"${expected}"`);
+        }
     });
 
     it("reports zero denominators produced by proportional normalization", () => {

@@ -589,10 +589,28 @@
       "displayNameKey": "Format_Navigation_Card",
       "properties": {
         "enabled": {
-          "displayName": "Enable viewport navigation",
+          "displayName": "Viewport navigation",
           "displayNameKey": "Format_NavigationEnabled",
+          "description": "Automatic enables the fixed-center viewport lens for interactive multi-feature Context scenes. Legacy false and true values remain Off and On.",
+          "descriptionKey": "Format_NavigationEnabled_Description",
           "type": {
-            "bool": true
+            "enumeration": [
+              {
+                "value": "auto",
+                "displayName": "Automatic",
+                "displayNameKey": "Format_NavigationMode_Auto"
+              },
+              {
+                "value": "on",
+                "displayName": "On",
+                "displayNameKey": "Format_NavigationMode_On"
+              },
+              {
+                "value": "off",
+                "displayName": "Off",
+                "displayNameKey": "Format_NavigationMode_Off"
+              }
+            ]
           }
         },
         "minZoom": {
@@ -635,6 +653,44 @@
           "displayNameKey": "Format_ShowGestureHelp",
           "type": {
             "bool": true
+          }
+        },
+        "showNoDataBackdrop": {
+          "displayName": "Show no-data backdrop",
+          "displayNameKey": "Format_ShowNoDataBackdrop",
+          "description": "Hide unbound base paint while retaining complete probe, navigation, picking, and semantic geometry.",
+          "descriptionKey": "Format_ShowNoDataBackdrop_Description",
+          "type": {
+            "bool": true
+          }
+        },
+        "probeAnnouncementVerbosity": {
+          "displayName": "Probe announcement detail",
+          "displayNameKey": "Format_ProbeAnnouncementVerbosity",
+          "description": "Choose concise state changes or detailed source and data-coverage announcements.",
+          "descriptionKey": "Format_ProbeAnnouncementVerbosity_Description",
+          "type": {
+            "enumeration": [
+              {
+                "value": "concise",
+                "displayName": "Concise",
+                "displayNameKey": "Format_ProbeAnnouncementVerbosity_Concise"
+              },
+              {
+                "value": "detailed",
+                "displayName": "Detailed",
+                "displayNameKey": "Format_ProbeAnnouncementVerbosity_Detailed"
+              }
+            ]
+          }
+        },
+        "fallbackEntityKey": {
+          "displayName": "Fallback Entity key (exact text)",
+          "displayNameKey": "Format_FallbackEntityKey",
+          "description": "Exact raw text of one loaded bound Entity to show only when the probe is over no Context feature.",
+          "descriptionKey": "Format_FallbackEntityKey_Description",
+          "type": {
+            "text": true
           }
         }
       }

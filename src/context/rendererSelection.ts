@@ -15,8 +15,8 @@ export function chooseContextRenderer(
     scene: ContextScene,
     thresholds: RendererThresholds = DEFAULT_RENDERER_THRESHOLDS
 ): ContextRendererKind {
-    return scene.metrics.featureCount <= thresholds.maxSvgFeatures
-        && scene.metrics.vertexCount <= thresholds.maxSvgVertices
+    return scene.backdrop.metrics.featureCount <= thresholds.maxSvgFeatures
+        && scene.backdrop.metrics.vertexCount <= thresholds.maxSvgVertices
         ? "svg"
         : "canvas";
 }

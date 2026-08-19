@@ -105,6 +105,23 @@
             });
         }
 
+        var navigationSettings = {
+            minZoom: config.minZoom || 1,
+            maxZoom: config.maxZoom || 8,
+            wheelSensitivity: config.wheelSensitivity || 1,
+            showCenterProbe: config.showCenterProbe !== false,
+            showResetControl: config.showResetControl !== false,
+            showGestureHelp: config.showGestureHelp !== false,
+            showNoDataBackdrop: config.showNoDataBackdrop !== false,
+            probeAnnouncementVerbosity: config.probeAnnouncementVerbosity || "concise",
+            fallbackEntityKey: config.fallbackEntityKey || ""
+        };
+        if (Object.prototype.hasOwnProperty.call(config, "navigationMode")) {
+            navigationSettings.enabled = config.navigationMode;
+        } else if (Object.prototype.hasOwnProperty.call(config, "navigationEnabled")) {
+            navigationSettings.enabled = Boolean(config.navigationEnabled);
+        }
+
         var entityNodes = entities.map(function (entity, entityIndex) {
             var children = periods.length > 0
                 ? periods.map(function (period, periodIndex) {
@@ -141,15 +158,7 @@
                     interaction: {
                         mode: config.interactionMode || "reportSelection"
                     },
-                    navigation: {
-                        enabled: Boolean(config.navigationEnabled),
-                        minZoom: config.minZoom || 1,
-                        maxZoom: config.maxZoom || 8,
-                        wheelSensitivity: config.wheelSensitivity || 1,
-                        showCenterProbe: config.showCenterProbe !== false,
-                        showResetControl: config.showResetControl !== false,
-                        showGestureHelp: config.showGestureHelp !== false
-                    }
+                    navigation: navigationSettings
                 }
             },
             matrix: {

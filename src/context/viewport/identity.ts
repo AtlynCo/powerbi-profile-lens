@@ -11,8 +11,8 @@ export function contextSceneIdentity(scene: ContextScene): string {
     hash.string(scene.mode);
     hash.string(scene.metadata?.vintage ?? "");
     hash.string(scene.metadata?.policyId ?? "");
-    hash.number(scene.features.length);
-    for (const feature of scene.features) {
+    hash.number(scene.backdrop.features.length);
+    for (const feature of scene.backdrop.features) {
         hash.number(feature.index);
         hash.string(feature.key);
         hash.string(feature.geometry.kind);

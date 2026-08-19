@@ -1,12 +1,12 @@
 {
   "$schema": "https://developer.microsoft.com/json-schemas/fabric/item/report/definition/visualContainer/2.7.0/schema.json",
-  "name": "visualViewportGrid",
+  "name": "visualViewportSelection",
   "position": {
-    "x": 1060,
+    "x": 820,
     "y": 40,
     "z": 1,
     "height": 800,
-    "width": 500,
+    "width": 740,
     "tabOrder": 1
   },
   "visual": {
@@ -23,11 +23,11 @@
                       "Entity": "ProfileFacts"
                     }
                   },
-                  "Property": "Entity"
+                  "Property": "ViewportWorldKey"
                 }
               },
-              "queryRef": "ProfileFacts.Entity",
-              "nativeQueryRef": "Entity"
+              "queryRef": "ProfileFacts.ViewportWorldKey",
+              "nativeQueryRef": "ViewportWorldKey"
             },
             {
               "field": {
@@ -147,7 +147,7 @@
             "mode": {
               "expr": {
                 "Literal": {
-                  "Value": "'grid'"
+                  "Value": "'builtInPack'"
                 }
               }
             },
@@ -161,14 +161,14 @@
             "worldDetail": {
               "expr": {
                 "Literal": {
-                  "Value": "'110m'"
+                  "Value": "'50m'"
                 }
               }
             },
             "packKeyMode": {
               "expr": {
                 "Literal": {
-                  "Value": "'auto'"
+                  "Value": "'canonical'"
                 }
               }
             }
@@ -204,13 +204,6 @@
       "navigation": [
         {
           "properties": {
-            "enabled": {
-              "expr": {
-                "Literal": {
-                  "Value": "true"
-                }
-              }
-            },
             "minZoom": {
               "expr": {
                 "Literal": {
@@ -250,6 +243,20 @@
               "expr": {
                 "Literal": {
                   "Value": "true"
+                }
+              }
+            },
+            "showNoDataBackdrop": {
+              "expr": {
+                "Literal": {
+                  "Value": "true"
+                }
+              }
+            },
+            "fallbackEntityKey": {
+              "expr": {
+                "Literal": {
+                  "Value": "'WLD'"
                 }
               }
             }

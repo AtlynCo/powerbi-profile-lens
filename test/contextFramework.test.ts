@@ -17,6 +17,7 @@ import { computeContextLayout } from "../src/layout/contextLayout";
 import { canvasAllocation, pickingAllocation } from "../src/render/contextSurface";
 import { createDefaultContextRenderers } from "../src/context/renderers";
 import { fitScene, projectPoint } from "../src/context/projection";
+import { scene as createScene } from "../src/context/providers/common";
 import {
     AutoDetailStrategy,
     EagerDetailStrategy,
@@ -39,8 +40,15 @@ function scene(featureCount: number, vertexCount: number): ContextScene {
     return {
         providerId: "test",
         mode: "grid",
-        features: [],
-        metrics: { featureCount, ringCount: 0, vertexCount },
+        backdrop: {
+            features: [],
+            featureByKey: new Map(),
+            metrics: { featureCount, ringCount: 0, vertexCount }
+        },
+        entities: {
+            byFeatureKey: new Map(),
+            featureKeyByEntityKey: new Map()
+        },
         diagnostics: [],
         partial: false
     };
@@ -81,6 +89,36 @@ describe("context registries", () => {
         expect(registry.resolve("svg").id).toBe("svg-context");
         expect(registry.resolve("canvas").id).toBe("canvas-context");
     });
+
+    it("rejects noncanonical backdrop and Entity mapping indices", () => {
+        const feature = {
+            index: 0,
+            key: "a",
+            label: "A",
+            description: "A",
+            geometry: {
+                kind: "grid" as const,
+                center: { x: 0.5, y: 0.5 },
+                polygons: [[[
+                    { x: 0, y: 0 }, { x: 1, y: 0 }, { x: 1, y: 1 },
+                    { x: 0, y: 1 }, { x: 0, y: 0 }
+                ]]]
+            }
+        };
+        expect(() => createScene("test", "grid", [feature, feature]))
+            .toThrow(/index|key/);
+        expect(() => createScene("test", "grid", [{ ...feature, index: 2 }]))
+            .toThrow(/ordered position/);
+        expect(() => createScene("test", "grid", [feature], [{
+            featureKey: "missing",
+            entityIndex: 0,
+            entityKey: "entity:0",
+            entityLabel: "A",
+            selection: null,
+            contextValue: null,
+            tooltipValues: []
+        }])).toThrow(/missing feature/);
+    });
 });
 
 describe("adaptive renderer and layout", () => {
@@ -115,19 +153,12 @@ describe("adaptive renderer and layout", () => {
     });
 
     it("projects northern WGS84 coordinates above southern coordinates", () => {
-        const geographic: ContextScene = {
-            ...scene(2, 2),
-            mode: "points",
-            features: [
+        const geographic: ContextScene = createScene("test", "points", [
                 {
                     index: 0,
                     key: "north",
-                    entityIndex: 0,
                     label: "North",
                     description: "North, point",
-                    selection: { key: "north", hostIdentity: null },
-                    contextValue: null,
-                    tooltipValues: [],
                     geometry: {
                         kind: "point",
                         points: [{ x: 0, y: 60 }],
@@ -137,20 +168,15 @@ describe("adaptive renderer and layout", () => {
                 {
                     index: 1,
                     key: "south",
-                    entityIndex: 1,
                     label: "South",
                     description: "South, point",
-                    selection: { key: "south", hostIdentity: null },
-                    contextValue: null,
-                    tooltipValues: [],
                     geometry: {
                         kind: "point",
                         points: [{ x: 0, y: -30 }],
                         center: { x: 0, y: -30 }
                     }
                 }
-            ]
-        };
+            ]);
         const transform = fitScene(geographic, { width: 200, height: 200 });
         expect(projectPoint({ x: 0, y: 60 }, transform).y)
             .toBeLessThan(projectPoint({ x: 0, y: -30 }, transform).y);
@@ -161,17 +187,11 @@ describe("hit testing", () => {
     it("round trips picking colors and physically hits a polygon", () => {
         const color = encodeFeatureColor(65_535);
         expect(decodeFeatureColor(...color)).toBe(65_535);
-        const polygonScene: ContextScene = {
-            ...scene(1, 5),
-            features: [{
+        const polygonScene: ContextScene = createScene("test", "grid", [{
                 index: 0,
                 key: "a",
-                entityIndex: 0,
                 label: "A",
                 description: "A grid cell",
-                selection: { key: "a", hostIdentity: null },
-                contextValue: null,
-                tooltipValues: [],
                 geometry: {
                     kind: "grid",
                     center: { x: 5, y: 5 },
@@ -183,8 +203,7 @@ describe("hit testing", () => {
                         { x: 0, y: 0 }
                     ]]]
                 }
-            }]
-        };
+            }]);
         expect(hitTestScene(
             polygonScene,
             { scale: 1, translateX: 0, translateY: 0, invertY: false },
@@ -205,15 +224,11 @@ describe("hit testing", () => {
             index: number,
             key: string,
             rings: readonly (readonly { x: number; y: number }[])[]
-        ): ContextScene["features"][number] => ({
+        ): ContextScene["backdrop"]["features"][number] => ({
             index,
             key,
-            entityIndex: index,
             label: key,
             description: key,
-            selection: { key, hostIdentity: null },
-            contextValue: null,
-            tooltipValues: [],
             geometry: {
                 kind: "polygon",
                 center: rings[0][0],
@@ -278,14 +293,11 @@ describe("hit testing", () => {
             localizedCandidateValidations: 1
         });
 
-        const sharedScene: ContextScene = {
-            ...scene(2, 10),
-            features: [base, adjacent]
-        };
+        const sharedScene = createScene("test", "grid", [base, adjacent]);
         const expected = hitTestScene(sharedScene, transform, 10, 9);
         const shared = hitTestBoundedCandidates(
             adjacent,
-            sharedScene.features,
+            sharedScene.backdrop.features,
             transform,
             10,
             9
@@ -298,12 +310,8 @@ describe("hit testing", () => {
         const candidates = Array.from({ length: 40 }, (_, index) => ({
             index,
             key: `outside-${index}`,
-            entityIndex: index,
             label: `outside-${index}`,
             description: `outside-${index}`,
-            selection: { key: `outside-${index}`, hostIdentity: null },
-            contextValue: null,
-            tooltipValues: [],
             geometry: {
                 kind: "polygon" as const,
                 center: { x: 100 + index, y: 100 },
@@ -345,12 +353,8 @@ describe("hit testing", () => {
         const base = {
             index: 0,
             key: "base",
-            entityIndex: 0,
             label: "base",
             description: "base",
-            selection: { key: "base", hostIdentity: null },
-            contextValue: null,
-            tooltipValues: [],
             geometry: {
                 kind: "polygon" as const,
                 center: { x: 5, y: 5 },

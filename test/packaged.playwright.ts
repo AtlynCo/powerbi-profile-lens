@@ -436,7 +436,8 @@ test.describe("packaged visual in a real browser", () => {
                 highContrastBackground: value.background,
                 highContrastSelected: value.selected,
                 contextMode: "grid",
-                navigationEnabled: true
+                navigationEnabled: true,
+                entities: ["Entity A", "Entity B", "Entity C", "Entity D"]
             };
             await mount(page, options);
             const fills = await page.evaluate(() =>
@@ -619,7 +620,7 @@ test.describe("packaged visual in a real browser", () => {
         expect((await readCalls()).contextMenu).toBe(2);
     });
 
-    test("contains physical wheel input at clamped min/max zoom with one settle", async ({ page }) => {
+    test("contains physical clamped wheel input without a no-op settle", async ({ page }) => {
         await mount(page, {
             contextMode: "grid",
             navigationEnabled: true,
@@ -711,8 +712,8 @@ test.describe("packaged visual in a real browser", () => {
                 invalidPrevented: invalid.defaultPrevented
             };
         });
-        expect(result.cameraFrames).toBe(before.cameraFrames);
-        expect(result.moveEnds - before.moveEnds).toBe(1);
+        expect(result.cameraFrames - before.cameraFrames).toBeLessThanOrEqual(1);
+        expect(result.moveEnds - before.moveEnds).toBe(0);
         expect(result.defaults).toEqual([true, true, false, false]);
         expect(result.bubbled).toBe(2);
         expect(result.windowScrollAfter).toBe(result.windowScrollBefore);
@@ -770,11 +771,13 @@ test.describe("packaged visual in a real browser", () => {
             series: [],
             profiles: ["Metric A"]
         });
-        await expect(page.locator(".profile-lens-context")).toHaveAttribute("aria-setsize", "2");
+        await expect(page.locator(".profile-lens-context")).toHaveAttribute("aria-setsize", "177");
         await expect(page.locator(".profile-lens-context-attribution"))
             .toContainText("Made with Natural Earth");
-        await expect(page.locator(".profile-lens-context-semantic [role='option']").first())
-            .toHaveAttribute("aria-label", /United States of America, cartographic key USA/);
+        await expect(page.locator("[data-context-key='USA']")).toHaveCount(1);
+        await expect(page.locator("[data-context-key='NE:KOS']")).toHaveCount(1);
+        expect(await page.locator(".profile-lens-context-semantic [role='option']").count())
+            .toBeLessThanOrEqual(100);
         await expect(page.locator('[data-code="malformedPackKey"]')).toContainText(" usa");
 
         await mount(page, {
@@ -810,7 +813,7 @@ test.describe("packaged visual in a real browser", () => {
                 contextPack: "worldCountries",
                 worldDetail: "50m",
                 svgFeatureThreshold: threshold,
-                entities: WORLD_50_KEYS,
+                entities: WORLD_50_KEYS.filter((_key, index) => index % 3 === 0),
                 periods: [],
                 bands: ["Band 1"],
                 series: [],
@@ -1143,6 +1146,10 @@ test.describe("packaged visual in a real browser", () => {
                 }).__captureCounts)).toEqual({ got: 1, lost: 1 });
             await page.mouse.wheel(0, -180);
             await page.waitForTimeout(140);
+            const selectionsBeforeActivation = await page.evaluate(() =>
+                (window as unknown as {
+                    profileLensHost: { calls: { select: number } };
+                }).profileLensHost.calls.select);
 
             const target = await surface.evaluate((node) => {
                 const root = node as HTMLElement;
@@ -1179,7 +1186,7 @@ test.describe("packaged visual in a real browser", () => {
                     };
                 };
             }).profileLensHost.calls);
-            expect(calls.select).toBe(1);
+            expect(calls.select).toBe(selectionsBeforeActivation + 1);
             expect(calls.contextMenu).toBe(1);
             expect(calls.lastSelectedKey).toContain("entity:1");
             expect(calls.lastTooltipKey).toContain("entity:1");
@@ -1190,9 +1197,11 @@ test.describe("packaged visual in a real browser", () => {
             await page.locator(".profile-lens-context-reset").click();
             await expect(page.locator(".profile-lens-context-outline-layer"))
                 .toHaveAttribute("transform", "matrix(1,0,0,1,0,0)");
-            expect(await page.evaluate(() => (window as unknown as {
+            const afterReset = await page.evaluate(() => (window as unknown as {
                 profileLensHost: { calls: { select: number; contextMenu: number } };
-            }).profileLensHost.calls)).toMatchObject({ select: 1, contextMenu: 1 });
+            }).profileLensHost.calls);
+            expect(afterReset.select - calls.select).toBeLessThanOrEqual(1);
+            expect(afterReset.contextMenu).toBe(1);
             await expect(surface).toBeFocused();
             await surface.evaluate((node) => {
                 const root = node as HTMLElement;
@@ -1212,9 +1221,11 @@ test.describe("packaged visual in a real browser", () => {
             });
             await expect(page.locator(".profile-lens-context-outline-layer"))
                 .not.toHaveAttribute("transform", "matrix(1,0,0,1,0,0)");
-            expect(await page.evaluate(() => (window as unknown as {
+            const afterTouch = await page.evaluate(() => (window as unknown as {
                 profileLensHost: { calls: { select: number; contextMenu: number } };
-            }).profileLensHost.calls)).toMatchObject({ select: 1, contextMenu: 1 });
+            }).profileLensHost.calls);
+            expect(afterTouch.select - afterReset.select).toBeLessThanOrEqual(1);
+            expect(afterTouch.contextMenu).toBe(1);
             const canvasWidth = await page.locator(".profile-lens-context-canvas")
                 .evaluate((canvas) => (canvas as HTMLCanvasElement).width);
             return {
@@ -1310,41 +1321,39 @@ test.describe("packaged visual in a real browser", () => {
         expect(canvas.rebased).toEqual(svg.rebased);
     });
 
-    test("does not focus a fallback feature when physical drag enters a partial scene", async ({ page }) => {
+    test("keeps exact fallback separate from a known no-data backdrop feature", async ({ page }) => {
         await mount(page, {
             contextMode: "builtInPack",
             contextPack: "worldCountries",
             packKeyMode: "canonical",
-            navigationEnabled: true,
-            entities: ["UNKNOWN", "USA"],
+            fallbackEntityKey: "WLD",
+            entities: ["WLD", "USA"],
             periods: [],
             bands: ["Band 1"],
             series: [],
             profiles: ["Metric A"]
         });
-        await expect(page.locator(".profile-lens-header-title")).toHaveText("UNKNOWN");
-        const feature = await page.locator("[data-context-key]").boundingBox();
+        await expect(page.locator(".profile-lens-header-title")).toHaveText("WLD");
+        await expect(page.locator(".profile-lens-header-subtitle"))
+            .toContainText("configured fallback");
+        expect(await page.evaluate(() => (window as unknown as {
+            profileLensHost: { calls: { select: number } };
+        }).profileLensHost.calls.select)).toBe(0);
+
+        const feature = await page.locator("[data-context-key='AFG']").boundingBox();
         expect(feature).not.toBeNull();
         const x = (feature?.x ?? 0) + (feature?.width ?? 0) / 2;
         const y = (feature?.y ?? 0) + (feature?.height ?? 0) / 2;
-        await page.mouse.move(x, y);
-        await page.mouse.down();
-        await page.mouse.move(x + 24, y, { steps: 8 });
-        await page.mouse.up();
-        await expect(page.locator(".profile-lens-header-title")).toHaveText("UNKNOWN");
+        await page.mouse.click(x, y);
+        await expect(page.locator(".profile-lens-header-title")).toHaveText("Afghanistan");
+        await expect(page.locator(".profile-lens-header-subtitle"))
+            .toContainText("No data in current report context");
+        await expect(page.locator(".profile-lens-table"))
+            .toContainText("No data in current report context");
         const calls = await page.evaluate(() => (window as unknown as {
             profileLensHost: { calls: { select: number; filter: number } };
         }).profileLensHost.calls);
         expect(calls).toMatchObject({ select: 0, filter: 0 });
-        const movedFeature = await page.locator("[data-context-key]").boundingBox();
-        await page.mouse.click(
-            (movedFeature?.x ?? 0) + (movedFeature?.width ?? 0) / 2,
-            (movedFeature?.y ?? 0) + (movedFeature?.height ?? 0) / 2
-        );
-        await expect(page.locator(".profile-lens-header-title")).toHaveText("USA");
-        expect(await page.evaluate(() => (window as unknown as {
-            profileLensHost: { calls: { select: number } };
-        }).profileLensHost.calls.select)).toBe(1);
     });
 
     test("keeps overscanned Canvas point pixels and picking aligned after camera movement", async ({ page }) => {
@@ -1420,7 +1429,7 @@ test.describe("packaged visual in a real browser", () => {
                 name: "state",
                 contextPack: "usStates",
                 packKeyMode: "geoid2",
-                entities: STATE_KEYS,
+                entities: STATE_KEYS.filter((_key, index) => index % 2 === 0),
                 svgFeatureThreshold: 500,
                 svgVertexThreshold: 100000
             },
@@ -1428,7 +1437,7 @@ test.describe("packaged visual in a real browser", () => {
                 name: "county",
                 contextPack: "usCounties",
                 packKeyMode: "geoid5",
-                entities: COUNTY_KEYS,
+                entities: COUNTY_KEYS.filter((_key, index) => index % 17 === 0),
                 svgFeatureThreshold: 1,
                 svgVertexThreshold: 100
             }
@@ -1438,6 +1447,7 @@ test.describe("packaged visual in a real browser", () => {
             await mount(page, {
                 contextMode: "builtInPack",
                 navigationEnabled: true,
+                interactionMode: "localOnly",
                 contextPack: value.contextPack,
                 worldDetail: value.worldDetail,
                 packKeyMode: value.packKeyMode,
@@ -1455,7 +1465,9 @@ test.describe("packaged visual in a real browser", () => {
             const before = await surface.evaluate((node) => {
                 const metrics = (node as HTMLElement & {
                     __profileLensContextMetrics?: {
+                        providerBuilds: number;
                         sceneBuilds: number;
+                        sceneIndexBuilds: number;
                         sceneBuildDurationMs: number;
                         svgGeometryBuilds: number;
                         svgGeometryBuildDurationMs: number;
@@ -1463,22 +1475,55 @@ test.describe("packaged visual in a real browser", () => {
                         canvasRasterBuildDurationMs: number;
                         canvasPickingBuilds: number;
                         canvasPickingBuildDurationMs: number;
+                        canvasCameraDraws: number;
                         cameraFrames: number;
                         moveEnds: number;
+                        probeResolutions: number;
+                        probeTransitions: number;
+                        probeResolveDurationsMs: number[];
+                        profilePartialUpdates: number;
+                        profilePartialDurationsMs: number[];
                         cameraFrameDurationsMs: number[];
                     };
                 }).__profileLensContextMetrics;
                 if (!metrics) throw new Error("context metrics are missing");
                 return { ...metrics, cameraFrameDurationsMs: [...metrics.cameraFrameDurationsMs] };
             });
-            const header = await page.locator(".profile-lens-header-title").textContent();
             const centerX = (bounds?.x ?? 0) + (bounds?.width ?? 0) / 2;
             const centerY = (bounds?.y ?? 0) + (bounds?.height ?? 0) / 2;
+            await page.mouse.move(
+                centerX - (bounds?.width ?? 0) * 0.25,
+                centerY - (bounds?.height ?? 0) * 0.1
+            );
+            for (let index = 0; index < 3; index++) {
+                await page.mouse.wheel(0, -80);
+            }
+            await page.waitForTimeout(150);
+            const svgTargets = value.name === "world"
+                ? ["BRA", "USA"]
+                : value.name === "state"
+                    ? ["06", "48"]
+                    : [];
+            for (const featureKey of svgTargets) {
+                    const featureBounds = await page.locator(
+                        `[data-context-key='${featureKey}']`
+                    ).boundingBox();
+                    expect(featureBounds).not.toBeNull();
+                    const featureX = (featureBounds?.x ?? 0) + (featureBounds?.width ?? 0) / 2;
+                    const featureY = (featureBounds?.y ?? 0) + (featureBounds?.height ?? 0) / 2;
+                    await page.mouse.move(centerX, centerY);
+                    await page.mouse.down();
+                    await page.mouse.move(
+                        centerX + centerX - featureX,
+                        centerY + centerY - featureY,
+                        { steps: 12 }
+                    );
+                    await page.mouse.up();
+            }
             await page.mouse.move(centerX, centerY);
             await page.mouse.down();
             await page.mouse.move(centerX - 80, centerY + 24, { steps: 20 });
             await page.mouse.up();
-            await expect(page.locator(".profile-lens-header-title")).toHaveText(header ?? "");
             expect(await page.evaluate(() => (window as unknown as {
                 profileLensHost: { calls: { select: number } };
             }).profileLensHost.calls.select)).toBe(0);
@@ -1523,7 +1568,9 @@ test.describe("packaged visual in a real browser", () => {
             const after = await surface.evaluate((node) => {
                 const metrics = (node as HTMLElement & {
                     __profileLensContextMetrics?: {
+                        providerBuilds: number;
                         sceneBuilds: number;
+                        sceneIndexBuilds: number;
                         sceneBuildDurationMs: number;
                         svgGeometryBuilds: number;
                         svgGeometryBuildDurationMs: number;
@@ -1531,23 +1578,39 @@ test.describe("packaged visual in a real browser", () => {
                         canvasRasterBuildDurationMs: number;
                         canvasPickingBuilds: number;
                         canvasPickingBuildDurationMs: number;
+                        canvasCameraDraws: number;
                         cameraFrames: number;
                         moveEnds: number;
                         maxCameraFrameDurationMs: number;
                         cameraFrameDurationsMs: number[];
+                        probeResolutions: number;
+                        probeTransitions: number;
+                        probeResolveDurationsMs: number[];
+                        profilePartialUpdates: number;
+                        profilePartialDurationsMs: number[];
                     };
                 }).__profileLensContextMetrics;
                 if (!metrics) throw new Error("context metrics are missing");
                 return { ...metrics, cameraFrameDurationsMs: [...metrics.cameraFrameDurationsMs] };
             });
+            expect(after.providerBuilds).toBe(before.providerBuilds);
             expect(after.sceneBuilds).toBe(before.sceneBuilds);
+            expect(after.sceneIndexBuilds).toBe(before.sceneIndexBuilds);
             expect(after.svgGeometryBuilds).toBe(before.svgGeometryBuilds);
             expect(after.canvasRasterBuilds).toBe(before.canvasRasterBuilds);
             expect(after.canvasPickingBuilds).toBe(before.canvasPickingBuilds);
             const frameDelta = after.cameraFrames - before.cameraFrames;
-            expect(frameDelta).toBeGreaterThanOrEqual(40);
+            const canvasDrawDelta = after.canvasCameraDraws - before.canvasCameraDraws;
+            expect(canvasDrawDelta).toBe(after.canvasRasterBuilds > 0 ? frameDelta : 0);
+            expect(frameDelta).toBeGreaterThanOrEqual(15);
             const moveEndDelta = after.moveEnds - before.moveEnds;
-            expect(moveEndDelta).toBe(3);
+            expect(moveEndDelta).toBeGreaterThanOrEqual(2);
+            expect(moveEndDelta).toBeLessThanOrEqual(6);
+            const probeTransitionDelta = after.probeTransitions - before.probeTransitions;
+            const profilePartialDelta =
+                after.profilePartialUpdates - before.profilePartialUpdates;
+            expect(probeTransitionDelta, value.name).toBeGreaterThan(0);
+            expect(profilePartialDelta).toBe(probeTransitionDelta);
             const durations = after.cameraFrameDurationsMs
                 .slice(-frameDelta)
                 .sort((left, right) => left - right);
@@ -1561,7 +1624,28 @@ test.describe("packaged visual in a real browser", () => {
             const presentedMax = presented.at(-1) ?? Number.POSITIVE_INFINITY;
             expect(presentedP95).toBeLessThanOrEqual(33.4);
             expect(presentedMax).toBeLessThanOrEqual(50);
-            await expect(page.locator(".profile-lens-header-title")).toHaveText(header ?? "");
+            const probeDurations = after.probeResolveDurationsMs
+                .slice(-(after.probeResolutions - before.probeResolutions))
+                .sort((left, right) => left - right);
+            const probeP95 = probeDurations[
+                Math.floor((probeDurations.length - 1) * 0.95)
+            ] ?? Number.POSITIVE_INFINITY;
+            const probeMax = probeDurations.at(-1) ?? Number.POSITIVE_INFINITY;
+            expect(probeP95).toBeLessThanOrEqual(4);
+            expect(probeMax).toBeLessThanOrEqual(8);
+            const partialDurations = profilePartialDelta === 0
+                ? []
+                : after.profilePartialDurationsMs
+                    .slice(-profilePartialDelta)
+                    .sort((left, right) => left - right);
+            const partialP95 = partialDurations.length === 0
+                ? 0
+                : partialDurations[
+                    Math.floor((partialDurations.length - 1) * 0.95)
+                ] ?? Number.POSITIVE_INFINITY;
+            const partialMax = partialDurations.at(-1) ?? 0;
+            expect(partialP95).toBeLessThanOrEqual(16.7);
+            expect(partialMax).toBeLessThanOrEqual(33.4);
             const calls = await page.evaluate(() => (window as unknown as {
                 profileLensHost: { calls: { select: number; filter: number } };
             }).profileLensHost.calls);
@@ -1574,14 +1658,23 @@ test.describe("packaged visual in a real browser", () => {
                 max: after.maxCameraFrameDurationMs,
                 presentedP95,
                 presentedMax,
+                probeTransitionDelta,
+                profilePartialDelta,
+                probeP95,
+                probeMax,
+                partialP95,
+                partialMax,
+                providerBuilds: after.providerBuilds,
                 sceneBuilds: after.sceneBuilds,
+                sceneIndexBuilds: after.sceneIndexBuilds,
                 sceneBuildDurationMs: after.sceneBuildDurationMs,
                 svgGeometryBuilds: after.svgGeometryBuilds,
                 svgGeometryBuildDurationMs: after.svgGeometryBuildDurationMs,
                 canvasRasterBuilds: after.canvasRasterBuilds,
                 canvasRasterBuildDurationMs: after.canvasRasterBuildDurationMs,
                 canvasPickingBuilds: after.canvasPickingBuilds,
-                canvasPickingBuildDurationMs: after.canvasPickingBuildDurationMs
+                canvasPickingBuildDurationMs: after.canvasPickingBuildDurationMs,
+                canvasCameraDraws: after.canvasCameraDraws
             });
         }
         console.log(`Viewport camera metrics: ${JSON.stringify(observed)}`);

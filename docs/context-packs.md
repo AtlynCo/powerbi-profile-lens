@@ -138,15 +138,22 @@ Renderers continue to consume only `ContextScene`.
 
 ## Viewport navigation boundary
 
-Viewport navigation is author opt-in and disabled by default. It pans and zooms the current generic
-scene with the same camera used by point, strict geometry, grid, and hex providers. There is no
-provider-specific navigation branch.
+Viewport navigation uses migration-safe `auto`, `on`, and `off` behavior. Auto is the default for
+new/unset reports and activates for interactive, non-profile-only scenes with multiple features.
+Persisted legacy false/true values remain explicit off/on. The same generic camera and fixed-center
+probe drive packs, points, strict geometry, grid, and hex; there is no provider-specific navigation
+branch.
 
-In 1.3.0, a built-in-pack scene still contains only exact-key features matched to report entities.
-Navigation does not expose unmatched pack geometry, fetch a backdrop, or infer data for another
-feature. The fixed center probe is visual only and never changes the Entity, profile, or host
-selection. Full-pack backdrop/data separation and probe-driven focus are intentionally outside this
-release.
+A built-in-pack scene always contains every declared feature. The provider caches one projected
+backdrop and creates optional exact canonical-feature-to-report-Entity bindings for the current
+DataView. Only those bindings carry analytical values, tooltips, highlights, and host identities.
+Unbound features remain probeable cartographic backdrop and show `No data in current report context`;
+they are not key errors. Hiding no-data paint leaves their picking, navigation, and semantics intact.
+
+The fixed center probe resolves the backdrop feature while the camera moves and updates the local
+profile only on effective state changes. A configured fallback is exact raw bound Entity text,
+applies only over no feature, and is visibly disclosed; it never masks a known unbound feature or
+silently invents `WLD`.
 
 ## Known limits and proof boundary
 
@@ -154,8 +161,11 @@ release.
   semantic options and native tooltips.
 - Natural Earth and Census generalized geometry is for thematic display, not
   legal or measurement use.
-- The report's data reduction and filter context determine which pack features
-  receive report-bound entities.
+- The report's data reduction and filter context determine which pack features receive report-bound
+  Entities and which resident profiles can update immediately. Complete geometry does not imply
+  complete analytical data.
+- World/state preloading or bounded segmentation can be feasible. County profile-on-demand remains
+  unavailable because the visual declares no expand/collapse or drill contract.
 - Automated tests do not prove native Power BI Desktop/Service field wells,
   exports, dashboard pinning, DirectQuery/Direct Lake, or certification.
 - No PBIX is produced or claimed. A native PBIX must be created, closed,

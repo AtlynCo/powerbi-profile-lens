@@ -44,6 +44,8 @@ const CODE_ORDER: readonly DiagnosticCode[] = [
     "unsupportedPackKey",
     "unmatchedPackKey",
     "duplicatePackKey",
+    "fallbackEntityInvalid",
+    "hostSelectionRejected",
     "highlightActive",
     "interactionsDisabled"
 ];
@@ -94,7 +96,9 @@ const SEVERITY_BY_CODE: Record<DiagnosticCode, DiagnosticSeverity> = {
     unsupportedPackKey: "warning",
     unmatchedPackKey: "warning",
     duplicatePackKey: "warning",
-    packArtifactInvalid: "error"
+    packArtifactInvalid: "error",
+    fallbackEntityInvalid: "warning",
+    hostSelectionRejected: "warning"
 };
 
 export interface DiagnosticInput {

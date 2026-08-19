@@ -5,9 +5,12 @@ nongeographic grid and hex layouts, bound WGS84 points, strict WKT polygons, and
 US state/equivalent, and US county/equivalent pack examples. Focused pages cover six profile
 measures, both interaction modes, all normalization modes, Natural Earth 50m, ordinary FRA/NOR
 joins, documented NE fallback keys, exact-key mismatch/duplicate diagnostics, and an empty visual
-for progressive native field-well authoring. The viewport-foundation page opts into drag, wheel,
-pinch, keyboard camera controls, and the fixed center probe for synthetic world and grid scenes.
-The probe is visual only in this release; click and keyboard entity selection still drive profiles.
+for progressive native field-well authoring. The paired viewport-lens page leaves Navigation unset so
+the 1.4 automatic mode enables drag, wheel, pinch, keyboard camera controls, and fixed-center
+probe-driven profiles for complete synthetic world backdrops. Its left visual is local-only; its
+right visual commits the final direct loaded Entity on movement settle. Exact central-African keys
+carry synthetic profiles, other countries demonstrate no-data backdrop, and the exact bound WLD row
+is visibly configured as the no-feature fallback. No fallback masks a known no-data country.
 
 The semantic model contains only a synthetic DAX `DATATABLE` with generic product, team, facility,
 seat, exact cartographic text keys, period, band, series, and metric labels. Every metric is

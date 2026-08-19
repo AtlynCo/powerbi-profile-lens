@@ -1,4 +1,5 @@
 import type {
+    ContextEntityBinding,
     ContextFeature,
     ContextMode,
     ContextProvider,
@@ -47,6 +48,7 @@ export class BoundGeometryContextProvider implements ContextProvider {
     public provide(_mode: ContextMode, input: ContextProviderInput): ContextScene {
         const byEntity = new Map(input.geometryTexts.map(value => [value.entityIndex, value]));
         const features: ContextFeature[] = [];
+        const bindings: ContextEntityBinding[] = [];
         const groups = new Map<string, Rejections>();
         let cumulativeCharacters = 0;
         let sceneVertices = 0;
@@ -87,7 +89,9 @@ export class BoundGeometryContextProvider implements ContextProvider {
                     continue;
                 }
                 sceneVertices += vertices;
-                features.push(featureFor(entity, features.length, geometry, input));
+                const entry = featureFor(entity, features.length, geometry, input);
+                features.push(entry.feature);
+                bindings.push(entry.binding);
             } catch (error) {
                 if (error instanceof GeometryParseError) {
                     reject(groups, error.code, error.reason, source.text);
@@ -117,6 +121,6 @@ export class BoundGeometryContextProvider implements ContextProvider {
                 rejected
             });
         }
-        return scene(this.id, "boundGeometry", features, diagnostics);
+        return scene(this.id, "boundGeometry", features, bindings, diagnostics);
     }
 }

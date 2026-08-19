@@ -1,4 +1,5 @@
 import type {
+    ContextEntityBinding,
     ContextFeature,
     ContextGeometry,
     ContextProviderInput,
@@ -18,7 +19,7 @@ export function featureFor(
     index: number,
     geometry: ContextGeometry,
     input: ContextProviderInput
-): ContextFeature {
+): { readonly feature: ContextFeature; readonly binding: ContextEntityBinding } {
     const contextValue = input.contextValues.get(entity.index) ?? null;
     const geometryDescription = geometry.kind === "point" ? "point"
         : geometry.kind === "multiPoint" ? "multiple points"
@@ -27,22 +28,27 @@ export function featureFor(
                     : geometry.kind === "grid" ? "grid cell"
                         : "hex cell";
     return {
-        index,
-        key: entity.key,
-        entityIndex: entity.index,
-        label: entity.label,
-        description: contextValue === null
-            ? `${entity.label}, ${geometryDescription}`
-            : `${entity.label}, ${geometryDescription}, context value ${String(contextValue)}`,
-        geometry,
-        selection: input.entityIdentities.get(entity.index) ?? {
+        feature: {
+            index,
             key: entity.key,
-            hostIdentity: entity.identity
+            label: entity.label,
+            description: `${entity.label}, ${geometryDescription}`,
+            geometry
         },
-        contextValue,
-        tooltipValues: contextValue === null
-            ? []
-            : [{ displayName: "Context value", value: String(contextValue) }]
+        binding: {
+            featureKey: entity.key,
+            entityIndex: entity.index,
+            entityKey: entity.key,
+            entityLabel: entity.label,
+            selection: input.entityIdentities.get(entity.index) ?? {
+                key: entity.key,
+                hostIdentity: entity.identity
+            },
+            contextValue,
+            tooltipValues: contextValue === null
+                ? []
+                : [{ displayName: "Context value", value: String(contextValue) }]
+        }
     };
 }
 
@@ -50,6 +56,7 @@ export function scene(
     providerId: string,
     mode: ContextScene["mode"],
     features: readonly ContextFeature[],
+    bindings: readonly ContextEntityBinding[] = [],
     diagnostics: readonly Diagnostic[] = []
 ): ContextScene {
     let ringCount = 0;
@@ -65,11 +72,52 @@ export function scene(
             }
         }
     }
+    const featureByKey = new Map<string, ContextFeature>();
+    const featureIndexes = new Set<number>();
+    for (const [position, feature] of features.entries()) {
+        if (feature.index !== position) {
+            throw new Error(
+                `Context feature "${feature.key}" index ${feature.index} must equal its `
+                + `ordered position ${position}.`
+            );
+        }
+        if (featureByKey.has(feature.key)) {
+            throw new Error(`Context feature key "${feature.key}" is duplicated.`);
+        }
+        if (featureIndexes.has(feature.index)) {
+            throw new Error(`Context feature index ${feature.index} is duplicated.`);
+        }
+        featureByKey.set(feature.key, feature);
+        featureIndexes.add(feature.index);
+    }
+    const byFeatureKey = new Map<string, ContextEntityBinding>();
+    const featureKeyByEntityKey = new Map<string, string>();
+    for (const binding of bindings) {
+        if (!featureByKey.has(binding.featureKey)) {
+            throw new Error(
+                `Context Entity binding references missing feature "${binding.featureKey}".`
+            );
+        }
+        if (byFeatureKey.has(binding.featureKey)) {
+            throw new Error(
+                `Context feature "${binding.featureKey}" has more than one Entity binding.`
+            );
+        }
+        if (featureKeyByEntityKey.has(binding.entityKey)) {
+            throw new Error(`Context Entity key "${binding.entityKey}" is bound more than once.`);
+        }
+        byFeatureKey.set(binding.featureKey, binding);
+        featureKeyByEntityKey.set(binding.entityKey, binding.featureKey);
+    }
     return {
         providerId,
         mode,
-        features,
-        metrics: { featureCount: features.length, ringCount, vertexCount },
+        backdrop: {
+            features,
+            featureByKey,
+            metrics: { featureCount: features.length, ringCount, vertexCount }
+        },
+        entities: { byFeatureKey, featureKeyByEntityKey },
         diagnostics,
         partial: diagnostics.some(diagnostic => diagnostic.severity !== "info")
     };

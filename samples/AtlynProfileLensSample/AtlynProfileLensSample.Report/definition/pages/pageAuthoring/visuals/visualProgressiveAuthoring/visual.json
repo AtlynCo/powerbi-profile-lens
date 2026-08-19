@@ -118,13 +118,6 @@
       "navigation": [
         {
           "properties": {
-            "enabled": {
-              "expr": {
-                "Literal": {
-                  "Value": "false"
-                }
-              }
-            },
             "minZoom": {
               "expr": {
                 "Literal": {
@@ -161,6 +154,13 @@
               }
             },
             "showGestureHelp": {
+              "expr": {
+                "Literal": {
+                  "Value": "true"
+                }
+              }
+            },
+            "showNoDataBackdrop": {
               "expr": {
                 "Literal": {
                   "Value": "true"

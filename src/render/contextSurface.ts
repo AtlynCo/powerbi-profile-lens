@@ -48,10 +48,13 @@ export interface RenderedContextSurface {
     readonly hitTest: (x: number, y: number) => ContextHit | null;
     readonly setCamera: (camera: ContextCamera) => boolean;
     readonly getCamera: () => ContextCamera;
+    readonly updateDynamic: (request: ContextRenderRequest) => void;
 }
 
 export interface ContextPerformanceMetrics {
+    providerBuilds: number;
     sceneBuilds: number;
+    sceneIndexBuilds: number;
     sceneBuildDurationMs: number;
     svgGeometryBuilds: number;
     svgGeometryBuildDurationMs: number;
@@ -59,11 +62,27 @@ export interface ContextPerformanceMetrics {
     canvasRasterBuildDurationMs: number;
     canvasPickingBuilds: number;
     canvasPickingBuildDurationMs: number;
+    canvasCameraDraws: number;
     cameraFrames: number;
     moveEnds: number;
     cameraFrameDurationMs: number;
     maxCameraFrameDurationMs: number;
     readonly cameraFrameDurationsMs: number[];
+    probeResolutions: number;
+    probeTransitions: number;
+    probeDedupes: number;
+    probeResolveDurationMs: number;
+    maxProbeResolveDurationMs: number;
+    readonly probeResolveDurationsMs: number[];
+    profilePartialUpdates: number;
+    profilePartialDurationMs: number;
+    maxProfilePartialDurationMs: number;
+    readonly profilePartialDurationsMs: number[];
+    dynamicOverlayUpdates: number;
+    hostSelectionRequests: number;
+    hostSelectionResolved: number;
+    hostSelectionRejected: number;
+    hostSelectionStale: number;
 }
 
 interface SurfaceCache {
@@ -94,7 +113,9 @@ const surfaceCaches = new WeakMap<HTMLElement, SurfaceCache>();
 
 export function createContextPerformanceMetrics(): ContextPerformanceMetrics {
     return {
+        providerBuilds: 0,
         sceneBuilds: 0,
+        sceneIndexBuilds: 0,
         sceneBuildDurationMs: 0,
         svgGeometryBuilds: 0,
         svgGeometryBuildDurationMs: 0,
@@ -102,11 +123,27 @@ export function createContextPerformanceMetrics(): ContextPerformanceMetrics {
         canvasRasterBuildDurationMs: 0,
         canvasPickingBuilds: 0,
         canvasPickingBuildDurationMs: 0,
+        canvasCameraDraws: 0,
         cameraFrames: 0,
         moveEnds: 0,
         cameraFrameDurationMs: 0,
         maxCameraFrameDurationMs: 0,
-        cameraFrameDurationsMs: []
+        cameraFrameDurationsMs: [],
+        probeResolutions: 0,
+        probeTransitions: 0,
+        probeDedupes: 0,
+        probeResolveDurationMs: 0,
+        maxProbeResolveDurationMs: 0,
+        probeResolveDurationsMs: [],
+        profilePartialUpdates: 0,
+        profilePartialDurationMs: 0,
+        maxProfilePartialDurationMs: 0,
+        profilePartialDurationsMs: [],
+        dynamicOverlayUpdates: 0,
+        hostSelectionRequests: 0,
+        hostSelectionResolved: 0,
+        hostSelectionRejected: 0,
+        hostSelectionStale: 0
     };
 }
 
@@ -115,7 +152,9 @@ export function recordContextSceneBuild(
     durationMs: number
 ): void {
     assertDuration(durationMs);
+    metrics.providerBuilds++;
     metrics.sceneBuilds++;
+    metrics.sceneIndexBuilds++;
     metrics.sceneBuildDurationMs += durationMs;
 }
 
@@ -153,7 +192,7 @@ export function renderContextSurface(
     performanceMetrics: ContextPerformanceMetrics
 ): RenderedContextSurface {
     elements.root.removeAttribute("hidden");
-    elements.root.setAttribute("aria-setsize", String(request.scene.features.length));
+    elements.root.setAttribute("aria-setsize", String(request.scene.backdrop.features.length));
     renderAttribution(elements, request);
     renderSemanticOptions(elements, request);
     renderNavigationChrome(elements, request);
@@ -181,8 +220,19 @@ export function renderContextSurface(
         kind,
         hitTest: (x, y) => hitTestCachedSurface(elements.root, x, y),
         setCamera: (camera) => setSurfaceCamera(elements, camera),
-        getCamera: () => requireSurfaceCache(elements.root).camera
+        getCamera: () => requireSurfaceCache(elements.root).camera,
+        updateDynamic: (dynamicRequest) => updateSurfaceDynamic(elements, dynamicRequest)
     };
+}
+
+function updateSurfaceDynamic(
+    elements: ContextSurfaceElements,
+    request: ContextRenderRequest
+): void {
+    const cache = requireSurfaceCache(elements.root);
+    renderSemanticOptions(elements, request);
+    renderDynamicOverlay(cache, request);
+    applyDynamicCamera(cache);
 }
 
 export function hideContextSurface(elements: ContextSurfaceElements): void {
@@ -245,6 +295,7 @@ function surfaceBuildKey(
         : null;
     return [
         request.sceneIdentity,
+        request.paintIdentity,
         kind,
         request.viewport.width,
         request.viewport.height,
@@ -294,7 +345,7 @@ function buildSurface(
         const started = performance.now();
         geometryGroup = document.createElementNS(SVG_NS, "g");
         geometryGroup.classList.add("profile-lens-context-camera-layer");
-        for (const feature of request.scene.features) {
+        for (const feature of request.scene.backdrop.features) {
             const node = createSvgFeature(
                 feature,
                 request.baseTransform,
@@ -303,6 +354,12 @@ function buildSurface(
             );
             node.setAttribute("data-context-key", feature.key);
             node.setAttribute("aria-hidden", "true");
+            if (
+                !request.showNoDataBackdrop
+                && !request.scene.entities.byFeatureKey.has(feature.key)
+            ) {
+                node.setAttribute("visibility", "hidden");
+            }
             geometryGroup.appendChild(node);
         }
         metrics.svgGeometryBuilds++;
@@ -370,7 +427,7 @@ function createCanvasHitMetrics(
     baseCanvas: HTMLCanvasElement
 ): CanvasHitMetrics {
     return {
-        sceneFeatures: scene.features.length,
+        sceneFeatures: scene.backdrop.features.length,
         pickingReads: 0,
         candidateValidations: 0,
         targetMapLookups: 0,
@@ -408,7 +465,9 @@ function renderDynamicOverlay(cache: SurfaceCache, request: ContextRenderRequest
     cache.connectorLine = null;
     cache.connectorFeatureCenter = null;
     cache.connectorTarget = request.connectorTarget ?? null;
-    const focused = request.scene.features.find((feature) => feature.key === request.focusedKey);
+    const focused = request.focusedFeatureKey === null
+        ? null
+        : request.scene.backdrop.featureByKey.get(request.focusedFeatureKey) ?? null;
     if (focused && request.connectorTarget) {
         const line = document.createElementNS(SVG_NS, "line");
         line.classList.add("profile-lens-context-connector");
@@ -422,8 +481,13 @@ function renderDynamicOverlay(cache: SurfaceCache, request: ContextRenderRequest
         cache.connectorLine = line;
         cache.connectorFeatureCenter = focused.geometry.center;
     }
-    for (const feature of request.scene.features) {
-        if (!request.selectedKeys.has(feature.key) && feature.key !== request.focusedKey) {
+    const overlayKeys = new Set(request.selectedFeatureKeys);
+    if (request.focusedFeatureKey !== null) {
+        overlayKeys.add(request.focusedFeatureKey);
+    }
+    for (const featureKey of overlayKeys) {
+        const feature = request.scene.backdrop.featureByKey.get(featureKey);
+        if (!feature) {
             continue;
         }
         const overlay = createSvgFeature(
@@ -519,6 +583,11 @@ function applyCamera(elements: ContextSurfaceElements, cache: SurfaceCache): voi
         drawCanvasCamera(elements.canvas, cache);
     }
     cache.geometryGroup?.setAttribute("transform", matrix);
+    applyDynamicCamera(cache);
+}
+
+function applyDynamicCamera(cache: SurfaceCache): void {
+    const matrix = cameraMatrix(cache.camera);
     cache.outlineGroup.setAttribute("transform", matrix);
     if (cache.connectorLine && cache.connectorFeatureCenter && cache.connectorTarget) {
         const center = projectPoint(
@@ -644,30 +713,36 @@ function renderSemanticOptions(
     request: ContextRenderRequest
 ): void {
     clearElement(elements.semantic);
-    const focusedIndex = Math.max(
-        request.scene.features.findIndex((feature) => feature.key === request.focusedKey),
-        0
-    );
+    const features = request.scene.backdrop.features;
+    const focusedIndex = request.focusedFeatureKey === null
+        ? 0
+        : request.scene.backdrop.featureByKey.get(request.focusedFeatureKey)?.index ?? 0;
     const maxOptions = 100;
     const start = Math.max(
-        Math.min(focusedIndex - Math.floor(maxOptions / 2), request.scene.features.length - maxOptions),
+        Math.min(focusedIndex - Math.floor(maxOptions / 2), features.length - maxOptions),
         0
     );
-    const retained = request.scene.features.slice(start, start + maxOptions);
+    const retained = features.slice(start, start + maxOptions);
     for (const feature of retained) {
         const option = document.createElement("div");
         option.id = `context:${feature.key}`;
         option.setAttribute("role", "option");
-        option.setAttribute("aria-label", feature.description);
+        option.setAttribute(
+            "aria-label",
+            request.featureDescriptions?.get(feature.key) ?? feature.description
+        );
         option.setAttribute(
             "aria-selected",
-            request.selectedKeys.has(feature.key) || feature.key === request.focusedKey ? "true" : "false"
+            request.selectedFeatureKeys.has(feature.key)
+                || feature.key === request.focusedFeatureKey ? "true" : "false"
         );
         option.setAttribute("aria-posinset", String(feature.index + 1));
-        option.setAttribute("aria-setsize", String(request.scene.features.length));
+        option.setAttribute("aria-setsize", String(features.length));
         elements.semantic.appendChild(option);
     }
-    const focused = retained.find((feature) => feature.key === request.focusedKey) ?? retained[0];
+    const focused = request.focusedFeatureKey === null
+        ? undefined
+        : retained.find((feature) => feature.key === request.focusedFeatureKey);
     if (focused) {
         elements.root.setAttribute("aria-activedescendant", `context:${focused.key}`);
     } else {
@@ -772,6 +847,7 @@ function drawCanvasCamera(
     );
     context.restore();
     canvas.style.transform = "";
+    cache.metrics.canvasCameraDraws++;
 }
 
 function renderCanvas(
@@ -808,7 +884,13 @@ function renderCanvas(
     }
     context.setTransform(baseAllocation.dpr, 0, 0, baseAllocation.dpr, 0, 0);
     context.translate(overscan, overscan);
-    for (const feature of request.scene.features) {
+    for (const feature of request.scene.backdrop.features) {
+        if (
+            !request.showNoDataBackdrop
+            && !request.scene.entities.byFeatureKey.has(feature.key)
+        ) {
+            continue;
+        }
         drawCanvasFeature(
             context,
             feature,
@@ -832,7 +914,7 @@ function renderCanvas(
     const pickingScaleY = pickSize.scaleY;
     picking.setTransform(pickingScaleX, 0, 0, pickingScaleY, 0, 0);
     picking.translate(overscan, overscan);
-    for (const feature of request.scene.features) {
+    for (const feature of request.scene.backdrop.features) {
         const color = encodeFeatureColor(feature.index);
         drawCanvasFeature(
             picking,
@@ -869,7 +951,9 @@ function renderCanvas(
             context: picking,
             width: pickingCanvas.width,
             height: pickingCanvas.height,
-            featuresByIndex: new Map(request.scene.features.map((feature) => [feature.index, feature])),
+            featuresByIndex: new Map(
+                request.scene.backdrop.features.map((feature) => [feature.index, feature])
+            ),
             scaleX: pickingScaleX,
             scaleY: pickingScaleY,
             offsetX: overscan,
@@ -969,7 +1053,7 @@ function buildPickingIndex(
     | "spatialBucketEntries"
     | "maxBucketOccupancy"
 > {
-    const entries = scene.features.map((feature) => ({
+    const entries = scene.backdrop.features.map((feature) => ({
         feature,
         bounds: pickingBounds(
             projectedFeatureBounds(feature, transform, pointRadius),

@@ -51,19 +51,24 @@ describe("pure context providers", () => {
         const value = input(entities);
         expect(new NoneContextProvider().provide("none", value)).toMatchObject({
             mode: "none",
-            features: [],
-            metrics: { featureCount: 0, ringCount: 0, vertexCount: 0 },
+            backdrop: {
+                features: [],
+                metrics: { featureCount: 0, ringCount: 0, vertexCount: 0 }
+            },
             partial: false
         });
 
         const points = new Wgs84PointContextProvider().provide("points", value);
-        expect(points.features.map(feature => feature.entityIndex)).toEqual([2, 0]);
-        expect(points.features[0]).toMatchObject({
-            contextValue: 2.5,
-            selection: { key: "key-2", hostIdentity: entities[0].identity },
+        expect(points.backdrop.features.map(feature => feature.key)).toEqual(["key-2", "key-0"]);
+        expect(points.backdrop.features[0]).toMatchObject({
             geometry: { kind: "point", center: { x: 22, y: 12 } }
         });
-        expect(points.features[0].description).toContain("context value 2.5");
+        expect(points.entities.byFeatureKey.get("key-2")).toMatchObject({
+            entityIndex: 2,
+            contextValue: 2.5,
+            selection: { key: "key-2", hostIdentity: entities[0].identity }
+        });
+        expect(points.backdrop.features[0].description).toBe("Entity 2, point");
     });
 
     it.each([
@@ -75,12 +80,18 @@ describe("pure context providers", () => {
         const mode = provider.modes[0];
         const sceneA = provider.provide(mode, input(first));
         const sceneB = provider.provide(mode, input(second));
-        const centersA = new Map(sceneA.features.map(feature => [feature.key, feature.geometry.center]));
-        const centersB = new Map(sceneB.features.map(feature => [feature.key, feature.geometry.center]));
+        const centersA = new Map(
+            sceneA.backdrop.features.map(feature => [feature.key, feature.geometry.center])
+        );
+        const centersB = new Map(
+            sceneB.backdrop.features.map(feature => [feature.key, feature.geometry.center])
+        );
         expect(centersA).toEqual(centersB);
-        expect(sceneA.features.map(feature => feature.key)).toEqual(first.map(value => value.key));
-        expect(sceneB.features.map(feature => feature.key)).toEqual(second.map(value => value.key));
-        expect(sceneA.metrics.ringCount).toBe(3);
+        expect(sceneA.backdrop.features.map(feature => feature.key))
+            .toEqual(first.map(value => value.key));
+        expect(sceneB.backdrop.features.map(feature => feature.key))
+            .toEqual(second.map(value => value.key));
+        expect(sceneA.backdrop.metrics.ringCount).toBe(3);
     });
 
     it.each([
@@ -91,7 +102,7 @@ describe("pure context providers", () => {
         const entities = keys.map((key, index) => entity(index, key));
         const baseline = provider.provide(provider.modes[0], input(entities));
         const baselineCenters = new Map(
-            baseline.features.map(feature => [feature.key, feature.geometry.center])
+            baseline.backdrop.features.map(feature => [feature.key, feature.geometry.center])
         );
         const originalLocaleCompare = String.prototype.localeCompare;
         const originalCollator = Intl.Collator;
@@ -107,7 +118,7 @@ describe("pure context providers", () => {
             });
             const withoutLocale = provider.provide(provider.modes[0], input([...entities].reverse()));
             expect(new Map(
-                withoutLocale.features.map(feature => [feature.key, feature.geometry.center])
+                withoutLocale.backdrop.features.map(feature => [feature.key, feature.geometry.center])
             )).toEqual(baselineCenters);
         } finally {
             String.prototype.localeCompare = originalLocaleCompare;
@@ -212,8 +223,9 @@ describe("strict bound geometry", () => {
             geometry(1, "POINT (1 2) trailing\u0001"),
             geometry(2, "POINT (1 2) also-trailing")
         ]));
-        expect(scene.features).toHaveLength(1);
-        expect(scene.metrics).toEqual({ featureCount: 1, ringCount: 1, vertexCount: 4 });
+        expect(scene.backdrop.features).toHaveLength(1);
+        expect(scene.backdrop.metrics)
+            .toEqual({ featureCount: 1, ringCount: 1, vertexCount: 4 });
         expect(scene.partial).toBe(true);
         expect(scene.diagnostics.find(value => value.code === "geometryParseRejected"))
             .toMatchObject({ received: 3, retained: 1, rejected: 2 });
@@ -234,7 +246,7 @@ describe("strict bound geometry", () => {
             "boundGeometry",
             input([entity(0)], [geometry(0, raw)])
         );
-        expect(result.features).toEqual([]);
+        expect(result.backdrop.features).toEqual([]);
         expect(result.diagnostics.find(value => value.code === "geometryParseRejected"))
             .toMatchObject({
                 severity: "warning",

@@ -8,6 +8,7 @@ export interface StatusInput {
     readonly showCounts: boolean;
     readonly summary: string;
     readonly busy: boolean;
+    readonly announce?: boolean;
 }
 
 /**
@@ -18,8 +19,9 @@ export interface StatusInput {
  */
 export function renderStatus(container: HTMLElement, input: StatusInput): void {
     clear(container);
-    container.setAttribute("role", "status");
-    container.setAttribute("aria-live", "polite");
+    const announce = input.announce !== false;
+    container.setAttribute("role", announce ? "status" : "group");
+    container.setAttribute("aria-live", announce ? "polite" : "off");
     container.setAttribute("aria-busy", input.busy ? "true" : "false");
 
     const summary = document.createElement("p");

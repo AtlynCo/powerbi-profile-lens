@@ -1,4 +1,5 @@
 import type {
+    ContextEntityBinding,
     ContextFeature,
     ContextMode,
     ContextProvider,
@@ -37,6 +38,7 @@ export class StaticContextPackProvider implements ContextProvider {
     public readonly id = "built-in-context-pack";
     public readonly modes: readonly ContextMode[] = ["builtInPack"];
     private readonly projected = new Map<string, ProjectedContextPack>();
+    private readonly backdrops = new Map<string, readonly ContextFeature[]>();
 
     public constructor(private readonly packs: ContextPackRegistry = new ContextPackRegistry()) {}
 
@@ -46,11 +48,11 @@ export class StaticContextPackProvider implements ContextProvider {
 
     public provide(_mode: ContextMode, input: ContextProviderInput): ContextScene {
         if (!input.pack) {
-            return scene(this.id, "builtInPack", [], [diagnostic("packArtifactInvalid")]);
+            return scene(this.id, "builtInPack", [], [], [diagnostic("packArtifactInvalid")]);
         }
         const artifact = this.packs.resolve(input.pack.id);
         if (!artifact) {
-            return scene(this.id, "builtInPack", [], [diagnostic(
+            return scene(this.id, "builtInPack", [], [], [diagnostic(
                 "packArtifactInvalid",
                 [`Unknown pack ${input.pack.id}`]
             )]);
@@ -59,7 +61,7 @@ export class StaticContextPackProvider implements ContextProvider {
         try {
             pack = this.resolveProjected(artifact);
         } catch (error) {
-            return scene(this.id, "builtInPack", [], [diagnostic(
+            return scene(this.id, "builtInPack", [], [], [diagnostic(
                 "packArtifactInvalid",
                 [error instanceof Error ? error.message : String(error)]
             )]);
@@ -92,24 +94,14 @@ export class StaticContextPackProvider implements ContextProvider {
             }
             return !duplicate;
         });
-        const entityKeyByCanonical = new Map(
-            retained.map((entry) => [entry.canonicalKey, entry.entity.key])
-        );
-        const features = retained
-            .slice(0, LIMITS.maxBuiltInPackFeatures)
-            .map((entry, index) => contextFeature(
-                entry,
-                byCanonicalKey.get(entry.canonicalKey)!,
-                entityKeyByCanonical,
-                index,
-                input
-            ));
-        if (retained.length > LIMITS.maxBuiltInPackFeatures) {
+        const features = this.resolveBackdrop(pack);
+        const bindings = retained.map((entry) => contextBinding(entry, input));
+        if (features.length > LIMITS.maxBuiltInPackFeatures) {
             addExample(
                 failures,
                 "geometryFeatureLimit",
-                String(retained.length),
-                retained.length - LIMITS.maxBuiltInPackFeatures
+                String(features.length),
+                features.length - LIMITS.maxBuiltInPackFeatures
             );
         }
         const diagnostics = [...failures.entries()].map(([code, group]) =>
@@ -117,11 +109,11 @@ export class StaticContextPackProvider implements ContextProvider {
                 code,
                 group.examples,
                 input.entities.length,
-                features.length,
+                bindings.length,
                 group.count
             ));
         return {
-            ...scene(this.id, "builtInPack", features, diagnostics),
+            ...scene(this.id, "builtInPack", features, bindings, diagnostics),
             metadata: {
                 displayName: pack.manifest.displayName,
                 vintage: pack.manifest.vintage,
@@ -139,6 +131,24 @@ export class StaticContextPackProvider implements ContextProvider {
         const projected = projectContextPack(artifact);
         this.projected.set(artifact.manifest.id, projected);
         return projected;
+    }
+
+    private resolveBackdrop(pack: ProjectedContextPack): readonly ContextFeature[] {
+        const cached = this.backdrops.get(pack.manifest.id);
+        if (cached) {
+            return cached;
+        }
+        if (pack.features.length > LIMITS.maxBuiltInPackFeatures) {
+            throw new Error(
+                `Pack ${pack.manifest.id} has ${pack.features.length} features, above the `
+                + `${LIMITS.maxBuiltInPackFeatures} trusted feature limit.`
+            );
+        }
+        const keys = new Set(pack.features.map((entry) => entry.properties.canonicalKey));
+        const features = pack.features.map((entry, index) =>
+            contextFeature(entry, keys, index));
+        this.backdrops.set(pack.manifest.id, features);
+        return features;
     }
 }
 
@@ -177,36 +187,58 @@ function normalizeKey(
 }
 
 function contextFeature(
-    match: NormalizedEntity,
     packFeature: ProjectedPackFeature,
-    entityKeyByCanonical: ReadonlyMap<string, string>,
-    index: number,
-    input: ContextProviderInput
+    featureKeys: ReadonlySet<string>,
+    index: number
 ): ContextFeature {
-    const contextValue = input.contextValues.get(match.entity.index) ?? null;
     const status = packFeature.properties.status.length > 0
         ? `, source status ${packFeature.properties.status}`
         : "";
     const navigationKeys = packFeature.properties.neighbors
-        .map((key) => entityKeyByCanonical.get(key))
-        .filter((key): key is string => key !== undefined)
+        .filter((key) => featureKeys.has(key))
         .sort(compareStableKeys);
+    const metadata: Record<string, string | number | boolean> = {
+        canonicalKey: packFeature.properties.canonicalKey,
+        sourceId: packFeature.properties.sourceId,
+        status: packFeature.properties.status,
+        region: packFeature.properties.region,
+        fallback: packFeature.properties.fallback,
+        codeSource: packFeature.properties.codeSource
+    };
+    if (packFeature.properties.stateCode !== undefined) {
+        metadata.stateCode = packFeature.properties.stateCode;
+    }
     return {
         index,
-        key: match.entity.key,
-        entityIndex: match.entity.index,
+        key: packFeature.properties.canonicalKey,
         label: packFeature.properties.name,
-        description: `${packFeature.properties.name}, cartographic key ${match.canonicalKey}${status}`,
+        description: `${packFeature.properties.name}, cartographic key `
+            + `${packFeature.properties.canonicalKey}${status}`,
         geometry: packFeature.geometry,
-        selection: input.entityIdentities.get(match.entity.index) ?? {
-            key: match.entity.key,
-            hostIdentity: match.entity.identity
-        },
+        navigationKeys,
+        metadata
+    };
+}
+
+function contextBinding(
+    match: NormalizedEntity,
+    input: ContextProviderInput
+): ContextEntityBinding {
+    const contextValue = input.contextValues.get(match.entity.index) ?? null;
+    return {
+        featureKey: match.canonicalKey,
+        entityIndex: match.entity.index,
+        entityKey: match.entity.key,
+        entityLabel: match.entity.label,
+        selection: input.entityIdentities.get(match.entity.index) ?? (
+            match.entity.identity === null
+                ? null
+                : { key: match.entity.key, hostIdentity: match.entity.identity }
+        ),
         contextValue,
         tooltipValues: contextValue === null
             ? []
-            : [{ displayName: "Context value", value: String(contextValue) }],
-        navigationKeys
+            : [{ displayName: "Context value", value: String(contextValue) }]
     };
 }
 
