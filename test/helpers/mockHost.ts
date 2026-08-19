@@ -60,7 +60,7 @@ export interface MockHost {
             readonly resolve: (ids: ISelectionId[]) => void;
             readonly reject: (error: Error) => void;
         }>;
-        resolvePending(index?: number): void;
+        resolvePending(index?: number, applyHost?: boolean): void;
         rejectPending(index?: number): void;
         emitExternal(ids: readonly ISelectionId[]): void;
     };
@@ -103,12 +103,14 @@ export function createMockHost(options: MockHostOptions = {}): MockHost {
         selected: [],
         onSelectCallback: null,
         pending: [],
-        resolvePending: (index = 0) => {
+        resolvePending: (index = 0, applyHost = true) => {
             const pending = selection.pending.splice(index, 1)[0];
             if (!pending) {
                 throw new Error(`No pending selection exists at index ${index}.`);
             }
-            const resolved = applyMockSelection(pending.ids, pending.multiSelect);
+            const resolved = applyHost
+                ? applyMockSelection(pending.ids, pending.multiSelect)
+                : pending.ids;
             pending.resolve(resolved);
         },
         rejectPending: (index = 0) => {

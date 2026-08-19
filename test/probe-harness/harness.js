@@ -142,6 +142,7 @@
         return {
             metadata: {
                 columns: rowLevels.map(function (level) { return level.sources[0]; }).concat(valueSources),
+                segment: config.segment ? {} : undefined,
                 objects: {
                     context: {
                         mode: config.contextMode || "none",
@@ -292,6 +293,11 @@
                     toggleExpandCollapse: function () { return Promise.resolve({}); }
                 };
             },
+            emitExternalSelection: function (ids) {
+                selected = ids;
+                calls.selectedKeys = ids.map(function (entry) { return entry.key; });
+                if (host.onSelect) host.onSelect(ids);
+            },
             createLocalizationManager: function () {
                 return {
                     getDisplayName: function (key) {
@@ -336,6 +342,7 @@
     window.profileLensEvents = { started: 0, finished: 0, failed: 0, reason: null };
     window.profileLensResources = window.profileLensResources || {};
     window.buildProfileLensDataView = buildDataView;
+    window.profileLensSelectionId = selectionId;
 
     window.mountProfileLens = function (options) {
         var namespace = window.atlynProfileLens;
@@ -366,7 +373,9 @@
                 viewMode: 1,
                 editMode: 0,
                 isInFocus: false,
-                operationKind: 0,
+                operationKind: Object.prototype.hasOwnProperty.call(updateOptions, "operationKind")
+                    ? updateOptions.operationKind
+                    : 0,
                 jsonFilters: Object.prototype.hasOwnProperty.call(updateOptions, "jsonFilters")
                     ? updateOptions.jsonFilters
                     : undefined

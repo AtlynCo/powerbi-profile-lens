@@ -104,6 +104,10 @@ candidate; record the package name and SHA-256 from `dist/release-manifest.json`
     promises are delayed. Confirm at most one local select promise is in flight, latest single intent
     wins, explicit multi-select is serialized, and external selection clears queued local work.
     Record that an already in-flight host selection cannot be cancelled and may remain the last writer.
+11. While a local selection promise or wheel/drag/pinch settle is pending, apply an external
+    selection/bookmark. Confirm queued local work is discarded, the older settle never commits,
+    camera position is retained, and any stale successful host completion reconciles overlays from
+    the host's actual selection without changing local probe/profile focus.
 
 ## Accessibility and semantic parity
 

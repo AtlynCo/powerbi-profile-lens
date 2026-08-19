@@ -54,7 +54,8 @@ navigation is active, finite nonzero wheel input is contained inside the viewpor
 is already at minimum or maximum zoom; zero, invalid, disabled, and navigation-off input is left to the
 host. A pending wheel settle is generation-checked and cancelled when pointer, pinch, click, spatial
 keyboard, reset, rebind, disable, or destroy takes ownership, so a stale timer cannot refocus or
-select. High-contrast probe, help, focus, and reset chrome use the host foreground, background, and
+select. A host-authoritative external selection also cancels pending wheel and current drag/pinch
+settle ownership without rolling back the camera. High-contrast probe, help, focus, and reset chrome use the host foreground, background, and
 selected colors through resolved theme variables.
 
 The fixed center probe is the local profile source while navigation is active. The viewport moves
@@ -76,7 +77,9 @@ unloaded, no-feature, and fallback states are not selected. Explicit click/Enter
 activation call. Every visual-owned profile/context selection is serialized through one coordinator:
 one host promise is in flight, superseded single-select intent is coalesced, explicit multi-select is
 queued in order, and an external callback invalidates queued local work. An already in-flight host
-call cannot be cancelled and may remain the unavoidable last writer. SVG changes one camera group transform. Canvas reuses a bounded base raster and
+call cannot be cancelled and may remain the unavoidable last writer; when it completes, the visual
+reconciles overlays from the manager's actual selection without changing local probe/profile focus.
+SVG changes one camera group transform. Canvas reuses a bounded base raster and
 inverse-transformed picking surface; neither renderer rebuilds geometry or picking on probe changes.
 Inertia, rotation, double-click zoom, and live tiles remain absent.
 

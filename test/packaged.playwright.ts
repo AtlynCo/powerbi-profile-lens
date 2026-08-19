@@ -181,7 +181,7 @@ async function mount(
     }, {
         width: 1280,
         height: 620,
-        entities: ["Entity A", "Entity B", "Entity C"],
+        entities: ["Entity A", "Entity B", "Entity C", "Entity D"],
         periods: ["Period 1", "Period 2"],
         bands: ["Band 1", "Band 2", "Band 3", "Band 4", "Band 5"],
         series: ["Series X", "Series Y"],
@@ -216,7 +216,7 @@ test.describe("packaged visual in a real browser", () => {
 
     test("preserves rejected raw values in packaged nonvisual representations", async ({ page }) => {
         await mount(page, {
-            entities: ["Entity A"],
+            entities: ["Entity A", "Entity B"],
             periods: [],
             bands: ["Negative", "Infinite", "Text"],
             series: [],
@@ -1027,6 +1027,7 @@ test.describe("packaged visual in a real browser", () => {
             const scope = window as unknown as {
                 buildProfileLensDataView: (value: unknown) => unknown;
                 profileLensUpdate: (value: unknown) => void;
+                profileLensDataView: unknown;
             };
             scope.profileLensUpdate({
                 width: options.width,
@@ -1414,6 +1415,883 @@ test.describe("packaged visual in a real browser", () => {
         });
         expect(after.selectedKeys).toHaveLength(1);
         expect(after.selectedKeys[0]).toContain("entity:0");
+    });
+
+    test("reconciles stale successful local selection from host state", async ({ page }) => {
+        await mount(page, {
+            contextMode: "grid",
+            navigationEnabled: false,
+            interactionMode: "reportSelection",
+            selectionDelayMs: 100,
+            entities: ["Entity A", "Entity B", "Entity C"],
+            periods: [],
+            bands: ["Band 1"],
+            series: [],
+            profiles: ["Metric A"]
+        });
+        const surface = page.locator(".profile-lens-context");
+        await surface.focus();
+        await surface.press("Enter");
+        await surface.press("ArrowRight");
+        await page.evaluate(() => {
+            const scope = window as unknown as {
+                profileLensHost: {
+                    emitExternalSelection: (ids: unknown[]) => void;
+                };
+                profileLensSelectionId: (key: string) => unknown;
+            };
+            scope.profileLensHost.emitExternalSelection([
+                scope.profileLensSelectionId("|node:entity:2")
+            ]);
+        });
+        await page.waitForTimeout(150);
+
+        await expect(page.locator(".profile-lens-header-title")).toHaveText("Entity B");
+        await expect(page.locator("[id='context:entity:0']"))
+            .toHaveAttribute("aria-selected", "true");
+        await expect(page.locator("[id='context:entity:2']"))
+            .toHaveAttribute("aria-selected", "false");
+        const calls = await page.evaluate(() => (window as unknown as {
+            profileLensHost: {
+                calls: {
+                    select: number;
+                    maxSelectionInFlight: number;
+                    selectedKeys: string[];
+                };
+            };
+        }).profileLensHost.calls);
+        expect(calls.select).toBe(1);
+        expect(calls.maxSelectionInFlight).toBe(1);
+        expect(calls.selectedKeys).toEqual([expect.stringContaining("entity:0")]);
+    });
+
+    test("external selection suppresses older wheel drag and pinch settles", async ({ page }) => {
+        for (const action of ["wheel", "drag", "pinch"]) {
+            await mount(page, {
+                contextMode: "grid",
+                navigationEnabled: true,
+                interactionMode: "reportSelection",
+                entities: ["Entity A", "Entity B", "Entity C", "Entity D"],
+                periods: [],
+                bands: ["Band 1"],
+                series: [],
+                profiles: ["Metric A"]
+            });
+            const surface = page.locator(".profile-lens-context");
+            const bounds = await surface.boundingBox();
+            const before = await surface.evaluate((node) =>
+                (node as HTMLElement & {
+                    __profileLensContextMetrics: { moveEnds: number };
+                }).__profileLensContextMetrics.moveEnds);
+            if (action === "wheel") {
+                await page.mouse.move(
+                    (bounds?.x ?? 0) + (bounds?.width ?? 0) / 2,
+                    (bounds?.y ?? 0) + (bounds?.height ?? 0) / 2
+                );
+                await page.mouse.wheel(0, -120);
+            } else if (action === "drag") {
+                const x = (bounds?.x ?? 0) + (bounds?.width ?? 0) / 2;
+                const y = (bounds?.y ?? 0) + (bounds?.height ?? 0) / 2;
+                await page.mouse.move(x, y);
+                await page.mouse.down();
+                await page.mouse.move(x + 40, y, { steps: 8 });
+            } else {
+                await surface.evaluate((node) => {
+                    const root = node as HTMLElement;
+                    const bounds = root.getBoundingClientRect();
+                    const fire = (type: string, id: number, x: number) => {
+                        root.dispatchEvent(new PointerEvent(type, {
+                            bubbles: true,
+                            cancelable: true,
+                            pointerId: id,
+                            pointerType: "touch",
+                            button: 0,
+                            clientX: bounds.left + x,
+                            clientY: bounds.top + bounds.height / 2
+                        }));
+                    };
+                    fire("pointerdown", 401, bounds.width / 2 - 50);
+                    fire("pointerdown", 402, bounds.width / 2 + 50);
+                    fire("pointermove", 402, bounds.width / 2 + 90);
+                });
+            }
+            const movedTransform = await page.locator(".profile-lens-context-outline-layer")
+                .getAttribute("transform");
+            await page.evaluate(() => {
+                const scope = window as unknown as {
+                    profileLensHost: {
+                        emitExternalSelection: (ids: unknown[]) => void;
+                    };
+                    profileLensSelectionId: (key: string) => unknown;
+                };
+                const id = scope.profileLensSelectionId("|node:entity:2");
+                scope.profileLensHost.emitExternalSelection([id]);
+                scope.profileLensHost.emitExternalSelection([id]);
+            });
+            if (action === "drag") {
+                await page.mouse.up();
+            } else if (action === "pinch") {
+                await surface.evaluate((node) => {
+                    const root = node as HTMLElement;
+                    const bounds = root.getBoundingClientRect();
+                    const fire = (type: string, id: number, x: number) => {
+                        root.dispatchEvent(new PointerEvent(type, {
+                            bubbles: true,
+                            cancelable: true,
+                            pointerId: id,
+                            pointerType: "touch",
+                            clientX: bounds.left + x,
+                            clientY: bounds.top + bounds.height / 2
+                        }));
+                    };
+                    fire("pointerup", 402, bounds.width / 2 + 90);
+                    fire("pointerup", 401, bounds.width / 2 - 50);
+                });
+            }
+            await page.waitForTimeout(250);
+            const after = await surface.evaluate((node) => ({
+                moveEnds: (node as HTMLElement & {
+                    __profileLensContextMetrics: { moveEnds: number };
+                }).__profileLensContextMetrics.moveEnds,
+                calls: (window as unknown as {
+                    profileLensHost: {
+                        calls: {
+                            select: number;
+                            selectedKeys: string[];
+                        };
+                    };
+                }).profileLensHost.calls
+            }));
+            expect(after.moveEnds - before, action).toBe(0);
+            expect(after.calls.select, action).toBe(0);
+            expect(after.calls.selectedKeys, action)
+                .toEqual([expect.stringContaining("entity:2")]);
+            await expect(page.locator(".profile-lens-context-outline-layer"))
+                .toHaveAttribute("transform", movedTransform ?? "");
+        }
+    });
+
+    test("external selection does not swallow pressed profile or Entity clicks", async ({ page }) => {
+        for (const selector of [".profile-lens-target", ".profile-lens-entity-option"]) {
+            await mount(page, {
+                contextMode: "none",
+                interactionMode: "reportSelection",
+                entities: ["Entity A", "Entity B"],
+                periods: [],
+                bands: ["Band 1"],
+                series: [],
+                profiles: ["Metric A"]
+            });
+            const target = page.locator(selector).first();
+            const bounds = await target.boundingBox();
+            expect(bounds).not.toBeNull();
+            await page.mouse.move(
+                (bounds?.x ?? 0) + (bounds?.width ?? 0) / 2,
+                (bounds?.y ?? 0) + (bounds?.height ?? 0) / 2
+            );
+            await page.mouse.down();
+            await page.evaluate(() => {
+                const scope = window as unknown as {
+                    profileLensHost: {
+                        emitExternalSelection: (ids: unknown[]) => void;
+                    };
+                    profileLensSelectionId: (key: string) => unknown;
+                };
+                scope.profileLensHost.emitExternalSelection([
+                    scope.profileLensSelectionId("|node:entity:1")
+                ]);
+            });
+            await page.mouse.up();
+            expect(await page.evaluate(() => (window as unknown as {
+                profileLensHost: { calls: { select: number } };
+            }).profileLensHost.calls.select), selector).toBe(1);
+        }
+    });
+
+    test("lifecycle update does not swallow pressed profile or Entity clicks", async ({ page }) => {
+        for (const selector of [".profile-lens-target", ".profile-lens-entity-option"]) {
+            await mount(page, {
+                contextMode: "none",
+                interactionMode: "reportSelection",
+                entities: ["Entity A", "Entity B"],
+                periods: [],
+                bands: ["Band 1"],
+                series: [],
+                profiles: ["Metric A"]
+            });
+            const target = page.locator(selector).first();
+            const bounds = await target.boundingBox();
+            await page.mouse.move(
+                (bounds?.x ?? 0) + (bounds?.width ?? 0) / 2,
+                (bounds?.y ?? 0) + (bounds?.height ?? 0) / 2
+            );
+            await page.mouse.down();
+            await page.evaluate(() => {
+                const scope = window as unknown as {
+                    profileLensDataView: unknown;
+                    profileLensUpdate: (options: unknown) => void;
+                };
+                scope.profileLensUpdate({
+                    width: 900,
+                    height: 700,
+                    dataViews: [scope.profileLensDataView],
+                    jsonFilters: []
+                });
+            });
+            expect(await page.evaluate(() => (window as unknown as {
+                profileLensEvents: { started: number; finished: number; failed: number };
+            }).profileLensEvents)).toMatchObject({
+                started: 2,
+                finished: 1,
+                failed: 0
+            });
+            await page.mouse.up();
+            expect(await page.evaluate(() => (window as unknown as {
+                profileLensHost: { calls: { select: number } };
+            }).profileLensHost.calls.select), selector).toBe(1);
+        }
+    });
+
+    test("disabled host update hard-stops a pressed Entity control", async ({ page }) => {
+        await mount(page, {
+            contextMode: "none",
+            entities: ["Entity A", "Entity B"],
+            periods: [],
+            bands: ["Band 1"],
+            series: [],
+            profiles: ["Metric A"]
+        });
+        const pressed = page.locator(".profile-lens-entity-option").nth(1);
+        const bounds = await pressed.boundingBox();
+        await page.mouse.move(
+            (bounds?.x ?? 0) + (bounds?.width ?? 0) / 2,
+            (bounds?.y ?? 0) + (bounds?.height ?? 0) / 2
+        );
+        await page.mouse.down();
+        await page.evaluate(() => {
+            const scope = window as unknown as {
+                profileLensDataView: unknown;
+                profileLensHost: {
+                    hostCapabilities: { allowInteractions: boolean };
+                };
+                profileLensUpdate: (value: unknown) => void;
+            };
+            scope.profileLensHost.hostCapabilities.allowInteractions = false;
+            scope.profileLensUpdate({
+                width: 1280,
+                height: 620,
+                dataViews: [scope.profileLensDataView],
+                jsonFilters: []
+            });
+        });
+        await page.mouse.up();
+        await expect(page.locator(".profile-lens-header-title")).toHaveText("Entity A");
+        await expect(page.locator('[data-entity-index="1"]'))
+            .toHaveAttribute("aria-disabled", "true");
+        expect(await page.evaluate(() => (window as unknown as {
+            profileLensHost: { calls: { select: number } };
+        }).profileLensHost.calls.select)).toBe(0);
+    });
+
+    test("keeps model state atomic while a data update is deferred by drag", async ({ page }) => {
+        const initial = {
+            width: 1280,
+            height: 620,
+            contextMode: "grid",
+            navigationEnabled: true,
+            entities: [
+                "Entity A", "Entity B", "Entity C",
+                "Entity D", "Entity E", "Entity F",
+                "Entity G", "Entity H", "Entity I"
+            ],
+            periods: [] as string[],
+            bands: ["Band 1"],
+            series: [] as string[],
+            profiles: ["Metric A"]
+        };
+        await mount(page, initial);
+        const surface = page.locator(".profile-lens-context");
+        const bounds = await surface.boundingBox();
+        const title = await page.locator(".profile-lens-header-title").textContent();
+        const x = (bounds?.x ?? 0) + (bounds?.width ?? 0) / 2;
+        const y = (bounds?.y ?? 0) + (bounds?.height ?? 0) / 2;
+        await page.mouse.move(x, y);
+        await page.mouse.down();
+        await page.mouse.move(x + 40, y, { steps: 8 });
+        await page.evaluate((options) => {
+            const scope = window as unknown as {
+                buildProfileLensDataView: (value: unknown) => unknown;
+                profileLensUpdate: (value: unknown) => void;
+                profileLensDataView: unknown;
+            };
+            scope.profileLensUpdate({
+                width: options.width,
+                height: options.height,
+                dataViews: [scope.buildProfileLensDataView({
+                    ...options,
+                    entities: ["Entity A"]
+                })],
+                jsonFilters: []
+            });
+        }, initial);
+        await expect(page.locator(".profile-lens-header-title")).toHaveText(title ?? "");
+        expect((await page.locator(".profile-lens-header-subtitle").allTextContents()).join(" "))
+            .not.toContain("not loaded");
+        expect(await page.evaluate(() => (window as unknown as {
+            profileLensEvents: { started: number; finished: number };
+        }).profileLensEvents)).toMatchObject({ started: 2, finished: 1 });
+        await page.mouse.up();
+        await page.waitForTimeout(20);
+        expect(await page.evaluate(() => (window as unknown as {
+            profileLensEvents: { started: number; finished: number };
+        }).profileLensEvents)).toMatchObject({ started: 2, finished: 2 });
+    });
+
+    test("preserves deferred data through a later lifecycle-only update", async ({ page }) => {
+        const initial = {
+            width: 1280,
+            height: 620,
+            contextMode: "grid",
+            navigationEnabled: true,
+            entities: ["Entity A", "Entity B"],
+            periods: [] as string[],
+            bands: ["Band 1"],
+            series: [] as string[],
+            profiles: ["Metric A"]
+        };
+        await mount(page, initial);
+        const surface = page.locator(".profile-lens-context");
+        const bounds = await surface.boundingBox();
+        const x = (bounds?.x ?? 0) + (bounds?.width ?? 0) / 2;
+        const y = (bounds?.y ?? 0) + (bounds?.height ?? 0) / 2;
+        await page.mouse.move(x, y);
+        await page.mouse.down();
+        await page.mouse.move(x + 40, y, { steps: 8 });
+        await page.evaluate((options) => {
+            const scope = window as unknown as {
+                buildProfileLensDataView: (value: unknown) => unknown;
+                profileLensUpdate: (value: unknown) => void;
+                profileLensDataView: unknown;
+            };
+            scope.profileLensUpdate({
+                width: options.width,
+                height: options.height,
+                dataViews: [scope.buildProfileLensDataView({
+                    ...options,
+                    entities: ["Replacement"]
+                })],
+                jsonFilters: []
+            });
+            const committed = scope.profileLensDataView as {
+                metadata: {
+                    objects: {
+                        context: { mode: string };
+                    };
+                };
+            };
+            committed.metadata.objects.context.mode = "none";
+            scope.profileLensUpdate({
+                width: 1000,
+                height: 800,
+                dataViews: [scope.profileLensDataView],
+                jsonFilters: []
+            });
+        }, initial);
+        expect(await page.evaluate(() => (window as unknown as {
+            profileLensEvents: { started: number; finished: number };
+        }).profileLensEvents)).toMatchObject({ started: 3, finished: 1 });
+        await page.mouse.up();
+        await page.waitForTimeout(20);
+        await expect(page.locator(".profile-lens-header-title")).toHaveText("Replacement");
+        await expect(page.locator(".profile-lens-context")).toBeHidden();
+        expect(await page.evaluate(() => (window as unknown as {
+            profileLensEvents: { started: number; finished: number; failed: number };
+        }).profileLensEvents)).toMatchObject({ started: 3, finished: 3, failed: 0 });
+    });
+
+    test("preserves deferred append semantics when resize resends pending DataView", async ({ page }) => {
+        const initial = {
+            width: 1280,
+            height: 620,
+            contextMode: "none",
+            segment: true,
+            entities: ["Entity A"],
+            periods: [] as string[],
+            bands: ["Band 1"],
+            series: [] as string[],
+            profiles: ["Metric A"]
+        };
+        await mount(page, initial);
+        const target = page.locator(".profile-lens-target").first();
+        const bounds = await target.boundingBox();
+        await page.mouse.move(
+            (bounds?.x ?? 0) + (bounds?.width ?? 0) / 2,
+            (bounds?.y ?? 0) + (bounds?.height ?? 0) / 2
+        );
+        await page.mouse.down();
+        await page.evaluate((options) => {
+            const scope = window as unknown as {
+                buildProfileLensDataView: (value: unknown) => unknown;
+                profileLensUpdate: (value: unknown) => void;
+                profileLensDataView: unknown;
+            };
+            const appended = scope.buildProfileLensDataView(options);
+            scope.profileLensDataView = appended;
+            scope.profileLensUpdate({
+                width: 900,
+                height: 700,
+                dataViews: [appended],
+                operationKind: 1,
+                jsonFilters: []
+            });
+            scope.profileLensUpdate({
+                width: 1000,
+                height: 800,
+                dataViews: [appended],
+                jsonFilters: []
+            });
+        }, initial);
+        await page.mouse.up();
+        await page.waitForTimeout(20);
+        await expect(page.locator('[data-code="partialData"]')).toContainText("2 segments");
+        await page.evaluate(() => {
+            const scope = window as unknown as {
+                profileLensDataView: unknown;
+                profileLensUpdate: (value: unknown) => void;
+            };
+            scope.profileLensUpdate({
+                width: 1100,
+                height: 850,
+                dataViews: [scope.profileLensDataView],
+                jsonFilters: []
+            });
+        });
+        await expect(page.locator('[data-code="partialData"]')).toContainText("2 segments");
+        expect(await page.evaluate(() => (window as unknown as {
+            profileLensEvents: { started: number; finished: number; failed: number };
+        }).profileLensEvents)).toMatchObject({ started: 4, finished: 4, failed: 0 });
+    });
+
+    test("host update supersedes wheel before external selection", async ({ page }) => {
+        const initial = {
+            width: 1280,
+            height: 620,
+            contextMode: "grid",
+            navigationEnabled: true,
+            entities: ["Entity A", "Entity B"],
+            periods: [] as string[],
+            bands: ["Band 1"],
+            series: [] as string[],
+            profiles: ["Metric A"]
+        };
+        await mount(page, initial);
+        const surface = page.locator(".profile-lens-context");
+        const bounds = await surface.boundingBox();
+        await page.mouse.move(
+            (bounds?.x ?? 0) + (bounds?.width ?? 0) / 2,
+            (bounds?.y ?? 0) + (bounds?.height ?? 0) / 2
+        );
+        await page.mouse.wheel(0, -120);
+        await page.evaluate((options) => {
+            const scope = window as unknown as {
+                buildProfileLensDataView: (value: unknown) => unknown;
+                profileLensUpdate: (value: unknown) => void;
+                profileLensHost: {
+                    emitExternalSelection: (ids: unknown[]) => void;
+                };
+                profileLensSelectionId: (key: string) => unknown;
+            };
+            scope.profileLensUpdate({
+                width: options.width,
+                height: options.height,
+                dataViews: [scope.buildProfileLensDataView({
+                    ...options,
+                    entities: ["Replacement"]
+                })],
+                jsonFilters: []
+            });
+            scope.profileLensHost.emitExternalSelection([
+                scope.profileLensSelectionId("|node:entity:0")
+            ]);
+        }, initial);
+        await expect(page.locator(".profile-lens-header-title")).toHaveText("Replacement");
+        await page.waitForTimeout(250);
+        const result = await surface.evaluate((node) => ({
+            moveEnds: (node as HTMLElement & {
+                __profileLensContextMetrics: { moveEnds: number };
+            }).__profileLensContextMetrics.moveEnds,
+            calls: (window as unknown as {
+                profileLensHost: { calls: { select: number } };
+            }).profileLensHost.calls,
+            events: (window as unknown as {
+                profileLensEvents: { started: number; finished: number; failed: number };
+            }).profileLensEvents
+        }));
+        expect(result).toMatchObject({
+            moveEnds: 0,
+            calls: { select: 0 },
+            events: { started: 2, finished: 2, failed: 0 }
+        });
+    });
+
+    test("preserves Context click before a deferred empty update", async ({ page }) => {
+        await mount(page, {
+            contextMode: "grid",
+            navigationEnabled: true,
+            interactionMode: "reportSelection",
+            entities: ["Entity A", "Entity B"],
+            periods: [],
+            bands: ["Band 1"],
+            series: [],
+            profiles: ["Metric A"]
+        });
+        const feature = page.locator("[data-context-key='entity:0']");
+        const bounds = await feature.boundingBox();
+        await page.mouse.move(
+            (bounds?.x ?? 0) + (bounds?.width ?? 0) / 2,
+            (bounds?.y ?? 0) + (bounds?.height ?? 0) / 2
+        );
+        await page.mouse.down();
+        await page.evaluate(() => {
+            const scope = window as unknown as {
+                buildProfileLensDataView: (value: unknown) => unknown;
+                profileLensUpdate: (value: unknown) => void;
+            };
+            scope.profileLensUpdate({
+                width: 1280,
+                height: 620,
+                dataViews: [scope.buildProfileLensDataView({
+                    contextMode: "none",
+                    entities: [],
+                    periods: [],
+                    bands: [],
+                    series: [],
+                    profiles: []
+                })],
+                jsonFilters: []
+            });
+        });
+        await expect(page.locator(".profile-lens-context")).toBeVisible();
+        await page.mouse.up();
+        await page.waitForTimeout(20);
+        expect(await page.evaluate(() => ({
+            select: (window as unknown as {
+                profileLensHost: { calls: { select: number } };
+            }).profileLensHost.calls.select,
+            events: (window as unknown as {
+                profileLensEvents: { started: number; finished: number };
+            }).profileLensEvents
+        }))).toMatchObject({
+            select: 1,
+            events: { started: 2, finished: 2 }
+        });
+        await expect(page.locator(".profile-lens-landing")).toBeVisible();
+    });
+
+    test("flushes external selection after pointer release outside the visual", async ({ page }) => {
+        await mount(page, {
+            width: 640,
+            height: 300,
+            contextMode: "none",
+            entities: ["Entity A"],
+            periods: [],
+            bands: ["Band 1"],
+            series: [],
+            profiles: ["Metric A"]
+        });
+        const target = page.locator(".profile-lens-target").first();
+        const bounds = await target.boundingBox();
+        await page.mouse.move(
+            (bounds?.x ?? 0) + (bounds?.width ?? 0) / 2,
+            (bounds?.y ?? 0) + (bounds?.height ?? 0) / 2
+        );
+        await page.mouse.down();
+        await page.evaluate(() => {
+            const scope = window as unknown as {
+                profileLensHost: {
+                    emitExternalSelection: (ids: unknown[]) => void;
+                };
+                profileLensSelectionId: (key: string) => unknown;
+            };
+            scope.profileLensHost.emitExternalSelection([
+                scope.profileLensSelectionId("|node:band:0:-1:0")
+            ]);
+        });
+        await page.mouse.move(1000, 500);
+        await page.mouse.up();
+        await expect(page.locator(".profile-lens-target").first())
+            .toHaveAttribute("aria-pressed", "true");
+    });
+
+    test("flushes delayed selection when a no-change wheel settles", async ({ page }) => {
+        await mount(page, {
+            contextMode: "grid",
+            navigationEnabled: true,
+            minZoom: 7.3,
+            maxZoom: 7.3,
+            selectionDelayMs: 50,
+            entities: ["Entity A", "Entity B"],
+            periods: [],
+            bands: ["Band 1"],
+            series: [],
+            profiles: ["Metric A"]
+        });
+        const target = page.locator(".profile-lens-target").first();
+        await target.click();
+        const surface = page.locator(".profile-lens-context");
+        const bounds = await surface.boundingBox();
+        await page.mouse.move(
+            (bounds?.x ?? 0) + (bounds?.width ?? 0) / 2,
+            (bounds?.y ?? 0) + (bounds?.height ?? 0) / 2
+        );
+        await page.mouse.wheel(0, -120);
+        await page.waitForTimeout(150);
+        await expect(page.locator(".profile-lens-target").first())
+            .toHaveAttribute("aria-pressed", "true");
+        expect(await page.evaluate(() => (window as unknown as {
+            profileLensHost: {
+                calls: {
+                    select: number;
+                    maxSelectionInFlight: number;
+                };
+            };
+        }).profileLensHost.calls)).toMatchObject({
+            select: 1,
+            maxSelectionInFlight: 1
+        });
+    });
+
+    test("flushes delayed selection when keyboard cancels wheel settle", async ({ page }) => {
+        await mount(page, {
+            contextMode: "grid",
+            navigationEnabled: true,
+            minZoom: 7.3,
+            maxZoom: 7.3,
+            selectionDelayMs: 50,
+            entities: ["Entity A", "Entity B"],
+            periods: [],
+            bands: ["Band 1"],
+            series: [],
+            profiles: ["Metric A"]
+        });
+        await page.locator(".profile-lens-target").first().click();
+        const surface = page.locator(".profile-lens-context");
+        const bounds = await surface.boundingBox();
+        await page.mouse.move(
+            (bounds?.x ?? 0) + (bounds?.width ?? 0) / 2,
+            (bounds?.y ?? 0) + (bounds?.height ?? 0) / 2
+        );
+        await page.mouse.wheel(0, -120);
+        await page.waitForTimeout(75);
+        await surface.focus();
+        await surface.press("Escape");
+        await expect(page.locator(".profile-lens-target").first())
+            .toHaveAttribute("aria-pressed", "true");
+        await page.waitForTimeout(100);
+        expect(await page.evaluate(() => (window as unknown as {
+            profileLensHost: {
+                calls: {
+                    select: number;
+                    maxSelectionInFlight: number;
+                };
+            };
+        }).profileLensHost.calls)).toMatchObject({
+            select: 1,
+            maxSelectionInFlight: 1
+        });
+    });
+
+    test("host update supersedes wheel while local selection is pending", async ({ page }) => {
+        await mount(page, {
+            contextMode: "grid",
+            navigationEnabled: true,
+            minZoom: 7.3,
+            maxZoom: 7.3,
+            selectionDelayMs: 50,
+            entities: ["Entity A", "Entity B"],
+            periods: [],
+            bands: ["Band 1"],
+            series: [],
+            profiles: ["Metric A"]
+        });
+        const beforeWidth = await page.locator(".profile-lens-profile-svg").getAttribute("width");
+        await page.locator(".profile-lens-target").first().click();
+        const surface = page.locator(".profile-lens-context");
+        const bounds = await surface.boundingBox();
+        await page.mouse.move(
+            (bounds?.x ?? 0) + (bounds?.width ?? 0) / 2,
+            (bounds?.y ?? 0) + (bounds?.height ?? 0) / 2
+        );
+        await page.mouse.wheel(0, -120);
+        await page.evaluate(() => {
+            const scope = window as unknown as {
+                profileLensDataView: unknown;
+                profileLensUpdate: (options: unknown) => void;
+            };
+            scope.profileLensUpdate({
+                width: 900,
+                height: 700,
+                dataViews: [scope.profileLensDataView],
+                jsonFilters: []
+            });
+        });
+        await page.waitForTimeout(75);
+        expect(await page.evaluate(() => (window as unknown as {
+            profileLensEvents: { finished: number };
+        }).profileLensEvents.finished)).toBe(2);
+        await expect(page.locator(".profile-lens-profile-svg"))
+            .not.toHaveAttribute("width", beforeWidth ?? "");
+        await page.waitForTimeout(75);
+        expect(await page.evaluate(() => (window as unknown as {
+            profileLensEvents: { finished: number };
+        }).profileLensEvents.finished)).toBe(2);
+        await expect(page.locator(".profile-lens-profile-svg"))
+            .not.toHaveAttribute("width", beforeWidth ?? "");
+        expect(await page.evaluate(() => (window as unknown as {
+            profileLensHost: { calls: { select: number } };
+        }).profileLensHost.calls.select)).toBe(1);
+    });
+
+    test("keyboard activates replacement target after host update cancels wheel", async ({ page }) => {
+        const initial = {
+            width: 1280,
+            height: 620,
+            contextMode: "grid",
+            navigationEnabled: true,
+            entities: ["Entity A", "Entity B", "Entity C", "Entity D"],
+            periods: [] as string[],
+            bands: ["Band 1"],
+            series: [] as string[],
+            profiles: ["Metric A"]
+        };
+        await mount(page, initial);
+        const surface = page.locator(".profile-lens-context");
+        const bounds = await surface.boundingBox();
+        await page.mouse.move(
+            (bounds?.x ?? 0) + (bounds?.width ?? 0) / 2,
+            (bounds?.y ?? 0) + (bounds?.height ?? 0) / 2
+        );
+        await page.mouse.wheel(0, -120);
+        await page.evaluate((options) => {
+            const scope = window as unknown as {
+                buildProfileLensDataView: (value: unknown) => unknown;
+                profileLensUpdate: (value: unknown) => void;
+            };
+            scope.profileLensUpdate({
+                width: options.width,
+                height: options.height,
+                dataViews: [scope.buildProfileLensDataView({
+                    ...options,
+                    entities: ["Replacement"]
+                })],
+                jsonFilters: []
+            });
+        }, initial);
+        const target = page.locator(".profile-lens-target").first();
+        await target.focus();
+        await target.press("Enter");
+        await expect(page.locator(".profile-lens-header-title")).toHaveText("Replacement");
+        const calls = await page.evaluate(() => (window as unknown as {
+            profileLensHost: {
+                calls: {
+                    select: number;
+                    lastSelectedKey: string | null;
+                };
+            };
+        }).profileLensHost.calls);
+        expect(calls.select).toBe(1);
+        expect(calls.lastSelectedKey).toContain("band:0:-1:0");
+    });
+
+    test("profile press survives canceling a pending wheel settle", async ({ page }) => {
+        await mount(page, {
+            contextMode: "grid",
+            navigationEnabled: true,
+            minZoom: 7.3,
+            maxZoom: 7.3,
+            selectionDelayMs: 50,
+            entities: ["Entity A", "Entity B"],
+            periods: [],
+            bands: ["Band 1", "Band 2"],
+            series: [],
+            profiles: ["Metric A"]
+        });
+        const targets = page.locator(".profile-lens-target");
+        await targets.first().click();
+        const surface = page.locator(".profile-lens-context");
+        const surfaceBounds = await surface.boundingBox();
+        await page.mouse.move(
+            (surfaceBounds?.x ?? 0) + (surfaceBounds?.width ?? 0) / 2,
+            (surfaceBounds?.y ?? 0) + (surfaceBounds?.height ?? 0) / 2
+        );
+        await page.mouse.wheel(0, -120);
+        await page.waitForTimeout(75);
+        const targetBounds = await targets.nth(1).boundingBox();
+        await page.mouse.move(
+            (targetBounds?.x ?? 0) + (targetBounds?.width ?? 0) / 2,
+            (targetBounds?.y ?? 0) + (targetBounds?.height ?? 0) / 2
+        );
+        await page.mouse.down();
+        await page.mouse.up();
+        await page.waitForTimeout(75);
+        const calls = await page.evaluate(() => (window as unknown as {
+            profileLensHost: {
+                calls: {
+                    select: number;
+                    maxSelectionInFlight: number;
+                };
+            };
+        }).profileLensHost.calls);
+        expect(calls).toMatchObject({
+            select: 2,
+            maxSelectionInFlight: 1
+        });
+    });
+
+    test("ignores deferred selection completion after visual destroy", async ({ page }) => {
+        await mount(page, {
+            contextMode: "none",
+            selectionDelayMs: 100,
+            entities: ["Entity A", "Entity B"],
+            periods: [],
+            bands: ["Band 1"],
+            series: [],
+            profiles: ["Metric A"]
+        });
+        const target = page.locator(".profile-lens-target").first();
+        await target.click();
+        await page.evaluate(() => {
+            (window as unknown as {
+                profileLensInstance: { destroy: () => void };
+            }).profileLensInstance.destroy();
+        });
+        await page.waitForTimeout(150);
+        await page.locator(".profile-lens").dispatchEvent("contextmenu", {
+            clientX: 5,
+            clientY: 5
+        });
+        await target.click({ force: true });
+        await page.locator(".profile-lens-entity-option").first().click({ force: true });
+        await page.locator(".profile-lens").dispatchEvent("contextmenu", {
+            clientX: 5,
+            clientY: 5
+        });
+        const calls = await page.evaluate(() => (window as unknown as {
+            profileLensHost: {
+                calls: {
+                    select: number;
+                    contextMenu: number;
+                    selectionInFlight: number;
+                    maxSelectionInFlight: number;
+                };
+            };
+        }).profileLensHost.calls);
+        expect(calls).toMatchObject({
+            select: 1,
+            contextMenu: 0,
+            selectionInFlight: 0,
+            maxSelectionInFlight: 1
+        });
     });
 
     test("keeps transformed SVG and Canvas picking under physical camera gestures", async ({ page }) => {

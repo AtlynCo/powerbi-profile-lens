@@ -117,7 +117,9 @@ identities. The shared controller owns gesture arbitration, tooltip, context-men
 and disabled-interaction behavior. One Visual-owned coordinator serializes every profile/context
 selection: one host promise at a time, latest single-select coalescing, ordered explicit multi-select,
 and queued-work invalidation on external callbacks. An already in-flight host call is not cancellable
-and remains an explicit last-writer boundary. Report selection is the default entity action. Local-only
+and remains an explicit last-writer boundary. A stale successful completion reconciles overlays from
+`SelectionManager.getSelectionIds()` while leaving local focus untouched; stale rejection is
+diagnostic-only. Report selection is the default entity action. Local-only
 mode makes no host mutation. Highlights, RLS, external filters, and external selections remain
 read-only host inputs. The visual declares no filter capability and never calls `applyJsonFilter`.
 
@@ -137,7 +139,8 @@ midpoint translation from that snapshot and clamp the complete camera once. Retu
 pointers to one rebases pan without changing the camera. Pointer cancel/lost capture is idempotent.
 Wheel settle callbacks carry a generation and are cancelled when pointer/pinch, click, plain spatial
 keyboard, keyboard camera/reset, rebind, disabled interaction, or destroy takes ownership. A stale
-callback cannot reassert probe focus or commit host selection.
+callback cannot reassert probe focus or commit host selection. External host selection also
+suppresses pending wheel and current drag/pinch settle ownership without reverting camera state.
 Plain Arrow retains spatial backdrop browsing; Shift+Arrow pans, `+`/`-` zooms, and Home resets.
 After every camera mutation, the camera-aware renderer hit-tests the fixed center pixel. A canonical
 feature/Entity/detail/period token deduplicates unchanged states. Changed states update only the
