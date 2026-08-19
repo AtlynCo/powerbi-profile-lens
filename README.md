@@ -39,13 +39,14 @@ Rendering is adaptive: SVG is used only when a scene has at most 500 features **
 vertices; larger accepted scenes use Canvas. Both renderers expose the same selection identities,
 tooltips, focus state, labels, and semantic descriptions.
 
-`Navigation > Enable viewport navigation` is off by default so upgraded reports retain their static
-context. When enabled, left-drag and one-finger drag pan; wheel, trackpad, and two-pointer pinch zoom;
+`Navigation > Viewport navigation` is `Automatic` by default. Automatic mode activates for an
+interactive, non-profile-only Context scene with multiple navigable features. Persisted legacy
+`false`/`true` values migrate to explicit `Off`/`On`, so reports that explicitly disabled navigation
+remain static. When active, left-drag and one-finger drag pan; wheel, trackpad, and two-pointer pinch zoom;
 Shift+Arrow pans; `+`/`-` zooms; and Home or the reset control returns to the configured minimum zoom
 (fit at the default minimum of 1). Zoom is anchored under the cursor or pinch midpoint. The default
 range is 1 through 8, bounded pan keeps the scene from being lost, and valid resize preserves the
-viewed scene center. Enabling it is recommended for authored geographic pack pages, but the choice is
-an ordinary compatible setting rather than provider-specific core behavior.
+viewed scene center.
 
 Pinch uses one gesture-start camera snapshot: zoom and midpoint translation are solved together and
 clamped once, so reaching an edge or zoom limit does not introduce an incremental jump. While
@@ -54,12 +55,24 @@ is already at minimum or maximum zoom; zero, invalid, disabled, and navigation-o
 host. High-contrast probe, help, focus, and reset chrome use the host foreground, background, and
 selected colors through resolved theme variables.
 
-The fixed center probe is visual and descriptive in 1.3.0. It does **not** change the focused Entity,
-header, profile, or host selection; click and keyboard entity selection remain authoritative.
-Built-in packs still render only report-bound entities, not a full-pack backdrop. Inertia, rotation,
-double-click zoom, live tiles, and move-end report selection are intentionally absent. SVG changes one
-camera group transform. Canvas reuses a bounded base raster and inverse-transformed picking surface;
-high zoom may magnify that stable raster rather than reconstructing county geometry during movement.
+The fixed center probe is the local profile source while navigation is active. The viewport moves
+beneath it; crossing a feature boundary updates the focused outline, connector, Entity title, profile,
+accessible table, and status without a click. Built-in packs always keep their complete declared
+backdrop (177/242 world, 56 state/equivalent, or 3,235 county/equivalent features), while only exact
+report matches carry analytical values, tooltips, highlights, and Power BI identities. Known unbound
+features show `No data in current report context`; unloaded detail and no-feature states are distinct
+and never retain the prior profile.
+
+An optional fallback Entity key is exact raw bound text. It applies only over no feature, is visibly
+disclosed, and is never silently inferred as `WLD`; it never masks a known no-data feature. Authors can
+hide unbound base paint while keeping the complete backdrop probeable, navigable, and semantic.
+
+Camera movement is local. `localOnly` never calls the host. In `reportSelection`, a user movement
+settle commits at most one final directly matched, loaded Entity with an identity; no-data,
+unloaded, no-feature, and fallback states are not selected. Explicit click/Enter/Space remains one
+activation call. SVG changes one camera group transform. Canvas reuses a bounded base raster and
+inverse-transformed picking surface; neither renderer rebuilds geometry or picking on probe changes.
+Inertia, rotation, double-click zoom, and live tiles remain absent.
 
 ## Field wells
 
@@ -117,7 +130,7 @@ The internal `matrixExpand` interface reports unavailable. Capabilities intentio
 
 ## Interaction and accessibility
 
-Context features use entity-level matrix identities; profile marks retain bucket-level identities.
+Context Entity bindings use entity-level matrix identities; profile marks retain bucket-level identities.
 The default entity activation mode focuses locally and selects through the host. Authors can choose
 local-only behavior instead. Right-click invokes either the data-point or empty-space native context
 menu once, and native tooltips follow the pointer. External slicers, cross-filters, highlights, RLS,
@@ -126,12 +139,13 @@ filter. When the host disables interactions, no selection, tooltip, focus or cam
 gesture capture, wheel prevention, context-menu call, or navigation host call is made; the current
 camera remains rendered statically.
 
-Keyboard focus is roving and restored by stable key. Plain Arrow keys navigate entities,
+Keyboard focus is roving and restored by stable key. Plain Arrow keys browse backdrop features,
 Shift+Arrow pans the viewport, `+`/`-` zooms, Home resets, Enter/Space selects, and Escape returns
 focus to the visual. The context remains one Tab stop; the pointer reset control is not a second
 sequential stop. SVG and Canvas provide semantic parity through the same accessible status, probe
-description, feature descriptions, and profile table. High contrast, RTL, and reduced motion are
-supported; information is not conveyed by color alone.
+announcements, data-bearing/no-data/unloaded feature descriptions, and profile table. Announcements
+are concise or detailed, deduplicated, and bounded to one trailing update. High contrast, RTL, and
+reduced motion are supported; information is not conveyed by color alone.
 
 Arrow navigation changes local focus only; it never selects or filters by itself. Pointer click or
 Enter/Space is activation: local-only mode performs no host mutation, report-selection mode selects
@@ -140,9 +154,10 @@ the entity identity. Outward report filtering is not a v1 feature.
 ## Provider extension contract
 
 A provider declares an ID and supported modes, checks whether it can handle a bounded
-`ContextProviderInput`, and returns a `ContextScene` of features, metrics, diagnostics, and partial
-state. Features carry entity identity, geometry, context value, and tooltip data. Renderers consume
-only that scene contract; providers do not access the DOM or host services. See
+`ContextProviderInput`, and returns a `ContextScene` containing one complete geometry backdrop plus
+optional feature-to-Entity bindings. Geometry is stored once; bindings carry Entity identity,
+context value, and tooltip data. Renderers consume only that scene contract; providers do not access
+the DOM or host services. See
 [docs/architecture.md](docs/architecture.md).
 
 ## Sample project
@@ -150,8 +165,9 @@ only that scene contract; providers do not access the DOM or host services. See
 `samples/AtlynProfileLensSample` is an offline PBIP project generated by `npm run sample:pbip`. It
 keeps the original two profile pages and adds pages for nongeographic grid/hex entities, bound WGS84
 points, simple bound polygons, world countries, US states/equivalents, US counties/equivalents, and
-an opt-in synthetic viewport-foundation page. That page demonstrates camera gestures and the fixed
-probe without claiming probe-driven profile updates. Its semantic model is only a synthetic DAX
+a paired synthetic viewport-lens page. Its local-only and report-selection visuals leave Navigation
+unset so automatic mode demonstrates probe-driven profiles, exact no-data backdrop, and a visibly
+configured WLD-like no-feature fallback. Its semantic model is only a synthetic DAX
 `DATATABLE`; every metric is openly synthetic. It has no data source, credentials, refresh, upload,
 or network dependency.
 
@@ -194,8 +210,9 @@ records the package SHA-256 and proof boundary.
 
 Repository checks cover deterministic source and generated pack hashes, exact joins, complete declared
 pack coverage, finite geometry and insets, parsing and bounds, SVG/Canvas policy, provider/layout
-logic, physical drag/wheel/synthetic-pinch camera behavior, inverse Canvas picking, no-rebuild camera
-metrics, interaction call counts, accessibility semantics, lifecycle, package reproducibility, and
+logic, physical drag/wheel/synthetic-pinch camera behavior, inverse Canvas picking, probe transitions,
+zero provider/scene/base/picking rebuild deltas, partial-profile p95/max, interaction call counts,
+accessibility semantics, lifecycle, package reproducibility, and
 absence of network requests from the packaged bundle in Chromium.
 
 They do not prove native Desktop field-well behavior, segmentation, bookmarks, service behavior,

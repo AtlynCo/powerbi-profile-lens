@@ -1,5 +1,5 @@
 {
-		"version": "1.3.0.0",
+		"version": "1.4.0.0",
 		"author": {"name":"Atlyn","email":"atlyn.help@gmail.com"},
 		"resources": [
 			{
@@ -8,7 +8,7 @@
 				"file": "resources/atlynProfileLens.pbiviz.json"
 			}
 		],
-		"visual": {"name":"atlynProfileLens","displayName":"Atlyn Profile Lens","guid":"atlynProfileLens","visualClassName":"Visual","version":"1.3.0.0","description":"Compare report-bound measures with optional offline world, US state, US county, point, strict bound geometry, or generated schematic context, plus opt-in offline pan, wheel, pinch, and keyboard viewport navigation. Built-in packs are cartographic resources only; the visual bundles no observations, makes no external requests, and requests no privileges.","supportUrl":"https://atlyn.io/contact","gitHubUrl":"https://github.com/garrett-hamers/powerbi-profile-lens"},
+		"visual": {"name":"atlynProfileLens","displayName":"Atlyn Profile Lens","guid":"atlynProfileLens","visualClassName":"Visual","version":"1.4.0.0","description":"Compare report-bound measures through an automatic fixed-center viewport lens over complete offline world, US state, US county, point, strict bound geometry, or generated schematic context. Built-in packs are cartographic resources only; the visual bundles no observations, makes no external requests, and requests no privileges.","supportUrl":"https://atlyn.io/contact","gitHubUrl":"https://github.com/garrett-hamers/powerbi-profile-lens"},
 		"metadata": {
 			"pbivizjson": {
 				"resourceId": "rId0"

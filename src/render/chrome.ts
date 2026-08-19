@@ -9,6 +9,9 @@ export interface HeaderInput {
     readonly localization: Localization;
     readonly entityIndex: number;
     readonly periodIndex: number;
+    readonly titleOverride?: string;
+    readonly stateMessage?: string;
+    readonly suppressEntityDetails?: boolean;
 }
 
 export function renderHeader(container: HTMLElement, input: HeaderInput): void {
@@ -24,18 +27,22 @@ export function renderHeader(container: HTMLElement, input: HeaderInput): void {
     const title = document.createElement("h1");
     title.className = "profile-lens-header-title";
     title.style.fontSize = `${input.settings.headerFontSize}px`;
-    title.textContent = entity?.label ?? "";
+    title.textContent = input.titleOverride ?? entity?.label ?? "";
     container.appendChild(title);
 
     const details: string[] = [];
-    if (input.settings.showEntityKey && entity) {
+    if (!input.suppressEntityDetails && input.settings.showEntityKey && entity) {
         details.push(entity.key);
     }
     const periods = input.model.periodsByEntity.get(input.entityIndex) ?? [];
-    if (input.periodIndex !== IMPLICIT_INDEX && periods[input.periodIndex]) {
+    if (
+        !input.suppressEntityDetails
+        && input.periodIndex !== IMPLICIT_INDEX
+        && periods[input.periodIndex]
+    ) {
         details.push(`${input.localization.get("Header_Period")}: ${periods[input.periodIndex].label}`);
     }
-    if (input.settings.showContextValue) {
+    if (!input.suppressEntityDetails && input.settings.showContextValue) {
         const context = input.model.extension.contextValues
             .find((entry) => entry.entityIndex === input.entityIndex);
         if (context) {
@@ -43,6 +50,9 @@ export function renderHeader(container: HTMLElement, input: HeaderInput): void {
                 `${input.localization.get("Header_ContextValue")}: ${input.localization.formatNumber(context.value)}`
             );
         }
+    }
+    if (input.stateMessage) {
+        details.push(input.stateMessage);
     }
     if (details.length > 0) {
         const subtitle = document.createElement("p");

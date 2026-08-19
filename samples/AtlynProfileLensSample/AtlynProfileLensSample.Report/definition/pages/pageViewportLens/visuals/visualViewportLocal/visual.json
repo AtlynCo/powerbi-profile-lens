@@ -1,12 +1,12 @@
 {
   "$schema": "https://developer.microsoft.com/json-schemas/fabric/item/report/definition/visualContainer/2.7.0/schema.json",
-  "name": "visualViewportWorld",
+  "name": "visualViewportLocal",
   "position": {
     "x": 40,
     "y": 40,
     "z": 0,
     "height": 800,
-    "width": 980,
+    "width": 740,
     "tabOrder": 0
   },
   "visual": {
@@ -23,11 +23,11 @@
                       "Entity": "ProfileFacts"
                     }
                   },
-                  "Property": "WorldKey"
+                  "Property": "ViewportWorldKey"
                 }
               },
-              "queryRef": "ProfileFacts.WorldKey",
-              "nativeQueryRef": "WorldKey"
+              "queryRef": "ProfileFacts.ViewportWorldKey",
+              "nativeQueryRef": "ViewportWorldKey"
             },
             {
               "field": {
@@ -161,7 +161,7 @@
             "worldDetail": {
               "expr": {
                 "Literal": {
-                  "Value": "'110m'"
+                  "Value": "'50m'"
                 }
               }
             },
@@ -194,7 +194,7 @@
             "mode": {
               "expr": {
                 "Literal": {
-                  "Value": "'reportSelection'"
+                  "Value": "'localOnly'"
                 }
               }
             }
@@ -204,13 +204,6 @@
       "navigation": [
         {
           "properties": {
-            "enabled": {
-              "expr": {
-                "Literal": {
-                  "Value": "true"
-                }
-              }
-            },
             "minZoom": {
               "expr": {
                 "Literal": {
@@ -250,6 +243,20 @@
               "expr": {
                 "Literal": {
                   "Value": "true"
+                }
+              }
+            },
+            "showNoDataBackdrop": {
+              "expr": {
+                "Literal": {
+                  "Value": "true"
+                }
+              }
+            },
+            "fallbackEntityKey": {
+              "expr": {
+                "Literal": {
+                  "Value": "'WLD'"
                 }
               }
             }

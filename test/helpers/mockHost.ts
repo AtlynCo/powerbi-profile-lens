@@ -33,6 +33,7 @@ export interface MockHostOptions {
     readonly locale?: string;
     readonly tooltipsEnabled?: boolean;
     readonly moreDataAvailable?: boolean;
+    readonly selectionBehavior?: "resolve" | "reject" | "deferred";
 }
 
 export interface MockHost {
@@ -53,6 +54,13 @@ export interface MockHost {
         showContextMenu: HostMock;
         selected: MockSelectionId[];
         onSelectCallback: ((ids: ISelectionId[]) => void) | null;
+        readonly pending: Array<{
+            readonly ids: ISelectionId[];
+            readonly resolve: (ids: ISelectionId[]) => void;
+            readonly reject: (error: Error) => void;
+        }>;
+        resolvePending(index?: number): void;
+        rejectPending(index?: number): void;
     };
     readonly fetchMoreData: HostMock;
     readonly applyJsonFilter: HostMock;
@@ -91,7 +99,23 @@ export function createMockHost(options: MockHostOptions = {}): MockHost {
         select: vi.fn() as HostMock,
         showContextMenu: vi.fn() as HostMock,
         selected: [],
-        onSelectCallback: null
+        onSelectCallback: null,
+        pending: [],
+        resolvePending: (index = 0) => {
+            const pending = selection.pending.splice(index, 1)[0];
+            if (!pending) {
+                throw new Error(`No pending selection exists at index ${index}.`);
+            }
+            selection.selected = pending.ids as unknown as MockSelectionId[];
+            pending.resolve(pending.ids);
+        },
+        rejectPending: (index = 0) => {
+            const pending = selection.pending.splice(index, 1)[0];
+            if (!pending) {
+                throw new Error(`No pending selection exists at index ${index}.`);
+            }
+            pending.reject(new Error("Mock selection rejected."));
+        }
     };
     const fetchMoreData = vi.fn(() => true) as unknown as HostMock;
     const applyJsonFilter = vi.fn() as HostMock;
@@ -102,6 +126,18 @@ export function createMockHost(options: MockHostOptions = {}): MockHost {
         select: (id: ISelectionId | ISelectionId[], multiSelect?: boolean) => {
             selection.select(id, multiSelect);
             const ids = Array.isArray(id) ? id : [id];
+            if (options.selectionBehavior === "reject") {
+                return Promise.reject(new Error("Mock selection rejected."));
+            }
+            if (options.selectionBehavior === "deferred") {
+                return new Promise<ISelectionId[]>((resolveSelection, rejectSelection) => {
+                    selection.pending.push({
+                        ids,
+                        resolve: resolveSelection,
+                        reject: rejectSelection
+                    });
+                });
+            }
             selection.selected = ids as unknown as MockSelectionId[];
             return Promise.resolve(ids);
         },

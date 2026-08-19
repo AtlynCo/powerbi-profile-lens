@@ -35,9 +35,11 @@ cannot change placement or focus behavior.
 - `provide(mode, input)`: returns a bounded `ContextScene`.
 
 `ContextProviderInput` contains entities, host identities, context values, validated coordinates, and
-bounded geometry text. A scene contains provider/mode IDs, `ContextFeature` values, feature/ring/vertex
-metrics, diagnostics, and partial state. Each feature carries a stable entity key, host identity,
-normalized geometry, context value, and tooltip values.
+bounded geometry text. A scene contains provider/mode IDs, a complete ordered `ContextBackdrop`,
+optional `ContextEntityBinding` maps, diagnostics, and partial state. Each `ContextFeature` is pure
+provider-canonical geometry. A binding references one feature key and carries the stable report Entity
+key/index/label, host identity, context value, and tooltip values. Geometry is never duplicated in a
+data overlay.
 
 The shipped registry resolves `none`, `points`, `boundGeometry`, `grid`, `hex`, and one generic
 `builtInPack` provider backed by a separate artifact registry. A provider must not
@@ -46,9 +48,10 @@ new provider cannot bypass shared rendering, interaction, diagnostics, and acces
 
 Built-in pack artifacts are generated before packaging from pinned, hash-verified public-domain
 sources. Runtime decoding and projection produce the same generic point/polygon scene geometry as
-other providers. Pack canonical keys are lookup-only; `ContextFeature.key` and selection identity
-remain the report entity's stable key and matrix identity. Exact key modes reject coercion, fuzzy
-names, unmatched values, and ambiguous duplicate normalized keys. See
+other providers. A pack feature key is its exact canonical cartographic key. Exact report matches
+create separate Entity bindings and reverse maps without changing that feature key or matrix identity.
+Exact key modes reject coercion, fuzzy names, unmatched values, and ambiguous duplicate normalized
+keys. Unbound pack features remain ordinary backdrop rather than errors. See
 [context-packs.md](context-packs.md).
 
 ## Layout and rendering
@@ -64,17 +67,20 @@ semantic mode.
 Viewport navigation composes an immutable scene fit with an in-memory `{ zoom, panX, panY }` camera.
 Forward and inverse transforms support both ordinary and inverted-Y providers. Camera identity is
 derived from provider/mode and ordered geometry, excluding analytical values, focus, periods, and
-host selection. Local focus, period, and selection rerenders therefore reuse the provider scene and
-camera. An incompatible scene resets; valid resize preserves the scene point under the old viewport
-center and clamps it into the new viewport.
+host selection. Local The geometry identity excludes Entity bindings, analytical values, detail state, focus, period, and
+selection. Binding/style paint has a separate identity. Focus, period, and selection updates therefore
+reuse the provider scene and camera. An incompatible geometry scene resets; valid resize preserves
+the scene point under the old viewport center and clamps it into the new viewport.
 
 SVG geometry is created once under a camera `<g>`. Canvas rasterizes one bounded, overscanned neutral
 base surface and one coordinated color-picking surface/index in base-fit coordinates, then submits a
 transformed `drawImage` crop to the bounded display Canvas for each camera update. Screen input is
 inverse-transformed before the existing color read, spatial bucket lookup, and geometric fallback.
 Focused/selected outlines, connector, center probe, reset control, and help remain in the shared
-screen-space SVG/HTML overlay. Canvas may magnify its stable base raster at high zoom; it never
-reconstructs county paths or the picking index per pointer event.
+screen-space SVG/HTML overlay. `RenderedContextSurface.updateDynamic` updates only those overlays and
+the bounded semantic window. Canvas may magnify its stable base raster at high zoom; it never
+reconstructs county paths or the picking index per camera or probe event. Hidden no-data paint leaves
+the complete picking surface and semantic backdrop intact.
 
 Canvas hit testing reads the color-picking pixel before geometry work and performs O(1) feature and
 interaction-target lookups. When the picked feature is the highest-rendered candidate in its spatial
@@ -101,7 +107,7 @@ behavior.
 
 ## Interaction boundary
 
-Context features resolve to entity-level matrix identities and profile marks retain bucket-level
+Context Entity bindings resolve to entity-level matrix identities and profile marks retain bucket-level
 identities. The shared controller owns selection, multi-selection, tooltip, context-menu, keyboard
 focus, and disabled-interaction behavior. Report selection is the default entity action. Local-only
 mode makes no host mutation. Highlights, RLS, external filters, and external selections remain
@@ -112,23 +118,36 @@ focus, the header, and `aria-activedescendant` without mutating host selection o
 click and Enter/Space activate the focused entity according to the configured interaction mode.
 The only v1 modes are local focus and host report selection; neither writes an outward filter.
 
-Viewport navigation is a separate, opt-in local state transition. A pointer-captured primary drag
+Viewport navigation has migration-safe `auto`, `on`, and `off` modes. Unset/new reports use `auto`,
+which activates only for an interactive, non-profile-only scene with multiple features. Persisted
+legacy `false`/`true` values resolve to `off`/`on`. A pointer-captured primary drag
 owns the gesture after four CSS pixels and consumes its click. Wheel/trackpad zoom uses a non-passive
 listener only on the active viewport and one 120 ms settle timeout. Finite nonzero wheel gestures are
 contained even when zoom is already clamped; zero/invalid or disabled input is not consumed. One touch
 pointer pans. Two touch pointers snapshot the starting camera and scene anchor, then solve zoom plus
 midpoint translation from that snapshot and clamp the complete camera once. Returning from two
 pointers to one rebases pan without changing the camera. Pointer cancel/lost capture is idempotent.
-Plain Arrow retains entity navigation; Shift+Arrow pans, `+`/`-` zooms, and Home resets. Camera
-movement and move-end make no host selection or filter call in 1.3.0.
+Plain Arrow retains spatial backdrop browsing; Shift+Arrow pans, `+`/`-` zooms, and Home resets.
+After every camera mutation, the camera-aware renderer hit-tests the fixed center pixel. A canonical
+feature/Entity/detail/period token deduplicates unchanged states. Changed states update only the
+focused profile region and dynamic overlay; provider, scene, base geometry/raster, and picking
+builders remain untouched.
 
-The fixed center probe is descriptive only in this release. It does not resolve an entity or change
-the profile. Built-in pack scenes remain report-bound; full-pack backdrop/data separation and
-probe-driven focus are later layers.
+Probe focus is local during movement. `localOnly` makes no host call. `reportSelection` commits at
+most one final directly matched, loaded Entity per user settle, deduplicated against the effective
+pending or last committed target. Programmatic mount/restore/resize never selects. Sequence-checked
+promise resolution ignores stale results; rejection surfaces a diagnostic without changing local
+focus or retrying. Explicit context activation remains one call and uses the same coordinator.
+
+The focus state is explicit: loaded Entity, unbound known feature, bound but unloaded Entity, no
+feature, or configured fallback. No-data states clear profile marks/table values. Fallback is an exact
+raw bound text Entity, applies only over no feature, is visibly disclosed, and is never selected from
+movement settle.
 
 The semantic status and profile table remain available at every responsive size. Feature descriptions,
 focus order, selected state, tooltip text, high-contrast cues, RTL, and reduced-motion behavior are
-kept equivalent between SVG and Canvas.
+kept equivalent between SVG and Canvas. A dedicated polite live region deduplicates probe-state
+announcements with at most one bounded trailing timer.
 
 Resolved theme colors are also published as CSS variables. Navigation help, attribution, reset
 control, focus outlines, context background, and disabled chrome use the host high-contrast

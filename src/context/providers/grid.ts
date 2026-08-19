@@ -61,9 +61,14 @@ abstract class DeterministicTessellationProvider implements ContextProvider {
 
     public provide(mode: ContextMode, input: ContextProviderInput): ContextScene {
         const ranks = stableRanks(input);
-        const features = input.entities.map((entity, index) =>
+        const entries = input.entities.map((entity, index) =>
             featureFor(entity, index, this.geometry(ranks.get(entity.index)!, input.entities.length), input));
-        return scene(this.id, mode, features);
+        return scene(
+            this.id,
+            mode,
+            entries.map((entry) => entry.feature),
+            entries.map((entry) => entry.binding)
+        );
     }
 }
 

@@ -28,7 +28,7 @@ describe("offline PBIP validation sample", () => {
             "pageWorldPack",
             "pageStatePack",
             "pageCountyPack",
-            "pageViewportFoundation",
+            "pageViewportLens",
             "pageSixProfiles",
             "pageNormalizations",
             "pageWorldDiagnostics",
@@ -52,10 +52,13 @@ describe("offline PBIP validation sample", () => {
         }
         expect(generated).toContain('interactionMode: "localOnly"');
         expect(generated).toContain('"reportSelection"');
-        expect(generated).toContain('name: "pageViewportFoundation"');
-        expect(generated).toContain("navigationEnabled: true");
+        expect(generated).toContain('name: "pageViewportLens"');
+        expect(generated).toContain('fallbackEntityKey: "WLD"');
+        expect(generated).toContain('interactionMode: "localOnly"');
+        expect(generated).toContain('interactionMode: "reportSelection"');
+        expect(generated).not.toContain("navigationEnabled: true");
         expect(generated).toContain(
-            'Literal: { Value: options.navigationEnabled ? "true" : "false" }'
+            'Object.hasOwn(options, "navigationEnabled")'
         );
     });
 
@@ -70,7 +73,10 @@ describe("offline PBIP validation sample", () => {
             ),
             "utf8"
         );
-        for (const value of ["FRA", "NOR", "NE:KOS", "NE:SOL", '" USA "', '"fra"']) {
+        for (const value of [
+            "FRA", "NOR", "NE:KOS", "NE:SOL", '" USA "', '"fra"',
+            "WLD", "DZA", "MLI", "NER", "TCD", "NGA", "CMR", "CAF", "COD"
+        ]) {
             expect(model).toContain(value);
         }
         for (const metric of ["Metric A", "Metric B", "Metric C", "Metric D", "Metric E", "Metric F"]) {

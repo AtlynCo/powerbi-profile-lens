@@ -26,7 +26,12 @@ import { compareDiagnostics, messageKeyFor, severityOf } from "./model/diagnosti
 import { SegmentTracker, withSegmentState } from "./model/segments";
 import { computeProfileLayout } from "./layout/profileLayout";
 import { createSvgTextMeasurer } from "./layout/textFit";
-import { InteractionController, InteractionTarget, SurfaceInteraction } from "./interaction/controller";
+import {
+    InteractionController,
+    InteractionFocusSource,
+    InteractionTarget,
+    SurfaceInteraction
+} from "./interaction/controller";
 import { renderAccessibleTable } from "./render/accessibleTable";
 import {
     EntityOption,
@@ -40,8 +45,10 @@ import { RenderedTarget, renderProfiles, targetKey } from "./render/profilesSvg"
 import { renderStatus } from "./render/status";
 import { resolveTheme } from "./render/theme";
 import type {
+    ContextEntityBinding,
     ContextFeature,
     ContextProviderInput,
+    ContextRenderRequest,
     ContextScene,
     ContextSelectionIdentity
 } from "./context/contract";
@@ -98,6 +105,16 @@ import type {
     ContextPinchSnapshot,
     ContextViewportSession
 } from "./context/viewport/contract";
+import { centerProbe } from "./context/viewport/probe";
+import {
+    ContextFocusState,
+    FallbackResolution,
+    ProfileDetailCoverage,
+    buildProfileDetailCoverage,
+    resolveEntityFocus,
+    resolveFallbackEntity,
+    resolveFeatureFocus
+} from "./context/viewport/focus";
 
 import IVisual = powerbi.extensibility.visual.IVisual;
 import IVisualHost = powerbi.extensibility.visual.IVisualHost;
@@ -113,6 +130,28 @@ interface CachedContextScene {
     readonly key: string;
     readonly identity: string;
     readonly scene: ContextScene;
+}
+
+interface FocusedRenderSession {
+    readonly model: ProfileDataModel;
+    readonly scene: ContextScene;
+    readonly sceneIdentity: string;
+    readonly allowInteractions: boolean;
+    readonly profileRect: {
+        readonly x: number;
+        readonly y: number;
+        readonly width: number;
+        readonly height: number;
+    };
+    readonly hasContext: boolean;
+    readonly contextInteraction: SurfaceInteraction | null;
+    readonly connectorTarget?: { readonly x: number; readonly y: number };
+}
+
+interface PendingEntitySelection {
+    readonly sequence: number;
+    readonly entityKey: string;
+    readonly multiSelect: boolean;
 }
 
 export class Visual implements IVisual {
@@ -138,6 +177,7 @@ export class Visual implements IVisual {
     private readonly statusElement: HTMLElement;
     private readonly tableElement: HTMLElement;
     private readonly landingElement: HTMLElement;
+    private readonly probeAnnouncementElement: HTMLElement;
 
     private formattingModel = new ProfileLensFormattingModel();
     private settings: ResolvedSettings = resolveSettings(new ProfileLensFormattingModel());
@@ -148,12 +188,33 @@ export class Visual implements IVisual {
     private selectedPeriodKey: string | null = null;
     private externalSelection: readonly ISelectionId[] = [];
     private measure: ((text: string, fontSize: number) => number) | undefined;
-    private lastViewport = { width: 0, height: 0 };
     private renderedContext: RenderedContextSurface | null = null;
     private readonly contextMetrics: ContextPerformanceMetrics = createContextPerformanceMetrics();
     private contextSceneCache: CachedContextScene | null = null;
     private viewportSession: ContextViewportSession | null = null;
     private modelRevision = 0;
+    private detailCoverage: ProfileDetailCoverage | null = null;
+    private fallbackResolution: FallbackResolution = { kind: "disabled" };
+    private activeContextFocus: ContextFocusState | null = null;
+    private focusedRenderSession: FocusedRenderSession | null = null;
+    private contextRenderRequest: ContextRenderRequest | null = null;
+    private lastProbeGeometryKey: string | null = null;
+    private selectionSequence = 0;
+    private pendingEntitySelection: PendingEntitySelection | null = null;
+    private lastCommittedEntityKey: string | null = null;
+    private runtimeSelectionRejected = false;
+    private runtimeSelectionRejectionNeedsAnnouncement = false;
+    private contextDescriptionCache: {
+        readonly key: string;
+        readonly descriptions: ReadonlyMap<string, string>;
+    } | null = null;
+    private probeAnnouncementTimer: ReturnType<typeof setTimeout> | null = null;
+    private pendingProbeAnnouncement: {
+        readonly message: string;
+        readonly token: string;
+    } | null = null;
+    private lastProbeAnnouncementToken: string | null = null;
+    private pendingProfileTargets: readonly InteractionTarget[] = [];
 
     public constructor(options?: VisualConstructorOptions) {
         if (!options) {
@@ -195,6 +256,14 @@ export class Visual implements IVisual {
         this.periodElement = appendChild(this.root, "div", "profile-lens-period");
         this.statusElement = appendChild(this.root, "div", "profile-lens-status");
         this.tableElement = appendChild(this.root, "div", "profile-lens-table");
+        this.probeAnnouncementElement = appendChild(
+            this.root,
+            "div",
+            "profile-lens-probe-announcement"
+        );
+        this.probeAnnouncementElement.setAttribute("role", "status");
+        this.probeAnnouncementElement.setAttribute("aria-live", "polite");
+        this.probeAnnouncementElement.setAttribute("aria-atomic", "true");
 
         this.controller = new InteractionController({
             root: this.root,
@@ -203,9 +272,10 @@ export class Visual implements IVisual {
             emptySelectionId: this.emptySelectionId,
             onSelectionChanged: () => {
                 this.externalSelection = this.selectionManager.getSelectionIds();
-                this.rerenderFromCache();
+                this.reconcileCommittedEntitySelection();
+                this.renderFocusedProfileOnly();
             },
-            onFocusChanged: (key) => this.handleFocusedTarget(key)
+            onFocusChanged: (key, source) => this.handleFocusedTarget(key, source)
         });
         this.contextProviders.register(new NoneContextProvider());
         this.contextProviders.register(new Wgs84PointContextProvider());
@@ -222,7 +292,8 @@ export class Visual implements IVisual {
 
         this.selectionManager.registerOnSelectCallback((ids: ISelectionId[]) => {
             this.externalSelection = ids;
-            this.rerenderFromCache();
+            this.reconcileCommittedEntitySelection();
+            this.renderFocusedProfileOnly();
         });
     }
 
@@ -247,6 +318,7 @@ export class Visual implements IVisual {
 
     public destroy(): void {
         this.controller.dispose();
+        this.clearProbeAnnouncement();
     }
 
     private applyUpdate(options: VisualUpdateOptions): void {
@@ -256,10 +328,14 @@ export class Visual implements IVisual {
             ProfileLensFormattingModel,
             metadataSource as powerbi.DataView
         );
-        this.settings = resolveSettings(this.formattingModel);
+        this.settings = resolveSettings(this.formattingModel, metadataSource?.metadata?.objects);
+        this.formattingModel.navigation.enabled.value = this.settings.navigationMode;
 
         const allowInteractions = this.host.hostCapabilities?.allowInteractions !== false;
         this.controller.setAllowInteractions(allowInteractions);
+        if (!allowInteractions) {
+            this.clearProbeAnnouncement();
+        }
 
         const fingerprint = fingerprintDataView(dataView);
         const isLifecycleOnly = dataView === undefined
@@ -308,6 +384,12 @@ export class Visual implements IVisual {
             return;
         }
 
+        this.detailCoverage = buildProfileDetailCoverage(model);
+        this.fallbackResolution = resolveFallbackEntity(
+            model,
+            this.detailCoverage,
+            this.settings.fallbackEntityKey
+        );
         this.renderModel(model, options, allowInteractions);
     }
 
@@ -331,12 +413,12 @@ export class Visual implements IVisual {
         ) {
             this.viewportSession = { ...this.viewportSession, invalidResize: true };
         }
-        this.lastViewport = viewport;
         this.root.setAttribute("dir", this.resolveDirection());
         this.root.classList.toggle("profile-lens-reduced-motion", this.settings.reducedMotion);
         this.root.classList.toggle("profile-lens-high-contrast", Boolean(this.host.colorPalette?.isHighContrast));
 
         if (!isRenderable(model)) {
+            this.clearFocusedRenderSession();
             this.landingElement.removeAttribute("hidden");
             renderLanding(this.landingElement, {
                 stage: model.stage,
@@ -383,7 +465,14 @@ export class Visual implements IVisual {
         this.applyThemeVariables(theme);
         const contextScene = this.resolveContextScene(model);
         const scene = contextScene.scene;
-        const hasContext = scene.features.length > 0 && scene.mode !== "none";
+        if (
+            !this.activeContextFocus
+            || this.focusedRenderSession?.model !== model
+            || this.focusedRenderSession?.sceneIdentity !== contextScene.identity
+        ) {
+            this.reconcileActiveFocus(model, scene, entityIndex);
+        }
+        const hasContext = scene.backdrop.features.length > 0 && scene.mode !== "none";
         const commonLayoutRequest = {
             profileCount: model.profiles.length,
             bandCount: model.bands.length,
@@ -452,8 +541,8 @@ export class Visual implements IVisual {
         }
 
         const selectedKeys = this.resolveSelectedTargetKeys(model, entityIndex, periodIndex);
-        const selectedEntityKeys = this.resolveSelectedEntityKeys(scene);
-        const hadFocus = this.root.contains(document.activeElement);
+        const selectedFeatureKeys = this.resolveSelectedFeatureKeys(scene);
+        const hadProfileFocus = this.svg.contains(document.activeElement);
         const rendered = renderProfiles(this.svg, {
             model,
             frame,
@@ -505,32 +594,38 @@ export class Visual implements IVisual {
             visible: this.settings.tableVisibility === "visible"
         });
 
+        const connectorTarget = composite.context && composite.effectiveMode === "focusLens"
+            ? {
+                x: composite.profile.x + composite.profile.width / 2 - composite.context.x,
+                y: composite.profile.y + composite.profile.height / 2 - composite.context.y
+            }
+            : undefined;
         const contextInteraction = composite.context
             ? this.renderContext(
                 scene,
                 contextScene.identity,
                 composite.context,
-                selectedEntityKeys,
+                selectedFeatureKeys,
                 allowInteractions,
-                composite.effectiveMode === "focusLens"
-                    ? {
-                        x: composite.profile.x + composite.profile.width / 2 - composite.context.x,
-                        y: composite.profile.y + composite.profile.height / 2 - composite.context.y
-                    }
-                    : undefined
+                connectorTarget
             )
             : null;
         if (!composite.context) {
             hideContextSurface(this.contextSurface);
             this.renderedContext = null;
+            this.contextRenderRequest = null;
         }
-        this.controller.bind(
-            this.buildTargets(rendered, model, frame, entityIndex, periodIndex),
-            contextInteraction
+        this.pendingProfileTargets = this.buildTargets(
+            rendered,
+            model,
+            frame,
+            entityIndex,
+            periodIndex
         );
-        this.controller.restoreFocus(hadFocus);
+        this.controller.bind(this.pendingProfileTargets, contextInteraction);
+        this.controller.restoreFocus(hadProfileFocus);
 
-        const summary = model.segments.partial
+        const baseSummary = model.segments.partial
             ? this.localization.get("Status_Partial")
             : this.localization.format(
                 "Status_Ready",
@@ -538,8 +633,30 @@ export class Visual implements IVisual {
                 model.profiles.length,
                 model.entities[entityIndex]?.label ?? ""
             );
+        const rejectionAnnouncement = this.runtimeSelectionRejectionNeedsAnnouncement
+            ? ` ${this.localization.get("Context_SelectionRejected")}`
+            : "";
+        const summary = (
+            hasContext
+                ? `${baseSummary} ${this.contextCoverageSummary(scene)}`
+                : baseSummary
+        ) + rejectionAnnouncement;
         const statusDiagnostics = [...model.diagnostics];
         statusDiagnostics.push(...scene.diagnostics);
+        if (this.fallbackResolution.kind === "invalid") {
+            statusDiagnostics.push({
+                code: "fallbackEntityInvalid",
+                severity: severityOf("fallbackEntityInvalid"),
+                messageKey: messageKeyFor("fallbackEntityInvalid")
+            });
+        }
+        if (this.runtimeSelectionRejected) {
+            statusDiagnostics.push({
+                code: "hostSelectionRejected",
+                severity: severityOf("hostSelectionRejected"),
+                messageKey: messageKeyFor("hostSelectionRejected")
+            });
+        }
         if (frame.zeroDenominatorCount > 0) {
             statusDiagnostics.push({
                 code: "zeroDenominator",
@@ -568,18 +685,47 @@ export class Visual implements IVisual {
             ...model,
             diagnostics: statusDiagnostics.sort(compareDiagnostics)
         };
+        const probeActivelyNavigable = this.activeContextFocus?.source === "probe"
+            && this.contextRenderRequest?.navigation.enabled === true
+            && allowInteractions;
         renderStatus(this.statusElement, {
             model: diagnosticsModel,
             localization: this.localization,
             showDiagnostics: this.settings.showDiagnostics,
             showCounts: this.settings.showCounts,
             summary,
-            busy: model.segments.partial
+            busy: model.segments.partial,
+            announce: !probeActivelyNavigable
         });
+        this.runtimeSelectionRejectionNeedsAnnouncement = false;
         if (!layout.chrome.status) {
             this.statusElement.classList.add("profile-lens-status-sr");
         } else {
             this.statusElement.classList.remove("profile-lens-status-sr");
+        }
+        this.focusedRenderSession = {
+            model,
+            scene,
+            sceneIdentity: contextScene.identity,
+            allowInteractions,
+            profileRect: composite.profile,
+            hasContext,
+            contextInteraction,
+            connectorTarget
+        };
+        const requiresFocusedPresentation = !this.fullRenderRepresentsFocus(
+            this.activeContextFocus,
+            entityIndex,
+            periodIndex
+        );
+        if (
+            this.contextRenderRequest?.navigation.enabled
+            && allowInteractions
+            && contextInteraction
+        ) {
+            this.resolveProbeFocus(requiresFocusedPresentation);
+        } else if (requiresFocusedPresentation && this.activeContextFocus) {
+            this.renderFocusedProfileOnly();
         }
     }
 
@@ -645,8 +791,15 @@ export class Visual implements IVisual {
         return {
             providerId: "unavailable",
             mode: this.settings.contextMode,
-            features: [],
-            metrics: { featureCount: 0, ringCount: 0, vertexCount: 0 },
+            backdrop: {
+                features: [],
+                featureByKey: new Map(),
+                metrics: { featureCount: 0, ringCount: 0, vertexCount: 0 }
+            },
+            entities: {
+                byFeatureKey: new Map(),
+                featureKeyByEntityKey: new Map()
+            },
             partial: true,
             diagnostics: [{
                 code: "contextProviderUnavailable",
@@ -671,6 +824,7 @@ export class Visual implements IVisual {
         root.style.width = `${rect.width}px`;
         root.style.height = `${rect.height}px`;
         const viewport = { width: rect.width, height: rect.height };
+        const navigationEnabled = this.navigationEnabledFor(scene);
         const kind = this.contextRenderers.resolve(chooseContextRenderer(scene, {
             maxSvgFeatures: this.settings.svgFeatureThreshold,
             maxSvgVertices: this.settings.svgVertexThreshold
@@ -688,29 +842,40 @@ export class Visual implements IVisual {
             baseBounds,
             viewport
         );
+        const focusedFeatureKey = this.activeContextFocus?.featureKey
+            ?? (
+                this.focusedEntityKey === null
+                    ? null
+                    : scene.entities.featureKeyByEntityKey.get(this.focusedEntityKey) ?? null
+            );
+        const request: ContextRenderRequest = {
+            scene,
+            sceneIdentity,
+            paintIdentity: contextPaintIdentity(scene, this.settings.showNoDataBackdrop),
+            viewport,
+            baseTransform,
+            camera: session.camera,
+            focusedFeatureKey,
+            selectedFeatureKeys: selectedKeys,
+            featureDescriptions: this.contextFeatureDescriptions(scene, sceneIdentity),
+            showNoDataBackdrop: this.settings.showNoDataBackdrop,
+            interactive: allowInteractions,
+            navigation: {
+                enabled: navigationEnabled,
+                showProbe: this.settings.showCenterProbe,
+                showResetControl: this.settings.showResetControl,
+                showGestureHelp: this.settings.showGestureHelp,
+                resetLabel: this.localization.get("Navigation_Reset"),
+                probeDescription: this.localization.get("Navigation_ProbeDescription"),
+                gestureHelp: this.localization.get("Navigation_GestureHelp")
+            },
+            connectorTarget,
+            pointSize: this.settings.contextPointSize
+        };
+        this.contextRenderRequest = request;
         this.renderedContext = renderContextSurface(
             this.contextSurface,
-            {
-                scene,
-                sceneIdentity,
-                viewport,
-                baseTransform,
-                camera: session.camera,
-                focusedKey: this.focusedEntityKey,
-                selectedKeys,
-                interactive: allowInteractions,
-                navigation: {
-                    enabled: this.settings.navigationEnabled,
-                    showProbe: this.settings.showCenterProbe,
-                    showResetControl: this.settings.showResetControl,
-                    showGestureHelp: this.settings.showGestureHelp,
-                    resetLabel: this.localization.get("Navigation_Reset"),
-                    probeDescription: this.localization.get("Navigation_ProbeDescription"),
-                    gestureHelp: this.localization.get("Navigation_GestureHelp")
-                },
-                connectorTarget,
-                pointSize: this.settings.contextPointSize
-            },
+            request,
             kind,
             {
                 fill: contextTheme.isHighContrast
@@ -729,7 +894,10 @@ export class Visual implements IVisual {
             this.contextMetrics
         );
         const targetsByIndex = new Map(
-            scene.features.map((feature) => [feature.index, this.contextTarget(feature)])
+            scene.backdrop.features.map((feature) => [
+                feature.index,
+                this.contextTarget(feature, scene.entities.byFeatureKey.get(feature.key) ?? null)
+            ])
         );
         return {
             element: root,
@@ -744,25 +912,37 @@ export class Visual implements IVisual {
             },
             navigate: (currentKey, direction) => {
                 const feature = spatialNeighbor(
-                    scene.features,
+                    scene.backdrop.features,
                     currentKey,
                     direction,
                     composeSceneTransform(baseTransform, this.viewportSession?.camera ?? session.camera),
                     this.resolveDirection() === "rtl"
                 );
-                return feature ? this.contextTarget(feature) : null;
+                return feature
+                    ? this.contextTarget(
+                        feature,
+                        scene.entities.byFeatureKey.get(feature.key) ?? null
+                    )
+                    : null;
             },
             targetForKey: (key) => {
                 const entityKey = key?.startsWith("context:")
                     ? key.slice("context:".length)
-                    : this.focusedEntityKey;
-                const feature = scene.features.find((entry) => entry.key === entityKey)
-                    ?? scene.features[0];
-                return feature ? this.contextTarget(feature) : null;
+                    : this.activeContextFocus?.featureKey;
+                const feature = entityKey
+                    ? scene.backdrop.featureByKey.get(entityKey)
+                    : undefined;
+                const resolved = feature ?? scene.backdrop.features[0];
+                return resolved
+                    ? this.contextTarget(
+                        resolved,
+                        scene.entities.byFeatureKey.get(resolved.key) ?? null
+                    )
+                    : null;
             },
             hasKey: (key) => key.startsWith("context:")
-                && scene.features.some((feature) => `context:${feature.key}` === key),
-            navigation: this.settings.navigationEnabled
+                && scene.backdrop.featureByKey.has(key.slice("context:".length)),
+            navigation: navigationEnabled
                 ? {
                     resetElement: this.contextSurface.resetButton,
                     wheelSensitivity: this.settings.wheelSensitivity,
@@ -773,8 +953,13 @@ export class Visual implements IVisual {
                     pinchTo: (snapshot, ratio, x, y) =>
                         this.pinchContextCamera(snapshot, ratio, x, y),
                     reset: () => this.resetContextCamera(),
-                    moveEnd: () => {
+                    moveEnd: (cancelled = false) => {
+                        if (cancelled) {
+                            this.bindFocusedInteractions();
+                            return;
+                        }
                         this.contextMetrics.moveEnds++;
+                        this.handleContextMoveEnd();
                     }
                 }
                 : undefined
@@ -937,40 +1122,68 @@ export class Visual implements IVisual {
             return false;
         }
         this.viewportSession = { ...session, camera };
+        this.resolveProbeFocus();
         return true;
     }
 
     private canNavigateContext(): boolean {
-        return this.settings.navigationEnabled
+        const scene = this.focusedRenderSession?.scene;
+        return scene !== undefined
+            && this.navigationEnabledFor(scene)
             && this.host.hostCapabilities?.allowInteractions !== false;
     }
 
-    private contextTarget(feature: ContextFeature): InteractionTarget {
-        const identity = this.settings.interactionMode === "reportSelection"
-            ? feature.selection.hostIdentity as ISelectionId | null
-            : null;
+    private navigationEnabledFor(scene: ContextScene): boolean {
+        if (this.settings.navigationMode === "off" || scene.mode === "none") {
+            return false;
+        }
+        if (this.settings.navigationMode === "on") {
+            return true;
+        }
+        return scene.backdrop.features.length > 1
+            && this.settings.contextLayout !== "profileOnly"
+            && this.host.hostCapabilities?.allowInteractions !== false;
+    }
+
+    private contextTarget(
+        feature: ContextFeature,
+        binding: ContextEntityBinding | null
+    ): InteractionTarget {
+        const identity = binding?.selection?.hostIdentity as ISelectionId | null ?? null;
         return {
             key: `context:${feature.key}`,
             element: this.contextSurface.root,
             identity,
             tooltip: () => [
                 { displayName: this.localization.get("Tooltip_Entity"), value: feature.label },
-                ...feature.tooltipValues
-            ]
+                ...(binding?.tooltipValues ?? [{
+                    displayName: this.localization.get("Context_DataState"),
+                    value: this.localization.get("Context_NoData")
+                }])
+            ],
+            managesSelection: true,
+            activate: ({ multiSelect }) => {
+                if (binding) {
+                    this.commitEntitySelection(binding, multiSelect, "explicit");
+                }
+            }
         };
     }
 
-    private resolveSelectedEntityKeys(scene: ContextScene): ReadonlySet<string> {
+    private resolveSelectedFeatureKeys(scene: ContextScene): ReadonlySet<string> {
         const keys = new Set<string>();
-        for (const feature of scene.features) {
-            const identity = feature.selection.hostIdentity as ISelectionId | null;
+        if (this.externalSelection.length === 0) {
+            return keys;
+        }
+        for (const [featureKey, binding] of scene.entities.byFeatureKey) {
+            const identity = binding.selection?.hostIdentity as ISelectionId | null;
             if (identity && this.externalSelection.some((selection) => {
                 const comparable = selection as unknown as powerbi.visuals.ISelectionId;
                 return typeof comparable.equals === "function"
                     ? comparable.equals(identity as unknown as powerbi.visuals.ISelectionId)
                     : selection === identity;
             })) {
-                keys.add(feature.key);
+                keys.add(featureKey);
             }
         }
         return keys;
@@ -986,32 +1199,776 @@ export class Visual implements IVisual {
         this.svg.style.height = `${rect.height}px`;
     }
 
-    private handleFocusedTarget(key: string | null): void {
-        if (!key?.startsWith("context:") || !this.model) {
+    private resolveProbeFocus(forceRender = false): void {
+        const session = this.focusedRenderSession;
+        const viewport = this.viewportSession;
+        const rendered = this.renderedContext;
+        const coverage = this.detailCoverage;
+        const request = this.contextRenderRequest;
+        if (
+            !session
+            || !viewport
+            || !rendered
+            || !coverage
+            || !request
+            || !this.canNavigateContext()
+        ) {
             return;
         }
-        const entityKey = key.slice("context:".length);
-        const entity = this.model.entities.find((entry) => entry.key === entityKey);
-        if (!entity) {
+        const started = performance.now();
+        const probe = centerProbe(
+            request.viewport,
+            composeSceneTransform(request.baseTransform, viewport.camera)
+        );
+        const hit = rendered.hitTest(probe.screen.x, probe.screen.y);
+        const next = resolveFeatureFocus(
+            session.scene,
+            session.model,
+            coverage,
+            hit?.featureKey ?? null,
+            this.selectedPeriodKey,
+            this.fallbackResolution,
+            "probe",
+            this.modelRevision
+        );
+        const sameGeometry = this.lastProbeGeometryKey === (hit?.featureKey ?? null);
+        this.lastProbeGeometryKey = hit?.featureKey ?? null;
+        const duration = performance.now() - started;
+        this.contextMetrics.probeResolutions++;
+        this.contextMetrics.probeResolveDurationMs += duration;
+        this.contextMetrics.maxProbeResolveDurationMs = Math.max(
+            this.contextMetrics.maxProbeResolveDurationMs,
+            duration
+        );
+        recordBoundedMetric(this.contextMetrics.probeResolveDurationsMs, duration);
+
+        const current = this.activeContextFocus;
+        if (sameGeometry && current?.renderToken === next.renderToken) {
+            const sourceChanged = current.source !== next.source;
+            this.activeContextFocus = next;
+            this.syncFocusState(next);
+            this.contextMetrics.probeDedupes++;
+            if (forceRender) {
+                this.renderFocusedProfileOnly();
+            } else if (sourceChanged) {
+                this.announceProbeFocus(next);
+            }
             return;
         }
-        if (this.focusedEntityKey === entity.key) {
+        this.activeContextFocus = next;
+        this.syncFocusState(next);
+        this.contextMetrics.probeTransitions++;
+        this.renderFocusedProfileOnly();
+    }
+
+    private renderFocusedProfileOnly(): void {
+        const session = this.focusedRenderSession;
+        const coverage = this.detailCoverage;
+        if (!session || !coverage) {
             return;
         }
-        this.focusedEntityKey = entity.key;
-        this.selectedPeriodKey = null;
-        this.rerenderFromCache();
+        const started = performance.now();
+        const model = session.model;
+        let focus = this.activeContextFocus;
+        if (!focus) {
+            const entityIndex = this.resolveEntityIndex(model);
+            const featureKey = session.scene.entities.featureKeyByEntityKey.get(
+                model.entities[entityIndex]?.key ?? ""
+            );
+            focus = resolveEntityFocus(
+                model,
+                coverage,
+                entityIndex,
+                this.selectedPeriodKey,
+                "modelDefault",
+                this.modelRevision,
+                featureKey ? session.scene.backdrop.featureByKey.get(featureKey) ?? null : null,
+                featureKey ? session.scene.entities.byFeatureKey.get(featureKey) ?? null : null
+            );
+            this.activeContextFocus = focus;
+            this.syncFocusState(focus);
+        }
+
+        const hasLoadedProfile = focus.kind === "loadedEntity"
+            || focus.kind === "fallbackEntity";
+        const entityIndex = "entityIndex" in focus ? focus.entityIndex : 0;
+        const periodIndex = focus.kind === "loadedEntity" || focus.kind === "fallbackEntity"
+            ? focus.periodIndex
+            : IMPLICIT_INDEX;
+        const frameCells = hasLoadedProfile
+            ? selectFrameCells(model.cells, { entityIndex, periodIndex })
+            : [];
+        const frame = normalizeFrame(
+            frameCells,
+            model.profiles.map((profile) => profile.index),
+            {
+                mode: this.settings.normalization,
+                percentScale: this.settings.percentScale,
+                blankPolicy: this.settings.blankPolicy
+            },
+            model.hasAnyHighlight
+        );
+        const layout = computeProfileLayout({
+            viewport: {
+                width: session.profileRect.width,
+                height: session.profileRect.height
+            },
+            profileCount: model.profiles.length,
+            bandCount: model.bands.length,
+            seriesCount: Math.max(model.series.length, 1),
+            arrangement: this.settings.arrangement,
+            armRotationDegrees: this.settings.armRotation,
+            requestedBandGap: this.settings.bandGap,
+            requestedThickness: this.settings.barThickness,
+            showPeriodControl: this.settings.showPeriod
+                && hasLoadedProfile
+                && periodIndex !== IMPLICIT_INDEX,
+            showLegend: this.settings.showLegend,
+            showBandLabels: this.settings.showBandLabels,
+            showValueLabels: this.settings.showValueLabels,
+            showAxis: this.settings.showAxis,
+            showHeader: this.settings.showHeader,
+            showEntityList: !session.hasContext
+                && this.settings.showEntityList
+                && model.entities.length > 1
+        });
+        const presentation = this.focusPresentation(focus);
+        const theme = resolveTheme(this.host.colorPalette, this.settings);
+        const hadProfileFocus = this.svg.contains(document.activeElement);
+
+        renderHeader(this.headerElement, {
+            model,
+            settings: this.settings,
+            localization: this.localization,
+            entityIndex,
+            periodIndex,
+            titleOverride: presentation.title,
+            stateMessage: presentation.message,
+            suppressEntityDetails: !hasLoadedProfile
+        });
+        if (!layout.chrome.header) {
+            this.headerElement.setAttribute("hidden", "hidden");
+        }
+
+        const selectedKeys = hasLoadedProfile
+            ? this.resolveSelectedTargetKeys(model, entityIndex, periodIndex)
+            : new Set<string>();
+        const rendered = renderProfiles(this.svg, {
+            model,
+            frame,
+            layout,
+            settings: this.settings,
+            theme,
+            localization: this.localization,
+            entityIndex,
+            periodIndex,
+            interactive: session.allowInteractions && hasLoadedProfile,
+            focusKey: this.controller.currentFocusKey ?? rememberedFocusKey(model),
+            selectedKeys,
+            measure: this.measure
+        });
+
+        const entityOptions = renderEntityList(this.entityElement, {
+            model,
+            localization: this.localization,
+            entityIndex,
+            visible: layout.chrome.entityList,
+            interactive: session.allowInteractions
+        });
+        this.bindEntityOptions(entityOptions, model, session.allowInteractions);
+
+        const periodControl = renderPeriodControl(this.periodElement, {
+            model,
+            localization: this.localization,
+            entityIndex,
+            periodIndex,
+            visible: layout.chrome.periodControl && hasLoadedProfile,
+            interactive: session.allowInteractions
+        });
+        this.periodElement.style.order = this.settings.periodPosition === "top" ? "2" : "5";
+        this.bindPeriodControl(
+            periodControl.slider,
+            model,
+            entityIndex,
+            periodIndex,
+            session.allowInteractions
+        );
+
+        renderAccessibleTable(this.tableElement, {
+            model,
+            frame,
+            localization: this.localization,
+            entityIndex,
+            periodIndex,
+            visible: this.settings.tableVisibility === "visible",
+            entityLabelOverride: presentation.title,
+            emptyMessage: hasLoadedProfile ? undefined : presentation.message
+        });
+
+        if (this.renderedContext && this.contextRenderRequest) {
+            const dynamicRequest: ContextRenderRequest = {
+                ...this.contextRenderRequest,
+                scene: session.scene,
+                focusedFeatureKey: focus.featureKey,
+                selectedFeatureKeys: this.resolveSelectedFeatureKeys(session.scene),
+                featureDescriptions: this.contextFeatureDescriptions(
+                    session.scene,
+                    session.sceneIdentity
+                ),
+                connectorTarget: focus.featureKey ? session.connectorTarget : undefined
+            };
+            this.contextRenderRequest = dynamicRequest;
+            this.renderedContext.updateDynamic(dynamicRequest);
+            this.contextMetrics.dynamicOverlayUpdates++;
+        }
+
+        this.pendingProfileTargets = hasLoadedProfile
+            ? this.buildTargets(rendered, model, frame, entityIndex, periodIndex)
+            : [];
+        if (!this.controller.navigationInProgress) {
+            this.controller.bind(this.pendingProfileTargets, session.contextInteraction);
+            this.controller.restoreFocus(hadProfileFocus);
+        }
+
+        const statusDiagnostics = [...model.diagnostics, ...session.scene.diagnostics];
+        if (this.fallbackResolution.kind === "invalid") {
+            statusDiagnostics.push({
+                code: "fallbackEntityInvalid",
+                severity: severityOf("fallbackEntityInvalid"),
+                messageKey: messageKeyFor("fallbackEntityInvalid")
+            });
+        }
+        if (this.runtimeSelectionRejected) {
+            statusDiagnostics.push({
+                code: "hostSelectionRejected",
+                severity: severityOf("hostSelectionRejected"),
+                messageKey: messageKeyFor("hostSelectionRejected")
+            });
+        }
+        if (!session.allowInteractions) {
+            statusDiagnostics.push({
+                code: "interactionsDisabled",
+                severity: severityOf("interactionsDisabled"),
+                messageKey: messageKeyFor("interactionsDisabled")
+            });
+        }
+        if (frame.zeroDenominatorCount > 0) {
+            statusDiagnostics.push({
+                code: "zeroDenominator",
+                severity: severityOf("zeroDenominator"),
+                messageKey: messageKeyFor("zeroDenominator"),
+                rejected: frame.zeroDenominatorCount
+            });
+        }
+        if (frame.negativeValueCount > 0) {
+            statusDiagnostics.push({
+                code: "negativeProfileValues",
+                severity: severityOf("negativeProfileValues"),
+                messageKey: messageKeyFor("negativeProfileValues"),
+                rejected: frame.negativeValueCount
+            });
+        }
+        const coverageSummary = this.contextCoverageSummary(session.scene);
+        const rejectionAnnouncement = this.runtimeSelectionRejectionNeedsAnnouncement
+            ? ` ${this.localization.get("Context_SelectionRejected")}`
+            : "";
+        const summary = `${presentation.summary} ${coverageSummary}${rejectionAnnouncement}`;
+        const announceStatus = focus.source !== "probe"
+            || this.runtimeSelectionRejectionNeedsAnnouncement;
+        renderStatus(this.statusElement, {
+            model: {
+                ...model,
+                diagnostics: statusDiagnostics.sort(compareDiagnostics)
+            },
+            localization: this.localization,
+            showDiagnostics: this.settings.showDiagnostics,
+            showCounts: this.settings.showCounts,
+            summary,
+            busy: model.segments.partial,
+            announce: announceStatus
+        });
+        this.runtimeSelectionRejectionNeedsAnnouncement = false;
+        if (!layout.chrome.status) {
+            this.statusElement.classList.add("profile-lens-status-sr");
+        } else {
+            this.statusElement.classList.remove("profile-lens-status-sr");
+        }
+
+        this.announceProbeFocus(focus);
+        const duration = performance.now() - started;
+        this.contextMetrics.profilePartialUpdates++;
+        this.contextMetrics.profilePartialDurationMs += duration;
+        this.contextMetrics.maxProfilePartialDurationMs = Math.max(
+            this.contextMetrics.maxProfilePartialDurationMs,
+            duration
+        );
+        recordBoundedMetric(this.contextMetrics.profilePartialDurationsMs, duration);
+    }
+
+    private handleFocusedTarget(
+        key: string | null,
+        source: InteractionFocusSource
+    ): void {
+        const session = this.focusedRenderSession;
+        const coverage = this.detailCoverage;
+        if (!key?.startsWith("context:") || !session || !coverage) {
+            return;
+        }
+        const featureKey = key.slice("context:".length);
+        if (!this.navigationEnabledFor(session.scene)) {
+            this.selectedPeriodKey = null;
+        }
+        const next = resolveFeatureFocus(
+            session.scene,
+            session.model,
+            coverage,
+            featureKey,
+            this.selectedPeriodKey,
+            { kind: "disabled" },
+            source === "keyboard" ? "contextKeyboard" : "contextPointer",
+            this.modelRevision
+        );
+        const changed = this.activeContextFocus?.renderToken !== next.renderToken
+            || this.activeContextFocus?.source !== next.source;
+        this.activeContextFocus = next;
+        this.syncFocusState(next);
+        if (changed) {
+            this.renderFocusedProfileOnly();
+        }
     }
 
     private activateEntityHost(entity: ProfileDataModel["entities"][number]): void {
-        if (this.settings.interactionMode === "reportSelection" && entity.identity) {
-            void this.selectionManager
-                .select(entity.identity as ISelectionId, false)
-                .then(() => {
-                    this.externalSelection = this.selectionManager.getSelectionIds();
-                    this.rerenderFromCache();
-                });
+        if (
+            this.activeContextFocus?.kind === "loadedEntity"
+            && this.activeContextFocus.entityKey === entity.key
+        ) {
+            this.requestEntitySelection(
+                entity.key,
+                entity.identity as ISelectionId | null,
+                false,
+                "explicit"
+            );
         }
+    }
+
+    private handleContextMoveEnd(): void {
+        if (!this.canNavigateContext()) {
+            return;
+        }
+        this.resolveProbeFocus();
+        this.bindFocusedInteractions();
+        const focus = this.activeContextFocus;
+        if (focus?.kind !== "loadedEntity" || !focus.binding) {
+            return;
+        }
+        this.commitEntitySelection(focus.binding, false, "settle");
+    }
+
+    private bindFocusedInteractions(): void {
+        const session = this.focusedRenderSession;
+        if (!session) {
+            return;
+        }
+        const hadProfileFocus = this.svg.contains(document.activeElement);
+        this.controller.bind(this.pendingProfileTargets, session.contextInteraction, true);
+        this.controller.restoreFocus(hadProfileFocus);
+    }
+
+    private commitEntitySelection(
+        binding: ContextEntityBinding,
+        multiSelect: boolean,
+        source: "explicit" | "settle"
+    ): void {
+        const focus = this.activeContextFocus;
+        if (
+            focus?.kind !== "loadedEntity"
+            || focus.entityKey !== binding.entityKey
+        ) {
+            return;
+        }
+        this.requestEntitySelection(
+            binding.entityKey,
+            binding.selection?.hostIdentity as ISelectionId | null,
+            multiSelect,
+            source
+        );
+    }
+
+    private requestEntitySelection(
+        entityKey: string,
+        identity: ISelectionId | null,
+        multiSelect: boolean,
+        source: "explicit" | "settle"
+    ): void {
+        if (
+            this.settings.interactionMode !== "reportSelection"
+            || !identity
+            || this.host.hostCapabilities?.allowInteractions === false
+        ) {
+            return;
+        }
+        const effectiveTarget = this.pendingEntitySelection?.entityKey
+            ?? this.lastCommittedEntityKey;
+        if (source === "settle" && effectiveTarget === entityKey) {
+            return;
+        }
+        const sequence = ++this.selectionSequence;
+        this.pendingEntitySelection = { sequence, entityKey, multiSelect };
+        this.contextMetrics.hostSelectionRequests++;
+        void this.selectionManager.select(identity, multiSelect).then(
+            (ids) => {
+                if (this.pendingEntitySelection?.sequence !== sequence) {
+                    this.contextMetrics.hostSelectionStale++;
+                    return;
+                }
+                this.pendingEntitySelection = null;
+                this.contextMetrics.hostSelectionResolved++;
+                this.runtimeSelectionRejected = false;
+                this.runtimeSelectionRejectionNeedsAnnouncement = false;
+                this.lastCommittedEntityKey = multiSelect ? null : entityKey;
+                this.externalSelection = Array.isArray(ids)
+                    ? ids
+                    : this.selectionManager.getSelectionIds();
+                this.renderFocusedProfileOnly();
+            },
+            () => {
+                if (this.pendingEntitySelection?.sequence !== sequence) {
+                    this.contextMetrics.hostSelectionStale++;
+                    return;
+                }
+                this.pendingEntitySelection = null;
+                this.contextMetrics.hostSelectionRejected++;
+                this.runtimeSelectionRejected = true;
+                this.runtimeSelectionRejectionNeedsAnnouncement = true;
+                this.renderFocusedProfileOnly();
+            }
+        );
+    }
+
+    private reconcileCommittedEntitySelection(): void {
+        const scene = this.focusedRenderSession?.scene;
+        if (!scene || this.externalSelection.length !== 1) {
+            this.lastCommittedEntityKey = null;
+            return;
+        }
+        const selected = this.externalSelection[0];
+        for (const binding of scene.entities.byFeatureKey.values()) {
+            const identity = binding.selection?.hostIdentity as ISelectionId | null;
+            if (identity && selectionEquals(selected, identity)) {
+                this.lastCommittedEntityKey = binding.entityKey;
+                return;
+            }
+        }
+        this.lastCommittedEntityKey = null;
+    }
+
+    private syncFocusState(focus: ContextFocusState): void {
+        if (
+            focus.kind === "loadedEntity"
+            || focus.kind === "unloadedEntity"
+            || focus.kind === "fallbackEntity"
+        ) {
+            this.focusedEntityKey = focus.entityKey;
+        } else {
+            this.focusedEntityKey = null;
+        }
+        if (focus.kind === "loadedEntity" || focus.kind === "fallbackEntity") {
+            this.selectedPeriodKey = focus.periodKey;
+        }
+        if (focus.source === "probe") {
+            this.controller.setSurfaceFocusKey(
+                focus.featureKey === null ? null : `context:${focus.featureKey}`
+            );
+        }
+    }
+
+    private fullRenderRepresentsFocus(
+        focus: ContextFocusState | null,
+        entityIndex: number,
+        periodIndex: number
+    ): boolean {
+        return focus?.kind === "loadedEntity"
+            && focus.entityIndex === entityIndex
+            && focus.periodIndex === periodIndex;
+    }
+
+    private reconcileActiveFocus(
+        model: ProfileDataModel,
+        scene: ContextScene,
+        defaultEntityIndex: number
+    ): void {
+        const coverage = this.detailCoverage;
+        if (!coverage) {
+            return;
+        }
+        const current = this.activeContextFocus;
+        let next: ContextFocusState;
+        if (scene.mode === "none" || scene.backdrop.features.length === 0) {
+            const currentEntityKey = current && "entityKey" in current
+                ? current.entityKey
+                : this.focusedEntityKey;
+            const currentIndex = currentEntityKey
+                ? model.entities.findIndex((entity) => entity.key === currentEntityKey)
+                : -1;
+            next = resolveEntityFocus(
+                model,
+                coverage,
+                currentIndex >= 0 ? currentIndex : defaultEntityIndex,
+                this.selectedPeriodKey,
+                "modelDefault",
+                this.modelRevision
+            );
+        } else if (current?.featureKey && scene.backdrop.featureByKey.has(current.featureKey)) {
+            next = resolveFeatureFocus(
+                scene,
+                model,
+                coverage,
+                current.featureKey,
+                this.selectedPeriodKey,
+                this.fallbackResolution,
+                current.source,
+                this.modelRevision
+            );
+        } else if (current?.kind === "noFeature" || current?.kind === "fallbackEntity") {
+            next = resolveFeatureFocus(
+                scene,
+                model,
+                coverage,
+                null,
+                this.selectedPeriodKey,
+                this.fallbackResolution,
+                current.source,
+                this.modelRevision
+            );
+        } else {
+            const entityKey = current && "entityKey" in current
+                ? current.entityKey
+                : this.focusedEntityKey;
+            const entityIndex = entityKey
+                ? model.entities.findIndex((entity) => entity.key === entityKey)
+                : -1;
+            const resolvedIndex = entityIndex >= 0 ? entityIndex : defaultEntityIndex;
+            const resolvedEntityKey = model.entities[resolvedIndex]?.key ?? "";
+            const featureKey = scene.entities.featureKeyByEntityKey.get(resolvedEntityKey);
+            next = resolveEntityFocus(
+                model,
+                coverage,
+                resolvedIndex,
+                this.selectedPeriodKey,
+                current?.source ?? "modelDefault",
+                this.modelRevision,
+                featureKey ? scene.backdrop.featureByKey.get(featureKey) ?? null : null,
+                featureKey ? scene.entities.byFeatureKey.get(featureKey) ?? null : null
+            );
+        }
+        this.activeContextFocus = next;
+        this.syncFocusState(next);
+    }
+
+    private focusPresentation(focus: ContextFocusState): {
+        readonly title: string;
+        readonly message?: string;
+        readonly summary: string;
+    } {
+        switch (focus.kind) {
+            case "loadedEntity":
+                return {
+                    title: focus.entityLabel,
+                    summary: this.localization.format(
+                        "Status_Ready",
+                        this.model?.bands.length ?? 0,
+                        this.model?.profiles.length ?? 0,
+                        focus.entityLabel
+                    )
+                };
+            case "fallbackEntity":
+                return {
+                    title: focus.entityLabel,
+                    message: this.localization.get("Context_Fallback"),
+                    summary: `${this.localization.format(
+                        "Status_Ready",
+                        this.model?.bands.length ?? 0,
+                        this.model?.profiles.length ?? 0,
+                        focus.entityLabel
+                    )} ${this.localization.get("Context_Fallback")}.`
+                };
+            case "unboundFeature":
+                return {
+                    title: focus.feature.label,
+                    message: this.localization.get("Context_NoData"),
+                    summary: `${focus.feature.label}. ${this.localization.get("Context_NoData")}.`
+                };
+            case "unloadedEntity":
+                return {
+                    title: focus.feature?.label ?? focus.entityLabel,
+                    message: this.localization.get("Context_Unloaded"),
+                    summary: `${focus.feature?.label ?? focus.entityLabel}. `
+                        + `${this.localization.get("Context_Unloaded")}.`
+                };
+            case "noFeature":
+                return {
+                    title: this.localization.get("Context_NoFeature"),
+                    message: this.localization.get("Context_NoData"),
+                    summary: `${this.localization.get("Context_NoFeature")}.`
+                };
+        }
+    }
+
+    private contextFeatureDescriptions(
+        scene: ContextScene,
+        sceneIdentity: string
+    ): ReadonlyMap<string, string> {
+        const cacheKey = `${this.modelRevision}|${sceneIdentity}`;
+        if (this.contextDescriptionCache?.key === cacheKey) {
+            return this.contextDescriptionCache.descriptions;
+        }
+        const descriptions = new Map<string, string>();
+        for (const feature of scene.backdrop.features) {
+            const binding = scene.entities.byFeatureKey.get(feature.key);
+            const loaded = binding
+                ? (this.detailCoverage?.loadedPeriodIndexesByEntity.get(binding.entityIndex)?.size ?? 0)
+                    > 0
+                : false;
+            const state = !binding
+                ? this.localization.get("Context_NoData")
+                : loaded
+                    ? this.localization.get("Context_DataAvailable")
+                    : this.localization.get("Context_Unloaded");
+            const contextValue = binding?.contextValue === null
+                || binding?.contextValue === undefined
+                ? ""
+                : ` ${this.localization.get("Header_ContextValue")}: `
+                    + `${this.localization.formatNumber(binding.contextValue)}.`;
+            descriptions.set(
+                feature.key,
+                `${feature.description}.${contextValue} ${state}.`
+            );
+        }
+        this.contextDescriptionCache = { key: cacheKey, descriptions };
+        return descriptions;
+    }
+
+    private contextCoverageSummary(scene: ContextScene): string {
+        let loaded = 0;
+        let unloaded = 0;
+        for (const binding of scene.entities.byFeatureKey.values()) {
+            if (
+                (this.detailCoverage?.loadedPeriodIndexesByEntity.get(binding.entityIndex)?.size ?? 0)
+                > 0
+            ) {
+                loaded++;
+            } else {
+                unloaded++;
+            }
+        }
+        const matched = scene.entities.byFeatureKey.size;
+        const unbound = Math.max(scene.backdrop.features.length - matched, 0);
+        return this.localization.format("Context_Coverage", loaded, matched, unloaded, unbound);
+    }
+
+    private announceProbeFocus(focus: ContextFocusState): void {
+        if (focus.source !== "probe" || !this.canNavigateContext()) {
+            this.clearProbeAnnouncement();
+            this.lastProbeAnnouncementToken = null;
+            return;
+        }
+        if (focus.announcementToken === this.lastProbeAnnouncementToken) {
+            return;
+        }
+        let message: string;
+        switch (focus.kind) {
+            case "loadedEntity":
+                message = this.localization.format(
+                    "Context_AnnouncementLoaded",
+                    focus.entityLabel
+                );
+                break;
+            case "unboundFeature":
+                message = this.localization.format(
+                    "Context_AnnouncementNoData",
+                    focus.feature.label
+                );
+                break;
+            case "unloadedEntity":
+                message = this.localization.format(
+                    "Context_AnnouncementUnloaded",
+                    focus.feature?.label ?? focus.entityLabel
+                );
+                break;
+            case "fallbackEntity":
+                message = this.localization.format(
+                    "Context_AnnouncementFallback",
+                    focus.entityLabel
+                );
+                break;
+            case "noFeature":
+                message = this.localization.get("Context_AnnouncementNoFeature");
+                break;
+        }
+        if (
+            this.settings.probeAnnouncementVerbosity === "detailed"
+            && this.focusedRenderSession
+        ) {
+            message += ` ${this.contextCoverageSummary(this.focusedRenderSession.scene)}`;
+        }
+        if (
+            this.lastProbeAnnouncementToken === null
+            && this.probeAnnouncementTimer === null
+        ) {
+            this.probeAnnouncementElement.textContent = message;
+            this.lastProbeAnnouncementToken = focus.announcementToken;
+            return;
+        }
+        this.pendingProbeAnnouncement = {
+            message,
+            token: focus.announcementToken
+        };
+        if (this.probeAnnouncementTimer !== null) {
+            return;
+        }
+        this.probeAnnouncementTimer = setTimeout(() => {
+            this.probeAnnouncementTimer = null;
+            const pending = this.pendingProbeAnnouncement;
+            this.pendingProbeAnnouncement = null;
+            if (
+                !pending
+                || !this.canNavigateContext()
+                || this.activeContextFocus?.source !== "probe"
+                || this.activeContextFocus.announcementToken !== pending.token
+            ) {
+                return;
+            }
+            this.probeAnnouncementElement.textContent = pending.message;
+            this.lastProbeAnnouncementToken = pending.token;
+        }, 250);
+    }
+
+    private clearProbeAnnouncement(): void {
+        if (this.probeAnnouncementTimer !== null) {
+            clearTimeout(this.probeAnnouncementTimer);
+            this.probeAnnouncementTimer = null;
+        }
+        this.pendingProbeAnnouncement = null;
+    }
+
+    private clearFocusedRenderSession(): void {
+        this.selectionSequence++;
+        this.pendingEntitySelection = null;
+        this.focusedRenderSession = null;
+        this.contextRenderRequest = null;
+        this.renderedContext = null;
+        this.activeContextFocus = null;
+        this.pendingProfileTargets = [];
+        this.focusedEntityKey = null;
+        this.selectedPeriodKey = null;
+        this.lastProbeGeometryKey = null;
+        this.runtimeSelectionRejected = false;
+        this.runtimeSelectionRejectionNeedsAnnouncement = false;
+        this.clearProbeAnnouncement();
+        this.probeAnnouncementElement.textContent = "";
+        this.lastProbeAnnouncementToken = null;
+        clear(this.svg);
+        hideContextSurface(this.contextSurface);
     }
 
     private buildTargets(
@@ -1108,9 +2065,27 @@ export class Visual implements IVisual {
         this.entityElement.removeAttribute("aria-disabled");
         this.entityElement.onfocus = null;
         const focusEntity = (index: number): void => {
-            this.focusedEntityKey = model.entities[index]?.key ?? null;
+            const session = this.focusedRenderSession;
+            const coverage = this.detailCoverage;
+            const entity = model.entities[index];
+            if (!session || !coverage || !entity) {
+                return;
+            }
             this.selectedPeriodKey = null;
-            this.rerenderFromCache();
+            const featureKey = session.scene.entities.featureKeyByEntityKey.get(entity.key);
+            const next = resolveEntityFocus(
+                model,
+                coverage,
+                index,
+                null,
+                "entityList",
+                this.modelRevision,
+                featureKey ? session.scene.backdrop.featureByKey.get(featureKey) ?? null : null,
+                featureKey ? session.scene.entities.byFeatureKey.get(featureKey) ?? null : null
+            );
+            this.activeContextFocus = next;
+            this.syncFocusState(next);
+            this.renderFocusedProfileOnly();
             this.entityElement
                 .querySelector<HTMLElement>(`[data-entity-index="${index}"]`)
                 ?.focus();
@@ -1199,9 +2174,40 @@ export class Visual implements IVisual {
                 return;
             }
             this.selectedPeriodKey = periods[next]?.key ?? null;
-            this.rerenderFromCache();
-            const focus = this.periodElement.querySelector<HTMLElement>(".profile-lens-period-slider");
-            focus?.focus();
+            const coverage = this.detailCoverage;
+            const focus = this.activeContextFocus;
+            const scene = this.focusedRenderSession?.scene;
+            if (coverage && focus && scene) {
+                this.activeContextFocus = focus.kind === "fallbackEntity"
+                    ? resolveFeatureFocus(
+                        scene,
+                        model,
+                        coverage,
+                        null,
+                        this.selectedPeriodKey,
+                        this.fallbackResolution,
+                        focus.source,
+                        this.modelRevision
+                    )
+                    : "entityIndex" in focus
+                        ? resolveEntityFocus(
+                            model,
+                            coverage,
+                            focus.entityIndex,
+                            this.selectedPeriodKey,
+                            focus.source,
+                            this.modelRevision,
+                            focus.feature,
+                            "binding" in focus ? focus.binding : null
+                        )
+                        : focus;
+                this.syncFocusState(this.activeContextFocus);
+            }
+            this.renderFocusedProfileOnly();
+            const sliderFocus = this.periodElement.querySelector<HTMLElement>(
+                ".profile-lens-period-slider"
+            );
+            sliderFocus?.focus();
         });
     }
 
@@ -1266,21 +2272,6 @@ export class Visual implements IVisual {
             }
         }
         return keys;
-    }
-
-    private rerenderFromCache(): void {
-        const model = this.model;
-        if (!model) {
-            return;
-        }
-        const allowInteractions = this.host.hostCapabilities?.allowInteractions !== false;
-        this.renderModel(
-            model,
-            {
-                viewport: this.lastViewport
-            } as VisualUpdateOptions,
-            allowInteractions
-        );
     }
 
     private renderEmpty(options: VisualUpdateOptions): void {
@@ -1375,6 +2366,27 @@ function resolvePackKeyMode(
         return selected;
     }
     return pack === "worldCountries" ? "canonical" : pack === "usStates" ? "geoid2" : "geoid5";
+}
+
+function contextPaintIdentity(scene: ContextScene, showNoDataBackdrop: boolean): string {
+    if (showNoDataBackdrop) {
+        return "all-backdrop";
+    }
+    return `bound-only:${[...scene.entities.byFeatureKey.keys()].sort().join(",")}`;
+}
+
+function selectionEquals(left: ISelectionId, right: ISelectionId): boolean {
+    const comparable = left as unknown as powerbi.visuals.ISelectionId;
+    return typeof comparable.equals === "function"
+        ? comparable.equals(right as unknown as powerbi.visuals.ISelectionId)
+        : left === right;
+}
+
+function recordBoundedMetric(values: number[], value: number): void {
+    values.push(value);
+    if (values.length > 128) {
+        values.shift();
+    }
 }
 
 function appendChild(parent: HTMLElement, tag: string, className: string): HTMLElement {

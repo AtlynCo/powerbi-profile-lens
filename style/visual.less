@@ -187,20 +187,35 @@
 }
 
 .profile-lens-header {
+    display: flex;
+    align-items: baseline;
+    gap: 4px;
     flex: 0 0 auto;
+    min-width: 0;
     padding: 2px 4px;
+    overflow: hidden;
     order: 1;
 
     .profile-lens-header-title {
+        flex: 0 1 auto;
+        min-width: 0;
         margin: 0;
+        overflow: hidden;
         font-weight: 600;
         line-height: 1.2;
+        text-overflow: ellipsis;
+        white-space: nowrap;
     }
 
     .profile-lens-header-subtitle {
+        flex: 1 1 auto;
+        min-width: 0;
         margin: 0;
+        overflow: hidden;
         color: @muted-color;
         font-size: 11px;
+        text-overflow: ellipsis;
+        white-space: nowrap;
     }
 }
 
@@ -337,6 +352,7 @@
 
 .profile-lens-table-sr,
 .profile-lens-context-semantic,
+.profile-lens-probe-announcement,
 .profile-lens-status-sr {
     position: absolute;
     width: 1px;

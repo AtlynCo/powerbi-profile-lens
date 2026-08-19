@@ -98,6 +98,26 @@ describe("built-in context pack registry", () => {
 });
 
 describe("built-in context pack joins", () => {
+    it("keeps complete world, state, and county backdrop with partial report bindings", () => {
+        const provider = new StaticContextPackProvider();
+        for (const value of [
+            ["world-countries-110m", "canonical", "USA", 177],
+            ["world-countries-50m", "canonical", "USA", 242],
+            ["us-states-2025-5m", "geoid2", "06", 56],
+            ["us-counties-2025-5m", "geoid5", "06037", 3235]
+        ] as const) {
+            const result = provider.provide(
+                "builtInPack",
+                input([entity(0, value[2])], value[0], value[1])
+            );
+            expect(result.backdrop.features).toHaveLength(value[3]);
+            expect(result.backdrop.featureByKey.size).toBe(value[3]);
+            expect(result.entities.byFeatureKey.size).toBe(1);
+            expect(result.entities.featureKeyByEntityKey.size).toBe(1);
+            expect(result.diagnostics).toEqual([]);
+        }
+    });
+
     it("joins exact world ISO and generated fallback keys without changing entity identity", () => {
         const provider = new StaticContextPackProvider();
         const entities = [
@@ -110,20 +130,27 @@ describe("built-in context pack joins", () => {
             "builtInPack",
             input(entities, "world-countries-110m", "canonical")
         );
-        expect(result.features.map((entry) => entry.key)).toEqual([
+        expect(result.backdrop.features).toHaveLength(177);
+        expect([...result.entities.byFeatureKey.values()].map((entry) => entry.entityKey)).toEqual([
             "stable-us",
             "stable-kosovo",
             "stable-france",
             "stable-norway"
         ]);
-        expect(result.features.map((entry) => entry.label)).toEqual([
+        expect([
+            "USA",
+            "NE:KOS",
+            "FRA",
+            "NOR"
+        ].map((key) => result.backdrop.featureByKey.get(key)?.label)).toEqual([
             "United States of America",
             "Kosovo",
             "France",
             "Norway"
         ]);
-        expect(result.features[0].selection.hostIdentity).toBe(entities[0].identity);
-        expect(result.features[0].tooltipValues).toEqual([
+        expect(result.entities.byFeatureKey.get("USA")?.selection?.hostIdentity)
+            .toBe(entities[0].identity);
+        expect(result.entities.byFeatureKey.get("USA")?.tooltipValues).toEqual([
             { displayName: "Context value", value: "10" }
         ]);
         expect(result.metadata).toMatchObject({
@@ -138,7 +165,8 @@ describe("built-in context pack joins", () => {
                 "canonical"
             )
         );
-        expect(obsoleteFallbacks.features).toEqual([]);
+        expect(obsoleteFallbacks.backdrop.features).toHaveLength(177);
+        expect(obsoleteFallbacks.entities.byFeatureKey.size).toBe(0);
         expect(obsoleteFallbacks.diagnostics[0]).toMatchObject({
             code: "unmatchedPackKey",
             rejected: 2
@@ -152,14 +180,14 @@ describe("built-in context pack joins", () => {
             "world-countries-110m",
             "isoAlpha3CaseFold"
         ));
-        expect(folded.features).toHaveLength(1);
+        expect(folded.entities.byFeatureKey.size).toBe(1);
 
         const exact = provider.provide("builtInPack", input(
             [entity(0, "usa"), entity(1, " USA"), entity(2, 6)],
             "world-countries-110m",
             "canonical"
         ));
-        expect(exact.features).toEqual([]);
+        expect(exact.entities.byFeatureKey.size).toBe(0);
         expect(exact.diagnostics.find((entry) => entry.code === "malformedPackKey"))
             .toMatchObject({ rejected: 3 });
     });
@@ -171,7 +199,9 @@ describe("built-in context pack joins", () => {
             "us-states-2025-5m",
             "geoid2"
         ));
-        expect(states.features.map((entry) => entry.label)).toEqual([
+        expect([...states.entities.byFeatureKey.keys()].map(
+            (key) => states.backdrop.featureByKey.get(key)?.label
+        )).toEqual([
             "California",
             "American Samoa"
         ]);
@@ -182,8 +212,8 @@ describe("built-in context pack joins", () => {
             "us-counties-2025-5m",
             "geoid5"
         ));
-        expect(counties.features).toHaveLength(1);
-        expect(counties.features[0].label).toBe("Adjuntas");
+        expect(counties.entities.byFeatureKey.size).toBe(1);
+        expect(counties.backdrop.featureByKey.get("72001")?.label).toBe("Adjuntas");
         expect(counties.diagnostics.find((entry) => entry.code === "duplicatePackKey"))
             .toMatchObject({ rejected: 2 });
     });
@@ -215,10 +245,16 @@ describe("built-in context pack joins", () => {
             "canonical"
         ));
         const transform = { scale: 1, translateX: 0, translateY: 0, invertY: false };
-        const current = result.features.find((entry) => entry.key === "us");
-        expect(current?.navigationKeys).toContain("mx");
-        const next = spatialNeighbor(result.features, "context:us", "ArrowDown", transform, false);
+        const current = result.backdrop.featureByKey.get("USA");
+        expect(current?.navigationKeys).toContain("MEX");
+        const next = spatialNeighbor(
+            result.backdrop.features,
+            "context:USA",
+            "ArrowDown",
+            transform,
+            false
+        );
         expect(next).not.toBeNull();
-        expect(result.features.some((entry) => entry.key === next?.key)).toBe(true);
+        expect(result.backdrop.features.some((entry) => entry.key === next?.key)).toBe(true);
     });
 });

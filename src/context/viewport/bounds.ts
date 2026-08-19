@@ -6,7 +6,7 @@ export const MAX_OVERSCROLL = 24;
 
 export function sceneBounds(scene: ContextScene): SceneBounds | null {
     let bounds: SceneBounds | null = null;
-    for (const feature of scene.features) {
+    for (const feature of scene.backdrop.features) {
         if (feature.geometry.points) {
             for (const point of feature.geometry.points) {
                 bounds = extendBounds(bounds, point);
@@ -161,4 +161,3 @@ function assertTransform(transform: SceneTransform): void {
         throw new Error("Scene transform must be finite with positive scale.");
     }
 }
-

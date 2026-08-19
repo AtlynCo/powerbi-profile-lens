@@ -1,4 +1,6 @@
 import { describe, expect, it } from "vitest";
+import type powerbi from "powerbi-visuals-api";
+import { ProfileLensFormattingModel, resolveSettings } from "../src/formatting";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 
@@ -160,12 +162,34 @@ describe("capabilities contract", () => {
             .toEqual(["localOnly", "reportSelection"]);
         expect(Object.keys(capabilities.objects.navigation.properties).sort()).toEqual([
             "enabled",
+            "fallbackEntityKey",
             "maxZoom",
             "minZoom",
+            "probeAnnouncementVerbosity",
             "showCenterProbe",
             "showGestureHelp",
+            "showNoDataBackdrop",
             "showResetControl",
             "wheelSensitivity"
         ]);
+        const navigation = capabilities.objects.navigation.properties.enabled as {
+            type: { enumeration: Array<{ value: string }> };
+        };
+        expect(navigation.type.enumeration.map((entry) => entry.value))
+            .toEqual(["auto", "on", "off"]);
+    });
+
+    it("migrates absent and legacy boolean navigation values to auto/on/off", () => {
+        const model = new ProfileLensFormattingModel();
+        expect(resolveSettings(model).navigationMode).toBe("auto");
+        expect(resolveSettings(model, {
+            navigation: { enabled: true }
+        } as unknown as powerbi.DataViewObjects).navigationMode).toBe("on");
+        expect(resolveSettings(model, {
+            navigation: { enabled: false }
+        } as unknown as powerbi.DataViewObjects).navigationMode).toBe("off");
+        expect(resolveSettings(model, {
+            navigation: { enabled: "off" }
+        } as unknown as powerbi.DataViewObjects).navigationMode).toBe("off");
     });
 });

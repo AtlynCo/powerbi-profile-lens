@@ -26,20 +26,14 @@ import {
     createContextSurface,
     renderContextSurface
 } from "../src/render/contextSurface";
+import { scene as createScene } from "../src/context/providers/common";
 
 function polygonScene(offset = 0): ContextScene {
-    return {
-        providerId: "test-provider",
-        mode: "grid",
-        features: [{
+    return createScene("test-provider", "grid", [{
             index: 0,
             key: "entity:a",
-            entityIndex: 0,
             label: "A",
             description: "A grid cell",
-            selection: { key: "a", hostIdentity: null },
-            contextValue: null,
-            tooltipValues: [],
             geometry: {
                 kind: "grid",
                 center: { x: 5 + offset, y: 5 },
@@ -51,11 +45,7 @@ function polygonScene(offset = 0): ContextScene {
                     { x: offset, y: 0 }
                 ]]]
             }
-        }],
-        metrics: { featureCount: 1, ringCount: 1, vertexCount: 5 },
-        diagnostics: [],
-        partial: false
-    };
+        }]);
 }
 
 describe("context viewport camera", () => {
@@ -357,11 +347,28 @@ describe("context viewport camera", () => {
         const first = polygonScene();
         const relabeled: ContextScene = {
             ...first,
-            features: first.features.map((feature) => ({
-                ...feature,
-                label: "Renamed",
-                selection: { key: "new-selection", hostIdentity: { changed: true } }
-            }))
+            backdrop: {
+                ...first.backdrop,
+                features: first.backdrop.features.map((feature) => ({
+                    ...feature,
+                    label: "Renamed"
+                }))
+            },
+            entities: {
+                byFeatureKey: new Map([[
+                    "entity:a",
+                    {
+                        featureKey: "entity:a",
+                        entityIndex: 0,
+                        entityKey: "changed",
+                        entityLabel: "Renamed",
+                        selection: { key: "new-selection", hostIdentity: { changed: true } },
+                        contextValue: null,
+                        tooltipValues: []
+                    }
+                ]]),
+                featureKeyByEntityKey: new Map([["changed", "entity:a"]])
+            }
         };
         expect(contextSceneIdentity(relabeled)).toBe(contextSceneIdentity(first));
         expect(contextSceneIdentity(polygonScene(1))).not.toBe(contextSceneIdentity(first));
@@ -375,6 +382,7 @@ describe("context viewport camera", () => {
         const request = (translateX: number) => ({
             scene,
             sceneIdentity: "same-scene",
+            paintIdentity: "same-paint",
             viewport: { width: 200, height: 120 },
             baseTransform: {
                 scale: 5,
@@ -383,8 +391,9 @@ describe("context viewport camera", () => {
                 invertY: false
             },
             camera: { zoom: 1, panX: 0, panY: 0 },
-            focusedKey: null,
-            selectedKeys: new Set<string>(),
+            focusedFeatureKey: null,
+            selectedFeatureKeys: new Set<string>(),
+            showNoDataBackdrop: true,
             interactive: true,
             navigation: {
                 enabled: false,
@@ -411,5 +420,101 @@ describe("context viewport camera", () => {
         expect(second).not.toBe(first);
         expect(second).toContain("100");
         expect(metrics.svgGeometryBuilds).toBe(2);
+    });
+
+    it("keeps hidden no-data backdrop probeable, semantic, and focusable", () => {
+        const parent = document.createElement("div");
+        const elements = createContextSurface(parent);
+        const features = [
+            {
+                index: 0,
+                key: "bound",
+                label: "Bound",
+                description: "Bound feature",
+                geometry: {
+                    kind: "grid" as const,
+                    center: { x: 0.5, y: 0.5 },
+                    polygons: [[[
+                        { x: 0, y: 0 }, { x: 1, y: 0 }, { x: 1, y: 1 },
+                        { x: 0, y: 1 }, { x: 0, y: 0 }
+                    ]]]
+                }
+            },
+            {
+                index: 1,
+                key: "unbound",
+                label: "Unbound",
+                description: "Unbound feature",
+                geometry: {
+                    kind: "grid" as const,
+                    center: { x: 1.5, y: 0.5 },
+                    polygons: [[[
+                        { x: 1, y: 0 }, { x: 2, y: 0 }, { x: 2, y: 1 },
+                        { x: 1, y: 1 }, { x: 1, y: 0 }
+                    ]]]
+                }
+            }
+        ];
+        const value = createScene("test", "grid", features, [{
+            featureKey: "bound",
+            entityIndex: 0,
+            entityKey: "entity:0",
+            entityLabel: "Bound",
+            selection: null,
+            contextValue: null,
+            tooltipValues: []
+        }]);
+        const request = {
+            scene: value,
+            sceneIdentity: "hidden-backdrop",
+            paintIdentity: "bound-only:bound",
+            viewport: { width: 200, height: 100 },
+            baseTransform: {
+                scale: 80,
+                translateX: 20,
+                translateY: 10,
+                invertY: false
+            },
+            camera: { zoom: 1, panX: 0, panY: 0 },
+            focusedFeatureKey: "unbound",
+            selectedFeatureKeys: new Set<string>(),
+            featureDescriptions: new Map([
+                ["bound", "Bound feature. Profile data available."],
+                ["unbound", "Unbound feature. No data in current report context."]
+            ]),
+            showNoDataBackdrop: false,
+            interactive: true,
+            navigation: {
+                enabled: true,
+                showProbe: true,
+                showResetControl: true,
+                showGestureHelp: true,
+                resetLabel: "Reset",
+                probeDescription: "Probe",
+                gestureHelp: "Help"
+            },
+            pointSize: 6
+        };
+        const rendered = renderContextSurface(
+            elements,
+            request,
+            "svg",
+            {
+                fill: "#ddd",
+                stroke: "#333",
+                selected: "#08f",
+                background: "#fff",
+                pointSize: 6
+            },
+            1,
+            createContextPerformanceMetrics()
+        );
+        expect(elements.svg.querySelector("[data-context-key='unbound']")
+            ?.getAttribute("visibility")).toBe("hidden");
+        expect(rendered.hitTest(140, 50)?.featureKey).toBe("unbound");
+        expect(elements.svg.querySelector(".profile-lens-context-outline")).not.toBeNull();
+        expect(elements.semantic.textContent).toBe("");
+        expect(elements.semantic.querySelector("[id='context:unbound']")
+            ?.getAttribute("aria-label")).toContain("No data");
     });
 });

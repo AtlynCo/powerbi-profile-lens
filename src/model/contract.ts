@@ -255,7 +255,9 @@ export type DiagnosticCode =
     | "unsupportedPackKey"
     | "unmatchedPackKey"
     | "duplicatePackKey"
-    | "packArtifactInvalid";
+    | "packArtifactInvalid"
+    | "fallbackEntityInvalid"
+    | "hostSelectionRejected";
 
 export interface Diagnostic {
     readonly code: DiagnosticCode;

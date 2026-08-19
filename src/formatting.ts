@@ -227,10 +227,11 @@ export class NavigationCard extends Card {
     public override name = "navigation";
     public override displayNameKey = "Format_Navigation_Card";
 
-    public enabled = new formattingSettings.ToggleSwitch({
+    public enabled = new formattingSettings.AutoDropdown({
         name: "enabled",
         displayNameKey: "Format_NavigationEnabled",
-        value: false
+        descriptionKey: "Format_NavigationEnabled_Description",
+        value: "auto"
     });
 
     public minZoom = new formattingSettings.NumUpDown({
@@ -272,6 +273,28 @@ export class NavigationCard extends Card {
         value: true
     });
 
+    public showNoDataBackdrop = new formattingSettings.ToggleSwitch({
+        name: "showNoDataBackdrop",
+        displayNameKey: "Format_ShowNoDataBackdrop",
+        descriptionKey: "Format_ShowNoDataBackdrop_Description",
+        value: true
+    });
+
+    public probeAnnouncementVerbosity = new formattingSettings.AutoDropdown({
+        name: "probeAnnouncementVerbosity",
+        displayNameKey: "Format_ProbeAnnouncementVerbosity",
+        descriptionKey: "Format_ProbeAnnouncementVerbosity_Description",
+        value: "concise"
+    });
+
+    public fallbackEntityKey = new formattingSettings.TextInput({
+        name: "fallbackEntityKey",
+        displayNameKey: "Format_FallbackEntityKey",
+        descriptionKey: "Format_FallbackEntityKey_Description",
+        value: "",
+        placeholder: ""
+    });
+
     public override slices = [
         this.enabled,
         this.minZoom,
@@ -279,7 +302,10 @@ export class NavigationCard extends Card {
         this.wheelSensitivity,
         this.showCenterProbe,
         this.showResetControl,
-        this.showGestureHelp
+        this.showGestureHelp,
+        this.showNoDataBackdrop,
+        this.probeAnnouncementVerbosity,
+        this.fallbackEntityKey
     ];
 }
 
@@ -533,13 +559,16 @@ export interface ResolvedSettings {
     readonly contextSelectedColor: string;
     readonly maxGeometryCharacters: number;
     readonly maxSceneVertices: number;
-    readonly navigationEnabled: boolean;
+    readonly navigationMode: "auto" | "on" | "off";
     readonly minZoom: number;
     readonly maxZoom: number;
     readonly wheelSensitivity: number;
     readonly showCenterProbe: boolean;
     readonly showResetControl: boolean;
     readonly showGestureHelp: boolean;
+    readonly showNoDataBackdrop: boolean;
+    readonly probeAnnouncementVerbosity: "concise" | "detailed";
+    readonly fallbackEntityKey: string;
     readonly detailStrategy: Exclude<DetailStrategyId, "matrixExpand">;
     readonly interactionMode: "localOnly" | "reportSelection";
     readonly armRotation: number;
@@ -576,7 +605,10 @@ const NORMALIZATION_MODES: readonly NormalizationMode[] = [
     "alreadyPercent"
 ];
 
-export function resolveSettings(model: ProfileLensFormattingModel): ResolvedSettings {
+export function resolveSettings(
+    model: ProfileLensFormattingModel,
+    objects?: powerbi.DataViewObjects
+): ResolvedSettings {
     const minZoom = clamp(model.navigation.minZoom.value, 1, 8);
     const maxZoom = Math.max(minZoom, clamp(model.navigation.maxZoom.value, 1, 16));
     return {
@@ -631,13 +663,20 @@ export function resolveSettings(model: ProfileLensFormattingModel): ResolvedSett
             1000,
             LIMITS.maxVerticesPerScene
         ),
-        navigationEnabled: model.navigation.enabled.value,
+        navigationMode: resolveNavigationMode(model.navigation.enabled.value, objects),
         minZoom,
         maxZoom,
         wheelSensitivity: clamp(model.navigation.wheelSensitivity.value, 0.25, 4),
         showCenterProbe: model.navigation.showCenterProbe.value,
         showResetControl: model.navigation.showResetControl.value,
         showGestureHelp: model.navigation.showGestureHelp.value,
+        showNoDataBackdrop: model.navigation.showNoDataBackdrop.value,
+        probeAnnouncementVerbosity: enumValue(
+            model.navigation.probeAnnouncementVerbosity.value,
+            ["concise", "detailed"],
+            "concise"
+        ),
+        fallbackEntityKey: model.navigation.fallbackEntityKey.value,
         detailStrategy: enumValue(
             model.loading.strategy.value,
             ["auto", "eager", "segmented", "external"],
@@ -679,12 +718,26 @@ export function resolveSettings(model: ProfileLensFormattingModel): ResolvedSett
     };
 }
 
+function resolveNavigationMode(
+    populatedValue: unknown,
+    objects: powerbi.DataViewObjects | undefined
+): "auto" | "on" | "off" {
+    const raw = objects?.navigation?.enabled;
+    if (typeof raw === "boolean") {
+        return raw ? "on" : "off";
+    }
+    if (typeof raw === "string" && (raw === "auto" || raw === "on" || raw === "off")) {
+        return raw;
+    }
+    return enumValue(populatedValue, ["auto", "on", "off"], "auto");
+}
+
 export function defaultSettings(): ResolvedSettings {
     return resolveSettings(new ProfileLensFormattingModel());
 }
 
 function enumValue<T extends string>(
-    value: powerbi.EnumMemberValue,
+    value: unknown,
     allowed: readonly T[],
     fallback: T
 ): T {

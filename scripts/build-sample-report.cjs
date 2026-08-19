@@ -27,6 +27,7 @@ const ENTITIES = [
     "Unit F", "Unit G", "Unit H", "Unit I"
 ];
 const WORLD_KEYS = ["USA", "CAN", "MEX", "NE:KOS", "FRA", "NOR", "NE:SOL", " USA ", "fra"];
+const VIEWPORT_WORLD_KEYS = ["WLD", "DZA", "MLI", "NER", "TCD", "NGA", "CMR", "CAF", "COD"];
 const STATE_KEYS = ["06", "60", "72", "78", "11", "66", "69", "XX", "06"];
 const COUNTY_KEYS = [
     "06037", "60010", "72001", "78010", "11001", "66010", "69085", " 06037", "06037"
@@ -77,6 +78,7 @@ function buildRows() {
                         syntheticValue(entityIndex, periodIndex, bandIndex, seriesIndex, metricIndex));
                     rows.push(
                         `        {"${entity}", "${WORLD_KEYS[entityIndex]}", `
+                        + `"${VIEWPORT_WORLD_KEYS[entityIndex]}", `
                         + `"${STATE_KEYS[entityIndex]}", "${COUNTY_KEYS[entityIndex]}", `
                         + `"${period}", "${band}", ${bandIndex + 1}, "${series}", `
                         + `${values.join(", ")}, `
@@ -109,6 +111,13 @@ function tableTmdl() {
         "\t\tsummarizeBy: none",
         "\t\tisNameInferred",
         "\t\tsourceColumn: [WorldKey]",
+        "",
+        "\t\tannotation SummarizationSetBy = Automatic",
+        "",
+        "\tcolumn ViewportWorldKey",
+        "\t\tsummarizeBy: none",
+        "\t\tisNameInferred",
+        "\t\tsourceColumn: [ViewportWorldKey]",
         "",
         "\t\tannotation SummarizationSetBy = Automatic",
         "",
@@ -199,6 +208,7 @@ function tableTmdl() {
         "\t\t\t\tDATATABLE(",
         '\t\t\t\t    "Entity", STRING,',
         '\t\t\t\t    "WorldKey", STRING,',
+        '\t\t\t\t    "ViewportWorldKey", STRING,',
         '\t\t\t\t    "StateKey", STRING,',
         '\t\t\t\t    "CountyKey", STRING,',
         '\t\t\t\t    "Period", STRING,',
@@ -278,6 +288,43 @@ function visualJson(name, hierarchyProperties, withSeries, metrics, options = {}
     if (options.geometry) {
         queryState.Geometry = { projections: [measureProjection("Selected geometry")] };
     }
+    const navigationProperties = {
+        minZoom: { expr: {
+            Literal: { Value: `${options.minZoom ?? 1}D` }
+        } },
+        maxZoom: { expr: {
+            Literal: { Value: `${options.maxZoom ?? 8}D` }
+        } },
+        wheelSensitivity: { expr: {
+            Literal: { Value: `${options.wheelSensitivity ?? 1}D` }
+        } },
+        showCenterProbe: { expr: {
+            Literal: { Value: options.showCenterProbe === false ? "false" : "true" }
+        } },
+        showResetControl: { expr: {
+            Literal: { Value: options.showResetControl === false ? "false" : "true" }
+        } },
+        showGestureHelp: { expr: {
+            Literal: { Value: options.showGestureHelp === false ? "false" : "true" }
+        } },
+        showNoDataBackdrop: { expr: {
+            Literal: { Value: options.showNoDataBackdrop === false ? "false" : "true" }
+        } }
+    };
+    if (Object.hasOwn(options, "navigationMode")) {
+        navigationProperties.enabled = { expr: {
+            Literal: { Value: `'${options.navigationMode}'` }
+        } };
+    } else if (Object.hasOwn(options, "navigationEnabled")) {
+        navigationProperties.enabled = { expr: {
+            Literal: { Value: options.navigationEnabled ? "true" : "false" }
+        } };
+    }
+    if (options.fallbackEntityKey) {
+        navigationProperties.fallbackEntityKey = { expr: {
+            Literal: { Value: `'${options.fallbackEntityKey}'` }
+        } };
+    }
     return {
         $schema: "https://developer.microsoft.com/json-schemas/fabric/item/report/definition/visualContainer/2.7.0/schema.json",
         name,
@@ -332,29 +379,7 @@ function visualJson(name, hierarchyProperties, withSeries, metrics, options = {}
                     }
                 }],
                 navigation: [{
-                    properties: {
-                        enabled: { expr: {
-                            Literal: { Value: options.navigationEnabled ? "true" : "false" }
-                        } },
-                        minZoom: { expr: {
-                            Literal: { Value: `${options.minZoom ?? 1}D` }
-                        } },
-                        maxZoom: { expr: {
-                            Literal: { Value: `${options.maxZoom ?? 8}D` }
-                        } },
-                        wheelSensitivity: { expr: {
-                            Literal: { Value: `${options.wheelSensitivity ?? 1}D` }
-                        } },
-                        showCenterProbe: { expr: {
-                            Literal: { Value: options.showCenterProbe === false ? "false" : "true" }
-                        } },
-                        showResetControl: { expr: {
-                            Literal: { Value: options.showResetControl === false ? "false" : "true" }
-                        } },
-                        showGestureHelp: { expr: {
-                            Literal: { Value: options.showGestureHelp === false ? "false" : "true" }
-                        } }
-                    }
+                    properties: navigationProperties
                 }]
             },
             drillFilterOtherVisuals: true
@@ -493,40 +518,39 @@ const pages = [
         }]
     },
     {
-        name: "pageViewportFoundation",
-        displayName: "9 - Viewport foundation (camera only)",
+        name: "pageViewportLens",
+        displayName: "9 - Viewport lens (synthetic world)",
         visuals: [
             {
-                name: "visualViewportWorld",
-                hierarchy: ["WorldKey", "Band"],
+                name: "visualViewportLocal",
+                hierarchy: ["ViewportWorldKey", "Band"],
                 series: false,
                 metrics: ["Metric A", "Metric B"],
                 options: {
                     contextMode: "builtInPack",
                     contextPack: "worldCountries",
-                    worldDetail: "110m",
+                    worldDetail: "50m",
                     packKeyMode: "canonical",
                     contextValue: true,
-                    navigationEnabled: true,
-                    showCenterProbe: true,
-                    showResetControl: true,
-                    showGestureHelp: true,
-                    position: { x: 40, y: 40, z: 0, height: 800, width: 980, tabOrder: 0 }
+                    fallbackEntityKey: "WLD",
+                    interactionMode: "localOnly",
+                    position: { x: 40, y: 40, z: 0, height: 800, width: 740, tabOrder: 0 }
                 }
             },
             {
-                name: "visualViewportGrid",
-                hierarchy: ["Entity", "Band"],
+                name: "visualViewportSelection",
+                hierarchy: ["ViewportWorldKey", "Band"],
                 series: false,
                 metrics: ["Metric A", "Metric B"],
                 options: {
-                    contextMode: "grid",
+                    contextMode: "builtInPack",
+                    contextPack: "worldCountries",
+                    worldDetail: "50m",
+                    packKeyMode: "canonical",
                     contextValue: true,
-                    navigationEnabled: true,
-                    showCenterProbe: true,
-                    showResetControl: true,
-                    showGestureHelp: true,
-                    position: { x: 1060, y: 40, z: 1, height: 800, width: 500, tabOrder: 1 }
+                    fallbackEntityKey: "WLD",
+                    interactionMode: "reportSelection",
+                    position: { x: 820, y: 40, z: 1, height: 800, width: 740, tabOrder: 1 }
                 }
             }
         ]
@@ -630,9 +654,12 @@ nongeographic grid and hex layouts, bound WGS84 points, strict WKT polygons, and
 US state/equivalent, and US county/equivalent pack examples. Focused pages cover six profile
 measures, both interaction modes, all normalization modes, Natural Earth 50m, ordinary FRA/NOR
 joins, documented NE fallback keys, exact-key mismatch/duplicate diagnostics, and an empty visual
-for progressive native field-well authoring. The viewport-foundation page opts into drag, wheel,
-pinch, keyboard camera controls, and the fixed center probe for synthetic world and grid scenes.
-The probe is visual only in this release; click and keyboard entity selection still drive profiles.
+for progressive native field-well authoring. The paired viewport-lens page leaves Navigation unset so
+the 1.4 automatic mode enables drag, wheel, pinch, keyboard camera controls, and fixed-center
+probe-driven profiles for complete synthetic world backdrops. Its left visual is local-only; its
+right visual commits the final direct loaded Entity on movement settle. Exact central-African keys
+carry synthetic profiles, other countries demonstrate no-data backdrop, and the exact bound WLD row
+is visibly configured as the no-feature fallback. No fallback masks a known no-data country.
 
 The semantic model contains only a synthetic DAX \`DATATABLE\` with generic product, team, facility,
 seat, exact cartographic text keys, period, band, series, and metric labels. Every metric is

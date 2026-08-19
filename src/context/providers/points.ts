@@ -11,19 +11,23 @@ export class Wgs84PointContextProvider implements ContextProvider {
 
     public provide(_mode: ContextMode, input: ContextProviderInput): ContextScene {
         const coordinates = new Map(input.coordinates.map(value => [value.entityIndex, value]));
-        const features = [];
+        const entries = [];
         for (const entity of input.entities) {
             const coordinate = coordinates.get(entity.index);
             if (!coordinate) {
                 continue;
             }
-            features.push(featureFor(entity, features.length, {
+            entries.push(featureFor(entity, entries.length, {
                 kind: "point",
                 points: [{ x: coordinate.longitude, y: coordinate.latitude }],
                 center: { x: coordinate.longitude, y: coordinate.latitude }
             }, input));
         }
-        return scene(this.id, "points", features);
+        return scene(
+            this.id,
+            "points",
+            entries.map((entry) => entry.feature),
+            entries.map((entry) => entry.binding)
+        );
     }
 }
-

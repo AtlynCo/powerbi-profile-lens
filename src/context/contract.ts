@@ -26,18 +26,36 @@ export interface ContextSelectionIdentity {
     readonly hostIdentity: unknown;
 }
 
+export interface ContextTooltipValue {
+    readonly displayName: string;
+    readonly value: string;
+}
+
+/**
+ * One provider-canonical backdrop geometry record.
+ *
+ * Report Entity data lives in ContextEntityBinding so complete cartography can remain stable when
+ * the DataView contains only a subset of the visible features.
+ */
 export interface ContextFeature {
     readonly index: number;
     readonly key: string;
-    readonly entityIndex: number;
     readonly label: string;
     readonly description: string;
     readonly geometry: ContextGeometry;
-    readonly selection: ContextSelectionIdentity;
-    readonly contextValue: number | null;
-    readonly tooltipValues: readonly { readonly displayName: string; readonly value: string }[];
-    /** Stable entity keys of topologically adjacent features, when a provider supplies them. */
+    /** Provider-canonical keys of topologically adjacent features, when supplied. */
     readonly navigationKeys?: readonly string[];
+    readonly metadata?: Readonly<Record<string, string | number | boolean>>;
+}
+
+export interface ContextEntityBinding {
+    readonly featureKey: string;
+    readonly entityIndex: number;
+    readonly entityKey: string;
+    readonly entityLabel: string;
+    readonly selection: ContextSelectionIdentity | null;
+    readonly contextValue: number | null;
+    readonly tooltipValues: readonly ContextTooltipValue[];
 }
 
 export interface ContextSceneMetrics {
@@ -46,19 +64,32 @@ export interface ContextSceneMetrics {
     readonly vertexCount: number;
 }
 
+export interface ContextBackdrop {
+    readonly features: readonly ContextFeature[];
+    readonly featureByKey: ReadonlyMap<string, ContextFeature>;
+    readonly metrics: ContextSceneMetrics;
+}
+
+export interface ContextEntityMappings {
+    readonly byFeatureKey: ReadonlyMap<string, ContextEntityBinding>;
+    readonly featureKeyByEntityKey: ReadonlyMap<string, string>;
+}
+
+export interface ContextSceneMetadata {
+    readonly displayName: string;
+    readonly vintage: string;
+    readonly attribution: string;
+    readonly policyId: string;
+}
+
 export interface ContextScene {
     readonly providerId: string;
     readonly mode: ContextMode;
-    readonly features: readonly ContextFeature[];
-    readonly metrics: ContextSceneMetrics;
+    readonly backdrop: ContextBackdrop;
+    readonly entities: ContextEntityMappings;
     readonly diagnostics: readonly Diagnostic[];
     readonly partial: boolean;
-    readonly metadata?: {
-        readonly displayName: string;
-        readonly vintage: string;
-        readonly attribution: string;
-        readonly policyId: string;
-    };
+    readonly metadata?: ContextSceneMetadata;
 }
 
 export interface ContextProviderInput {
@@ -108,11 +139,14 @@ export interface SceneTransform {
 export interface ContextRenderRequest {
     readonly scene: ContextScene;
     readonly sceneIdentity: string;
+    readonly paintIdentity: string;
     readonly viewport: Viewport;
     readonly baseTransform: SceneTransform;
     readonly camera: ContextCamera;
-    readonly focusedKey: string | null;
-    readonly selectedKeys: ReadonlySet<string>;
+    readonly focusedFeatureKey: string | null;
+    readonly selectedFeatureKeys: ReadonlySet<string>;
+    readonly featureDescriptions?: ReadonlyMap<string, string>;
+    readonly showNoDataBackdrop: boolean;
     readonly interactive: boolean;
     readonly navigation: {
         readonly enabled: boolean;

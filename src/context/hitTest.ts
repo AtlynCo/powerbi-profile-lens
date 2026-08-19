@@ -15,8 +15,8 @@ export function hitTestScene(
     y: number,
     pointRadius = 7
 ): ContextHit | null {
-    for (let index = scene.features.length - 1; index >= 0; index--) {
-        const feature = scene.features[index];
+    for (let index = scene.backdrop.features.length - 1; index >= 0; index--) {
+        const feature = scene.backdrop.features[index];
         if (hitTestFeature(feature, transform, x, y, pointRadius)) {
             return { featureIndex: feature.index, featureKey: feature.key };
         }

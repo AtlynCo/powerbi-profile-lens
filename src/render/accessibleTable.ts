@@ -9,6 +9,8 @@ export interface TableInput {
     readonly entityIndex: number;
     readonly periodIndex: number;
     readonly visible: boolean;
+    readonly entityLabelOverride?: string;
+    readonly emptyMessage?: string;
 }
 
 /**
@@ -33,7 +35,7 @@ export function renderAccessibleTable(container: HTMLElement, input: TableInput)
         );
     caption.textContent = input.localization.format(
         "Table_Caption",
-        entity?.label ?? "",
+        input.entityLabelOverride ?? entity?.label ?? "",
         period
     );
     table.appendChild(caption);
@@ -61,6 +63,17 @@ export function renderAccessibleTable(container: HTMLElement, input: TableInput)
     table.appendChild(head);
 
     const body = document.createElement("tbody");
+    if (input.emptyMessage) {
+        const row = document.createElement("tr");
+        const cell = document.createElement("td");
+        cell.colSpan = 1 + input.model.profiles.length * seriesList.length;
+        cell.textContent = input.emptyMessage;
+        row.appendChild(cell);
+        body.appendChild(row);
+        table.appendChild(body);
+        container.appendChild(table);
+        return table;
+    }
     for (const band of input.model.bands) {
         const row = document.createElement("tr");
         row.appendChild(headerCell(band.label, "row"));
