@@ -195,7 +195,7 @@
   "Context_NoFeature": "No Context feature at the center probe",
   "Context_Fallback": "Showing configured fallback Entity",
   "Context_FallbackInvalid": "The configured fallback Entity key does not resolve to one unique loaded bound text Entity.",
-  "Context_SelectionRejected": "Power BI rejected the Entity selection. Local probe focus is unchanged.",
+  "Context_SelectionRejected": "Power BI rejected the selection. Local focus is unchanged.",
   "Context_AnnouncementLoaded": "Probe: {0}. Profile data available.",
   "Context_AnnouncementNoData": "Probe: {0}. No data in current report context.",
   "Context_AnnouncementUnloaded": "Probe: {0}. Profile detail is not loaded in the current DataView.",
@@ -243,5 +243,5 @@
   "Diagnostic_DuplicatePackKey": "Rejected duplicate normalized pack keys to avoid ambiguous selection identities.",
   "Diagnostic_PackArtifactInvalid": "The selected built-in context pack is unavailable or invalid.",
   "Diagnostic_FallbackEntityInvalid": "The configured fallback Entity key does not resolve to one unique loaded bound text Entity.",
-  "Diagnostic_HostSelectionRejected": "Power BI rejected the Entity selection. Local probe focus is unchanged."
+  "Diagnostic_HostSelectionRejected": "Power BI rejected the selection. Local focus is unchanged."
 }

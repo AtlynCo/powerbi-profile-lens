@@ -30,7 +30,6 @@ export interface InteractionTarget {
     readonly identity: ISelectionId | null;
     readonly tooltip: () => readonly VisualTooltipDataItem[];
     readonly activate?: (activation: InteractionActivation) => void;
-    readonly managesSelection?: boolean;
 }
 
 export interface SurfaceInteraction {
@@ -60,7 +59,7 @@ export interface SurfaceNavigation {
         midpointY: number
     ) => boolean;
     readonly reset: () => boolean;
-    readonly moveEnd: (cancelled?: boolean) => void;
+    readonly moveEnd: (cancelled?: boolean, clickExpected?: boolean) => void;
 }
 
 export interface ControllerDependencies {
@@ -68,7 +67,6 @@ export interface ControllerDependencies {
     readonly selectionManager: ISelectionManager;
     readonly tooltipService: ITooltipService;
     readonly emptySelectionId: ISelectionId | null;
-    readonly onSelectionChanged: () => void;
     readonly onFocusChanged: (key: string | null, source: InteractionFocusSource) => void;
 }
 
@@ -81,6 +79,7 @@ export interface ControllerDependencies {
  * menu call is made.
  */
 export class InteractionController {
+    private disposed = false;
     private allowInteractions = true;
     private targets: readonly InteractionTarget[] = [];
     private orderedKeys: readonly string[] = [];
@@ -90,6 +89,7 @@ export class InteractionController {
     private tooltipIsTouch = false;
     private readonly listeners: Array<() => void> = [];
     private rootContextMenuAttached = false;
+    private rootContextMenuRemover: (() => void) | null = null;
     private readonly gesturePointers = new Map<number, GesturePointer>();
     private gesturePhase: "idle" | "pressed" | "panning" | "pinching" = "idle";
     private gestureStart: GesturePointer | null = null;
@@ -97,9 +97,12 @@ export class InteractionController {
     private pinchSnapshot: ContextPinchSnapshot | null = null;
     private pinchStartDistance = 0;
     private gestureCameraChanged = false;
+    private suppressCurrentGestureSettle = false;
     private suppressSurfaceClick = false;
     private wheelSettleTimer: ReturnType<typeof setTimeout> | null = null;
     private wheelCameraChanged = false;
+    private wheelSettleGeneration = 0;
+    private wheelNavigation: SurfaceNavigation | null = null;
     private gestureElement: HTMLElement | null = null;
 
     public constructor(private readonly deps: ControllerDependencies) {}
@@ -109,7 +112,7 @@ export class InteractionController {
         if (!allow) {
             this.hideTooltip();
             this.resetGestureState();
-            this.clearWheelSettle();
+            this.cancelWheelSettle();
         }
     }
 
@@ -125,11 +128,21 @@ export class InteractionController {
         this.surfaceFocusKey = key;
     }
 
+    public cancelPendingNavigationSettle(): void {
+        this.cancelWheelSettle(false);
+        if (this.gesturePhase !== "idle") {
+            this.suppressCurrentGestureSettle = true;
+        }
+    }
+
     public bind(
         targets: readonly InteractionTarget[],
         surface: SurfaceInteraction | null = null,
         preserveSurfaceClickSuppression?: boolean
     ): void {
+        if (this.disposed) {
+            return;
+        }
         this.detachTargetListeners(
             preserveSurfaceClickSuppression ?? this.suppressSurfaceClick
         );
@@ -176,17 +189,28 @@ export class InteractionController {
     }
 
     public dispose(): void {
+        if (this.disposed) {
+            return;
+        }
+        this.disposed = true;
         this.hideTooltip();
         this.resetGestureState();
-        this.clearWheelSettle();
+        this.cancelWheelSettle();
         this.detachTargetListeners();
+        this.rootContextMenuRemover?.();
+        this.rootContextMenuRemover = null;
+        this.rootContextMenuAttached = false;
     }
 
     private attachTarget(target: InteractionTarget): void {
         const element = target.element;
 
+        this.on(element, "pointerdown", () => {
+            this.cancelWheelSettle();
+        });
         this.on(element, "click", (event) => {
             const pointer = event as MouseEvent;
+            this.cancelWheelSettle();
             pointer.stopPropagation();
             if (!this.allowInteractions) {
                 return;
@@ -197,12 +221,6 @@ export class InteractionController {
             this.focus(target.key, false, "pointer");
             const multiSelect = Boolean(pointer.ctrlKey || pointer.metaKey || pointer.shiftKey);
             target.activate?.({ source: "pointer", multiSelect });
-            if (!target.identity || target.managesSelection) {
-                return;
-            }
-            void this.deps.selectionManager
-                .select(target.identity, multiSelect)
-                .then(() => this.deps.onSelectionChanged());
         });
 
         this.on(element, "pointerover", (event) => {
@@ -239,6 +257,7 @@ export class InteractionController {
 
         this.on(element, "keydown", (event) => {
             this.handleKeyDown(target, event as KeyboardEvent);
+            this.cancelWheelSettle();
         });
     }
 
@@ -260,15 +279,18 @@ export class InteractionController {
                 this.deps.root.focus();
                 return;
             }
+            this.cancelWheelSettle();
             this.handleSurfacePointerDown(surface, event as PointerEvent);
         });
         this.on(element, "pointerup", (event) => {
             this.handleSurfacePointerEnd(surface, event as PointerEvent, false);
         });
         this.on(element, "pointercancel", (event) => {
+            this.cancelWheelSettle();
             this.handleSurfacePointerEnd(surface, event as PointerEvent, true);
         });
         this.on(element, "lostpointercapture", (event) => {
+            this.cancelWheelSettle();
             this.handleSurfacePointerEnd(surface, event as PointerEvent, true);
         });
         this.on(element, "focus", () => {
@@ -284,6 +306,7 @@ export class InteractionController {
         });
         this.on(element, "click", (event) => {
             const pointer = event as MouseEvent;
+            this.cancelWheelSettle();
             pointer.stopPropagation();
             if (this.suppressSurfaceClick) {
                 pointer.preventDefault();
@@ -304,11 +327,6 @@ export class InteractionController {
             this.focusSurface(target.key, true, "pointer");
             const multiSelect = Boolean(pointer.ctrlKey || pointer.metaKey || pointer.shiftKey);
             target.activate?.({ source: "pointer", multiSelect });
-            if (target.identity && !target.managesSelection) {
-                void this.deps.selectionManager
-                    .select(target.identity, multiSelect)
-                    .then(() => this.deps.onSelectionChanged());
-            }
         });
         this.on(element, "pointermove", (event) => {
             if (!this.allowInteractions) {
@@ -351,6 +369,7 @@ export class InteractionController {
             }
             const keyboard = event as KeyboardEvent;
             if (surface.navigation && this.handleNavigationKey(surface, keyboard)) {
+                this.cancelWheelSettle();
                 return;
             }
             if (
@@ -365,6 +384,7 @@ export class InteractionController {
                     this.focusSurface(target.key, false, "keyboard");
                     element.setAttribute("aria-activedescendant", target.key);
                 }
+                this.cancelWheelSettle();
                 return;
             }
             if (keyboard.key === "Enter" || keyboard.key === " ") {
@@ -374,12 +394,8 @@ export class InteractionController {
                     this.focusSurface(target.key, true, "keyboard");
                     const multiSelect = Boolean(keyboard.ctrlKey || keyboard.metaKey);
                     target.activate?.({ source: "keyboard", multiSelect });
-                    if (target.identity && !target.managesSelection) {
-                        void this.deps.selectionManager
-                            .select(target.identity, multiSelect)
-                            .then(() => this.deps.onSelectionChanged());
-                    }
                 }
+                this.cancelWheelSettle();
                 return;
             }
             if (keyboard.key === "Escape") {
@@ -387,6 +403,7 @@ export class InteractionController {
                 this.hideTooltip();
                 this.deps.root.focus();
             }
+            this.cancelWheelSettle();
         });
         if (surface.navigation && this.allowInteractions) {
             this.on(element, "wheel", (event) => {
@@ -412,6 +429,7 @@ export class InteractionController {
         if (this.gesturePhase === "idle" && this.gesturePointers.size === 0) {
             this.suppressSurfaceClick = false;
             this.gestureCameraChanged = false;
+            this.suppressCurrentGestureSettle = false;
         }
         const pointerType = event.pointerType || "mouse";
         if (pointerType !== "touch" && event.button !== 0) {
@@ -538,10 +556,12 @@ export class InteractionController {
         }
         this.suppressSurfaceClick ||= moved || cancelled;
         const cameraChanged = this.gestureCameraChanged;
+        const settleSuppressed = this.suppressCurrentGestureSettle;
         this.resetGestureState(true);
-        if (moved) {
-            surface.navigation?.moveEnd(cancelled || !cameraChanged);
-        }
+        surface.navigation?.moveEnd(
+            cancelled || !moved || !cameraChanged || settleSuppressed,
+            !cancelled && !moved
+        );
     }
 
     private handleSurfaceWheel(surface: SurfaceInteraction, event: WheelEvent): void {
@@ -567,20 +587,25 @@ export class InteractionController {
         event.preventDefault();
         event.stopPropagation();
         this.hideTooltip();
-        if (this.wheelSettleTimer === null) {
-            this.wheelCameraChanged = false;
-        }
+        const priorChanged = this.wheelSettleTimer !== null && this.wheelCameraChanged;
         const changed = navigation.zoomAt(
             wheelZoomFactor(delta, navigation.wheelSensitivity),
             event.clientX - bounds.left,
             event.clientY - bounds.top
-        ) || this.wheelCameraChanged;
-        this.clearWheelSettle();
-        this.wheelCameraChanged = changed;
+        ) || priorChanged;
+        this.cancelWheelSettle(false);
+        this.wheelCameraChanged = Boolean(changed);
+        const generation = this.wheelSettleGeneration;
+        this.wheelNavigation = navigation;
         this.wheelSettleTimer = setTimeout(() => {
+            if (generation !== this.wheelSettleGeneration) {
+                return;
+            }
             this.wheelSettleTimer = null;
+            this.wheelNavigation = null;
             const changed = this.wheelCameraChanged;
             this.wheelCameraChanged = false;
+            this.wheelSettleGeneration++;
             navigation.moveEnd(!changed);
         }, WHEEL_SETTLE_MS);
     }
@@ -653,12 +678,14 @@ export class InteractionController {
             return;
         }
         this.on(reset, "pointerdown", (event) => {
+            this.cancelWheelSettle();
             event.preventDefault();
             event.stopPropagation();
         });
         this.on(reset, "click", (event) => {
             event.preventDefault();
             event.stopPropagation();
+            this.cancelWheelSettle();
             if (!this.allowInteractions) {
                 this.deps.root.focus();
                 return;
@@ -693,18 +720,25 @@ export class InteractionController {
         this.pinchSnapshot = null;
         this.pinchStartDistance = 0;
         this.gestureCameraChanged = false;
+        this.suppressCurrentGestureSettle = false;
         if (!preserveSuppression) {
             this.suppressSurfaceClick = false;
         }
     }
 
-    private clearWheelSettle(): void {
-        if (this.wheelSettleTimer === null) {
-            return;
+    private cancelWheelSettle(notify = true): void {
+        this.wheelSettleGeneration++;
+        const navigation = this.wheelNavigation;
+        const hadTimer = this.wheelSettleTimer !== null;
+        if (this.wheelSettleTimer !== null) {
+            clearTimeout(this.wheelSettleTimer);
+            this.wheelSettleTimer = null;
         }
-        clearTimeout(this.wheelSettleTimer);
-        this.wheelSettleTimer = null;
+        this.wheelNavigation = null;
         this.wheelCameraChanged = false;
+        if (notify && hadTimer) {
+            navigation?.moveEnd(true);
+        }
     }
 
     private handleKeyDown(target: InteractionTarget, event: KeyboardEvent): void {
@@ -742,12 +776,6 @@ export class InteractionController {
                         source: "keyboard",
                         multiSelect: Boolean(event.ctrlKey || event.metaKey)
                     });
-                    if (target.managesSelection) {
-                        break;
-                    }
-                    void this.deps.selectionManager
-                        .select(target.identity, Boolean(event.ctrlKey || event.metaKey))
-                        .then(() => this.deps.onSelectionChanged());
                 }
                 if (this.allowInteractions && !target.identity) {
                     target.activate?.({
@@ -815,11 +843,12 @@ export class InteractionController {
     }
 
     private attachRootContextMenu(): void {
-        if (this.rootContextMenuAttached) {
+        if (this.disposed || this.rootContextMenuAttached) {
             return;
         }
         this.rootContextMenuAttached = true;
-        this.deps.root.addEventListener("contextmenu", (event) => {
+        const handler = (event: Event) => {
+            const pointer = event as MouseEvent;
             event.preventDefault();
             if (!this.allowInteractions) {
                 return;
@@ -827,9 +856,13 @@ export class InteractionController {
             this.hideTooltip();
             void this.deps.selectionManager.showContextMenu(
                 this.deps.emptySelectionId ?? ({} as ISelectionId),
-                { x: event.clientX ?? 0, y: event.clientY ?? 0 }
+                { x: pointer.clientX ?? 0, y: pointer.clientY ?? 0 }
             );
-        });
+        };
+        this.deps.root.addEventListener("contextmenu", handler);
+        this.rootContextMenuRemover = () => {
+            this.deps.root.removeEventListener("contextmenu", handler);
+        };
     }
 
     private showTooltip(target: InteractionTarget, event: PointerEvent): void {
@@ -888,7 +921,7 @@ export class InteractionController {
 
     private detachTargetListeners(preserveSurfaceClickSuppression = false): void {
         this.resetGestureState(preserveSurfaceClickSuppression);
-        this.clearWheelSettle();
+        this.cancelWheelSettle(false);
         while (this.listeners.length > 0) {
             const remove = this.listeners.pop();
             remove?.();

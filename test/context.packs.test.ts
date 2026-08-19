@@ -115,6 +115,13 @@ describe("built-in context pack joins", () => {
             expect(result.entities.byFeatureKey.size).toBe(1);
             expect(result.entities.featureKeyByEntityKey.size).toBe(1);
             expect(result.diagnostics).toEqual([]);
+
+            const bindingFreeInput = input([], value[0], value[1]);
+            expect(provider.canProvide("builtInPack", bindingFreeInput)).toBe(true);
+            const bindingFree = provider.provide("builtInPack", bindingFreeInput);
+            expect(bindingFree.backdrop.features).toHaveLength(value[3]);
+            expect(bindingFree.entities.byFeatureKey.size).toBe(0);
+            expect(bindingFree.diagnostics).toEqual([]);
         }
     });
 

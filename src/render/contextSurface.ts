@@ -83,6 +83,11 @@ export interface ContextPerformanceMetrics {
     hostSelectionResolved: number;
     hostSelectionRejected: number;
     hostSelectionStale: number;
+    hostSelectionQueued: number;
+    hostSelectionCoalesced: number;
+    hostSelectionExternalInvalidations: number;
+    hostSelectionInFlight: number;
+    maxHostSelectionInFlight: number;
 }
 
 interface SurfaceCache {
@@ -143,7 +148,12 @@ export function createContextPerformanceMetrics(): ContextPerformanceMetrics {
         hostSelectionRequests: 0,
         hostSelectionResolved: 0,
         hostSelectionRejected: 0,
-        hostSelectionStale: 0
+        hostSelectionStale: 0,
+        hostSelectionQueued: 0,
+        hostSelectionCoalesced: 0,
+        hostSelectionExternalInvalidations: 0,
+        hostSelectionInFlight: 0,
+        maxHostSelectionInFlight: 0
     };
 }
 

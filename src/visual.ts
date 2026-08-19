@@ -148,10 +148,20 @@ interface FocusedRenderSession {
     readonly connectorTarget?: { readonly x: number; readonly y: number };
 }
 
-interface PendingEntitySelection {
+interface LocalSelectionOperation {
     readonly sequence: number;
-    readonly entityKey: string;
+    readonly generation: number;
+    readonly kind: "entity" | "profile";
+    readonly source: "explicit" | "settle" | "profile";
+    readonly key: string;
+    readonly identity: ISelectionId;
     readonly multiSelect: boolean;
+    readonly entityKey?: string;
+}
+
+interface DeferredHostUpdate {
+    readonly options: VisualUpdateOptions;
+    readonly dataViewIdentity: powerbi.DataView | null;
 }
 
 export class Visual implements IVisual {
@@ -183,6 +193,7 @@ export class Visual implements IVisual {
     private settings: ResolvedSettings = resolveSettings(new ProfileLensFormattingModel());
     private model: ProfileDataModel | null = null;
     private lastDataView: powerbi.DataView | undefined;
+    private lastDataViewIdentity: powerbi.DataView | undefined;
     private lastFingerprint = "none";
     private focusedEntityKey: string | null = null;
     private selectedPeriodKey: string | null = null;
@@ -200,7 +211,9 @@ export class Visual implements IVisual {
     private contextRenderRequest: ContextRenderRequest | null = null;
     private lastProbeGeometryKey: string | null = null;
     private selectionSequence = 0;
-    private pendingEntitySelection: PendingEntitySelection | null = null;
+    private selectionGeneration = 0;
+    private selectionInFlight: LocalSelectionOperation | null = null;
+    private readonly selectionQueue: LocalSelectionOperation[] = [];
     private lastCommittedEntityKey: string | null = null;
     private runtimeSelectionRejected = false;
     private runtimeSelectionRejectionNeedsAnnouncement = false;
@@ -215,6 +228,54 @@ export class Visual implements IVisual {
     } | null = null;
     private lastProbeAnnouncementToken: string | null = null;
     private pendingProfileTargets: readonly InteractionTarget[] = [];
+    private destroyed = false;
+    private readonly activePointerPresses = new Set<number>();
+    private selectionRenderPending = false;
+    private selectionRenderTimer: ReturnType<typeof setTimeout> | null = null;
+    private postReleaseClickGrace = false;
+    private deferredHostUpdate: DeferredHostUpdate | null = null;
+    private readonly deferredHostOptions: VisualUpdateOptions[] = [];
+    private readonly rootPointerDownHandler = (event: PointerEvent): void => {
+        if (Number.isInteger(event.pointerId)) {
+            this.activePointerPresses.add(event.pointerId);
+        }
+    };
+    private readonly rootPointerEndHandler = (event: PointerEvent): void => {
+        if (!this.activePointerPresses.delete(event.pointerId)) {
+            return;
+        }
+        if (this.activePointerPresses.size > 0) {
+            return;
+        }
+        if (event.type === "pointerup") {
+            this.postReleaseClickGrace = true;
+            this.scheduleSelectionRenderFallback();
+        } else {
+            this.postReleaseClickGrace = false;
+            this.flushSelectionStateRender();
+        }
+    };
+    private readonly rootClickHandler = (): void => {
+        this.postReleaseClickGrace = false;
+        if (this.hasDeferredRender()) {
+            this.flushSelectionStateRender();
+            return;
+        }
+        this.flushSelectionStateRender();
+    };
+    private readonly documentPointerEndHandler = (event: PointerEvent): void => {
+        if (
+            this.root.contains(event.target as Node)
+            || !this.activePointerPresses.has(event.pointerId)
+        ) {
+            return;
+        }
+        this.activePointerPresses.delete(event.pointerId);
+        if (this.activePointerPresses.size === 0) {
+            this.postReleaseClickGrace = false;
+            this.flushSelectionStateRender();
+        }
+    };
 
     public constructor(options?: VisualConstructorOptions) {
         if (!options) {
@@ -233,6 +294,13 @@ export class Visual implements IVisual {
         this.root.setAttribute("lang", this.host.locale ?? "en-US");
         this.root.setAttribute("aria-label", this.localization.get("Visual_Name"));
         options.element.appendChild(this.root);
+        this.root.addEventListener("pointerdown", this.rootPointerDownHandler, true);
+        this.root.addEventListener("pointerup", this.rootPointerEndHandler, true);
+        this.root.addEventListener("pointercancel", this.rootPointerEndHandler, true);
+        this.root.addEventListener("lostpointercapture", this.rootPointerEndHandler, true);
+        this.root.addEventListener("click", this.rootClickHandler);
+        document.addEventListener("pointerup", this.documentPointerEndHandler, true);
+        document.addEventListener("pointercancel", this.documentPointerEndHandler, true);
         const runtimeLicenses = appendChild(
             this.root,
             "div",
@@ -270,11 +338,6 @@ export class Visual implements IVisual {
             selectionManager: this.selectionManager,
             tooltipService: this.host.tooltipService,
             emptySelectionId: this.emptySelectionId,
-            onSelectionChanged: () => {
-                this.externalSelection = this.selectionManager.getSelectionIds();
-                this.reconcileCommittedEntitySelection();
-                this.renderFocusedProfileOnly();
-            },
             onFocusChanged: (key, source) => this.handleFocusedTarget(key, source)
         });
         this.contextProviders.register(new NoneContextProvider());
@@ -291,25 +354,49 @@ export class Visual implements IVisual {
         }
 
         this.selectionManager.registerOnSelectCallback((ids: ISelectionId[]) => {
-            this.externalSelection = ids;
-            this.reconcileCommittedEntitySelection();
-            this.renderFocusedProfileOnly();
+            this.handleExternalSelection(ids);
         });
     }
 
     public update(options: VisualUpdateOptions): void {
         this.host.eventService.renderingStarted(options);
-        let finished = false;
-        try {
-            this.applyUpdate(options);
-            finished = true;
-            this.host.eventService.renderingFinished(options);
-        } catch (error) {
-            if (!finished) {
-                this.renderFailure(error);
-                this.host.eventService.renderingFailed(options, describeError(error));
-            }
+        const allowInteractions = this.host.hostCapabilities?.allowInteractions !== false;
+        if (!allowInteractions) {
+            this.controller.setAllowInteractions(false);
+            this.invalidateQueuedSelections();
+            this.clearProbeAnnouncement();
+            this.activePointerPresses.clear();
+            this.postReleaseClickGrace = false;
+            this.clearSelectionRenderTimer();
         }
+        this.controller.cancelPendingNavigationSettle();
+        if (this.shouldDeferHostUpdate()) {
+            this.deferredHostUpdate = this.coalesceHostUpdate(
+                this.deferredHostUpdate,
+                options
+            );
+            this.deferredHostOptions.push(options);
+            if (this.postReleaseClickGrace) {
+                this.scheduleSelectionRenderFallback();
+            }
+            return;
+        }
+        const effectiveUpdate = this.coalesceHostUpdate(
+            this.deferredHostUpdate,
+            options
+        );
+        const lifecycleOptions = [
+            ...this.deferredHostOptions.splice(0),
+            options
+        ];
+        this.deferredHostUpdate = null;
+        this.selectionRenderPending = false;
+        this.clearSelectionRenderTimer();
+        this.executeHostUpdate(
+            effectiveUpdate.options,
+            lifecycleOptions,
+            effectiveUpdate.dataViewIdentity
+        );
     }
 
     public getFormattingModel(): powerbi.visuals.FormattingModel {
@@ -317,6 +404,21 @@ export class Visual implements IVisual {
     }
 
     public destroy(): void {
+        this.destroyed = true;
+        this.invalidateQueuedSelections();
+        this.root.removeEventListener("pointerdown", this.rootPointerDownHandler, true);
+        this.root.removeEventListener("pointerup", this.rootPointerEndHandler, true);
+        this.root.removeEventListener("pointercancel", this.rootPointerEndHandler, true);
+        this.root.removeEventListener("lostpointercapture", this.rootPointerEndHandler, true);
+        this.root.removeEventListener("click", this.rootClickHandler);
+        document.removeEventListener("pointerup", this.documentPointerEndHandler, true);
+        document.removeEventListener("pointercancel", this.documentPointerEndHandler, true);
+        this.clearSelectionRenderTimer();
+        this.activePointerPresses.clear();
+        this.postReleaseClickGrace = false;
+        this.failDeferredHostRenders(new Error("Visual destroyed before deferred rendering."));
+        this.deferredHostUpdate = null;
+        this.selectionRenderPending = false;
         this.controller.dispose();
         this.clearProbeAnnouncement();
     }
@@ -334,12 +436,17 @@ export class Visual implements IVisual {
         const allowInteractions = this.host.hostCapabilities?.allowInteractions !== false;
         this.controller.setAllowInteractions(allowInteractions);
         if (!allowInteractions) {
+            this.invalidateQueuedSelections();
             this.clearProbeAnnouncement();
         }
 
         const fingerprint = fingerprintDataView(dataView);
         const isLifecycleOnly = dataView === undefined
-            || (this.model !== null && fingerprint === this.lastFingerprint && dataView === this.lastDataView);
+            || (
+                this.model !== null
+                && fingerprint === this.lastFingerprint
+                && dataView === this.lastDataViewIdentity
+            );
 
         if (!isLifecycleOnly) {
             this.segments.register(fingerprint, options.operationKind);
@@ -390,7 +497,9 @@ export class Visual implements IVisual {
             this.detailCoverage,
             this.settings.fallbackEntityKey
         );
-        this.renderModel(model, options, allowInteractions);
+        this.renderModel(model, {
+            viewport: options.viewport
+        } as VisualUpdateOptions, allowInteractions);
     }
 
     private renderModel(
@@ -417,7 +526,7 @@ export class Visual implements IVisual {
         this.root.classList.toggle("profile-lens-reduced-motion", this.settings.reducedMotion);
         this.root.classList.toggle("profile-lens-high-contrast", Boolean(this.host.colorPalette?.isHighContrast));
 
-        if (!isRenderable(model)) {
+        if (!isRenderable(model) && !this.canRenderBindingFreeContext()) {
             this.clearFocusedRenderSession();
             this.landingElement.removeAttribute("hidden");
             renderLanding(this.landingElement, {
@@ -725,7 +834,7 @@ export class Visual implements IVisual {
         ) {
             this.resolveProbeFocus(requiresFocusedPresentation);
         } else if (requiresFocusedPresentation && this.activeContextFocus) {
-            this.renderFocusedProfileOnly();
+            this.requestSelectionStateRender();
         }
     }
 
@@ -953,13 +1062,21 @@ export class Visual implements IVisual {
                     pinchTo: (snapshot, ratio, x, y) =>
                         this.pinchContextCamera(snapshot, ratio, x, y),
                     reset: () => this.resetContextCamera(),
-                    moveEnd: (cancelled = false) => {
+                    moveEnd: (cancelled = false, clickExpected = false) => {
                         if (cancelled) {
                             this.bindFocusedInteractions();
+                            if (!clickExpected) {
+                                this.postReleaseClickGrace = false;
+                                this.clearSelectionRenderTimer();
+                                this.flushSelectionStateRender();
+                            }
                             return;
                         }
+                        this.postReleaseClickGrace = false;
+                        this.clearSelectionRenderTimer();
                         this.contextMetrics.moveEnds++;
                         this.handleContextMoveEnd();
+                        this.flushSelectionStateRender();
                     }
                 }
                 : undefined
@@ -1161,7 +1278,6 @@ export class Visual implements IVisual {
                     value: this.localization.get("Context_NoData")
                 }])
             ],
-            managesSelection: true,
             activate: ({ multiSelect }) => {
                 if (binding) {
                     this.commitEntitySelection(binding, multiSelect, "explicit");
@@ -1262,6 +1378,9 @@ export class Visual implements IVisual {
     }
 
     private renderFocusedProfileOnly(): void {
+        if (this.destroyed) {
+            return;
+        }
         const session = this.focusedRenderSession;
         const coverage = this.detailCoverage;
         if (!session || !coverage) {
@@ -1607,42 +1726,329 @@ export class Visual implements IVisual {
         ) {
             return;
         }
-        const effectiveTarget = this.pendingEntitySelection?.entityKey
-            ?? this.lastCommittedEntityKey;
-        if (source === "settle" && effectiveTarget === entityKey) {
+        if (
+            source === "settle"
+            && this.selectionInFlight === null
+            && this.selectionQueue.length === 0
+            && this.lastCommittedEntityKey === entityKey
+        ) {
             return;
         }
-        const sequence = ++this.selectionSequence;
-        this.pendingEntitySelection = { sequence, entityKey, multiSelect };
+        this.enqueueSelection({
+            sequence: ++this.selectionSequence,
+            generation: this.selectionGeneration,
+            kind: "entity",
+            source,
+            key: `entity:${selectionIdentityKey(identity)}`,
+            identity,
+            multiSelect,
+            entityKey
+        });
+    }
+
+    private requestProfileSelection(
+        identity: ISelectionId,
+        multiSelect: boolean
+    ): void {
+        if (this.host.hostCapabilities?.allowInteractions === false) {
+            return;
+        }
+        this.enqueueSelection({
+            sequence: ++this.selectionSequence,
+            generation: this.selectionGeneration,
+            kind: "profile",
+            source: "profile",
+            key: `profile:${selectionIdentityKey(identity)}`,
+            identity,
+            multiSelect
+        });
+    }
+
+    private enqueueSelection(operation: LocalSelectionOperation): void {
+        if (this.destroyed) {
+            return;
+        }
+        if (!operation.multiSelect) {
+            const removed = this.selectionQueue.length;
+            if (removed > 0) {
+                this.selectionQueue.splice(0, removed);
+                this.contextMetrics.hostSelectionCoalesced += removed;
+            }
+            if (
+                this.selectionInFlight
+                && this.selectionInFlight.generation === this.selectionGeneration
+                && selectionOperationsEqual(this.selectionInFlight, operation)
+            ) {
+                this.contextMetrics.hostSelectionCoalesced++;
+                return;
+            }
+        }
+        this.selectionQueue.push(operation);
+        this.contextMetrics.hostSelectionQueued++;
+        this.pumpSelectionQueue();
+    }
+
+    private pumpSelectionQueue(): void {
+        if (this.destroyed) {
+            this.selectionQueue.splice(0);
+            return;
+        }
+        if (this.selectionInFlight || this.selectionQueue.length === 0) {
+            return;
+        }
+        const operation = this.selectionQueue.shift()!;
+        if (operation.generation !== this.selectionGeneration) {
+            this.contextMetrics.hostSelectionStale++;
+            this.pumpSelectionQueue();
+            return;
+        }
+        this.selectionInFlight = operation;
+        this.contextMetrics.hostSelectionInFlight = 1;
+        this.contextMetrics.maxHostSelectionInFlight = Math.max(
+            this.contextMetrics.maxHostSelectionInFlight,
+            this.contextMetrics.hostSelectionInFlight
+        );
         this.contextMetrics.hostSelectionRequests++;
-        void this.selectionManager.select(identity, multiSelect).then(
+        void this.selectionManager.select(operation.identity, operation.multiSelect).then(
             (ids) => {
-                if (this.pendingEntitySelection?.sequence !== sequence) {
-                    this.contextMetrics.hostSelectionStale++;
-                    return;
-                }
-                this.pendingEntitySelection = null;
-                this.contextMetrics.hostSelectionResolved++;
-                this.runtimeSelectionRejected = false;
-                this.runtimeSelectionRejectionNeedsAnnouncement = false;
-                this.lastCommittedEntityKey = multiSelect ? null : entityKey;
-                this.externalSelection = Array.isArray(ids)
+                this.completeSelection(operation, Array.isArray(ids)
                     ? ids
-                    : this.selectionManager.getSelectionIds();
-                this.renderFocusedProfileOnly();
+                    : this.selectionManager.getSelectionIds(), null);
             },
-            () => {
-                if (this.pendingEntitySelection?.sequence !== sequence) {
-                    this.contextMetrics.hostSelectionStale++;
-                    return;
-                }
-                this.pendingEntitySelection = null;
+            (error) => {
+                this.completeSelection(operation, null, error);
+            }
+        );
+    }
+
+    private completeSelection(
+        operation: LocalSelectionOperation,
+        ids: readonly ISelectionId[] | null,
+        error: unknown
+    ): void {
+        if (this.selectionInFlight?.sequence !== operation.sequence) {
+            this.contextMetrics.hostSelectionStale++;
+            return;
+        }
+        this.selectionInFlight = null;
+        this.contextMetrics.hostSelectionInFlight = 0;
+        if (this.destroyed) {
+            this.contextMetrics.hostSelectionStale++;
+            this.selectionQueue.splice(0);
+            return;
+        }
+        if (operation.generation !== this.selectionGeneration) {
+            this.contextMetrics.hostSelectionStale++;
+            if (error === null) {
+                this.externalSelection = this.selectionManager.getSelectionIds();
+                this.reconcileCommittedEntitySelection();
+            } else {
                 this.contextMetrics.hostSelectionRejected++;
                 this.runtimeSelectionRejected = true;
                 this.runtimeSelectionRejectionNeedsAnnouncement = true;
-                this.renderFocusedProfileOnly();
             }
-        );
+            this.requestSelectionStateRender();
+            this.pumpSelectionQueue();
+            return;
+        }
+        if (error === null) {
+            this.contextMetrics.hostSelectionResolved++;
+            this.runtimeSelectionRejected = false;
+            this.runtimeSelectionRejectionNeedsAnnouncement = false;
+            this.lastCommittedEntityKey = operation.kind === "entity"
+                && !operation.multiSelect
+                ? operation.entityKey ?? null
+                : null;
+            this.externalSelection = ids ?? this.selectionManager.getSelectionIds();
+        } else {
+            this.contextMetrics.hostSelectionRejected++;
+            this.runtimeSelectionRejected = true;
+            this.runtimeSelectionRejectionNeedsAnnouncement = true;
+        }
+        this.requestSelectionStateRender();
+        this.pumpSelectionQueue();
+    }
+
+    private handleExternalSelection(ids: readonly ISelectionId[]): void {
+        if (this.destroyed) {
+            return;
+        }
+        this.controller.cancelPendingNavigationSettle();
+        this.externalSelection = ids;
+        this.invalidateQueuedSelections(true);
+        this.reconcileCommittedEntitySelection();
+        this.selectionRenderPending = true;
+        this.flushSelectionStateRender();
+    }
+
+    private invalidateQueuedSelections(external = false): void {
+        this.selectionGeneration++;
+        if (this.selectionQueue.length > 0) {
+            this.contextMetrics.hostSelectionCoalesced += this.selectionQueue.length;
+            this.selectionQueue.splice(0);
+        }
+        if (external) {
+            this.contextMetrics.hostSelectionExternalInvalidations++;
+        }
+    }
+
+    private requestSelectionStateRender(): void {
+        if (this.destroyed) {
+            return;
+        }
+        if (this.deferredHostUpdate) {
+            this.selectionRenderPending = true;
+            if (!this.controller.navigationInProgress) {
+                this.flushSelectionStateRender();
+            }
+            return;
+        }
+        if (
+            this.activePointerPresses.size > 0
+            || this.postReleaseClickGrace
+            || this.controller.navigationInProgress
+        ) {
+            this.selectionRenderPending = true;
+            if (this.postReleaseClickGrace) {
+                this.scheduleSelectionRenderFallback();
+            }
+            return;
+        }
+        this.clearSelectionRenderTimer();
+        this.selectionRenderPending = false;
+        this.renderFocusedProfileOnly();
+    }
+
+    private flushSelectionStateRender(): void {
+        if (
+            !this.hasDeferredRender()
+            || this.destroyed
+            || this.activePointerPresses.size > 0
+            || this.postReleaseClickGrace
+            || this.controller.navigationInProgress
+        ) {
+            return;
+        }
+        this.clearSelectionRenderTimer();
+        if (this.deferredHostUpdate) {
+            const update = this.deferredHostUpdate;
+            this.deferredHostUpdate = null;
+            const options = this.deferredHostOptions.splice(0);
+            this.selectionRenderPending = false;
+            this.executeHostUpdate(
+                update.options,
+                options,
+                update.dataViewIdentity
+            );
+            return;
+        }
+        this.selectionRenderPending = false;
+        this.renderFocusedProfileOnly();
+    }
+
+    private shouldDeferHostUpdate(): boolean {
+        return this.activePointerPresses.size > 0
+            || this.postReleaseClickGrace
+            || this.controller.navigationInProgress;
+    }
+
+    private coalesceHostUpdate(
+        current: DeferredHostUpdate | null,
+        next: VisualUpdateOptions
+    ): DeferredHostUpdate {
+        if (current?.options.dataViews?.[0] === undefined) {
+            return {
+                options: next,
+                dataViewIdentity: next.dataViews?.[0] ?? null
+            };
+        }
+        const currentOptions = current.options;
+        const nextDataView = next.dataViews?.[0];
+        const lifecycleOnly = nextDataView === undefined
+            || (
+                (
+                    nextDataView === this.lastDataView
+                    || nextDataView === this.lastDataViewIdentity
+                )
+                && fingerprintDataView(nextDataView) === this.lastFingerprint
+            )
+            || nextDataView === current.dataViewIdentity;
+        if (!lifecycleOnly) {
+            return {
+                options: next,
+                dataViewIdentity: nextDataView ?? null
+            };
+        }
+        const pendingDataView = currentOptions.dataViews[0];
+        const latestObjects = nextDataView
+            && Object.prototype.hasOwnProperty.call(nextDataView.metadata, "objects")
+            ? nextDataView.metadata.objects
+            : pendingDataView.metadata.objects;
+        const mergedDataView: powerbi.DataView = {
+            ...pendingDataView,
+            metadata: {
+                ...pendingDataView.metadata,
+                objects: latestObjects
+            }
+        };
+        return {
+            options: {
+                ...next,
+                dataViews: [
+                    mergedDataView,
+                    ...currentOptions.dataViews.slice(1)
+                ],
+                operationKind: currentOptions.operationKind
+            },
+            dataViewIdentity: current.dataViewIdentity ?? pendingDataView
+        };
+    }
+
+    private executeHostUpdate(
+        update: VisualUpdateOptions,
+        lifecycleOptions: readonly VisualUpdateOptions[],
+        dataViewIdentity: powerbi.DataView | null
+    ): void {
+        try {
+            this.applyUpdate(update);
+            if (update.dataViews?.[0] !== undefined) {
+                this.lastDataViewIdentity = dataViewIdentity ?? update.dataViews[0];
+            }
+            for (const options of lifecycleOptions) {
+                this.host.eventService.renderingFinished(options);
+            }
+        } catch (error) {
+            this.renderFailure(error);
+            for (const options of lifecycleOptions) {
+                this.host.eventService.renderingFailed(options, describeError(error));
+            }
+        }
+    }
+
+    private hasDeferredRender(): boolean {
+        return this.selectionRenderPending || this.deferredHostUpdate !== null;
+    }
+
+    private scheduleSelectionRenderFallback(): void {
+        this.clearSelectionRenderTimer();
+        this.selectionRenderTimer = setTimeout(() => {
+            this.selectionRenderTimer = null;
+            this.postReleaseClickGrace = false;
+            this.flushSelectionStateRender();
+        }, 0);
+    }
+
+    private clearSelectionRenderTimer(): void {
+        if (this.selectionRenderTimer !== null) {
+            clearTimeout(this.selectionRenderTimer);
+            this.selectionRenderTimer = null;
+        }
+    }
+
+    private failDeferredHostRenders(error: Error): void {
+        for (const options of this.deferredHostOptions.splice(0)) {
+            this.host.eventService.renderingFailed(options, error.message);
+        }
     }
 
     private reconcileCommittedEntitySelection(): void {
@@ -1703,7 +2109,33 @@ export class Visual implements IVisual {
         }
         const current = this.activeContextFocus;
         let next: ContextFocusState;
-        if (scene.mode === "none" || scene.backdrop.features.length === 0) {
+        if (
+            model.entities.length === 0
+            && current?.featureKey
+            && scene.backdrop.featureByKey.has(current.featureKey)
+        ) {
+            next = resolveFeatureFocus(
+                scene,
+                model,
+                coverage,
+                current.featureKey,
+                this.selectedPeriodKey,
+                this.fallbackResolution,
+                current.source,
+                this.modelRevision
+            );
+        } else if (model.entities.length === 0) {
+            next = resolveFeatureFocus(
+                scene,
+                model,
+                coverage,
+                null,
+                this.selectedPeriodKey,
+                this.fallbackResolution,
+                scene.mode === "none" ? "modelDefault" : current?.source ?? "modelDefault",
+                this.modelRevision
+            );
+        } else if (scene.mode === "none" || scene.backdrop.features.length === 0) {
             const currentEntityKey = current && "entityKey" in current
                 ? current.entityKey
                 : this.focusedEntityKey;
@@ -1763,6 +2195,11 @@ export class Visual implements IVisual {
         }
         this.activeContextFocus = next;
         this.syncFocusState(next);
+    }
+
+    private canRenderBindingFreeContext(): boolean {
+        return this.settings.contextMode === "builtInPack"
+            && this.settings.contextLayout !== "profileOnly";
     }
 
     private focusPresentation(focus: ContextFocusState): {
@@ -1952,8 +2389,7 @@ export class Visual implements IVisual {
     }
 
     private clearFocusedRenderSession(): void {
-        this.selectionSequence++;
-        this.pendingEntitySelection = null;
+        this.invalidateQueuedSelections();
         this.focusedRenderSession = null;
         this.contextRenderRequest = null;
         this.renderedContext = null;
@@ -1978,14 +2414,23 @@ export class Visual implements IVisual {
         entityIndex: number,
         periodIndex: number
     ): readonly InteractionTarget[] {
-        return rendered.map((target) => ({
-            key: target.key,
-            element: target.element,
-            identity: (model.bandIdentities.get(
+        return rendered.map((target) => {
+            const identity = (model.bandIdentities.get(
                 bandIdentityKey(entityIndex, periodIndex, target.bandIndex)
-            ) as ISelectionId | undefined) ?? null,
-            tooltip: () => this.buildTooltipItems(model, frame, target, entityIndex, periodIndex)
-        }));
+            ) as ISelectionId | undefined) ?? null;
+            return {
+                key: target.key,
+                element: target.element,
+                identity,
+                tooltip: () =>
+                    this.buildTooltipItems(model, frame, target, entityIndex, periodIndex),
+                activate: ({ multiSelect }) => {
+                    if (identity) {
+                        this.requestProfileSelection(identity, multiSelect);
+                    }
+                }
+            };
+        });
     }
 
     private buildTooltipItems(
@@ -2064,12 +2509,16 @@ export class Visual implements IVisual {
         }
         this.entityElement.removeAttribute("aria-disabled");
         this.entityElement.onfocus = null;
-        const focusEntity = (index: number): void => {
+        const focusEntity = (index: number): boolean => {
+            if (!this.canMutateInteractions()) {
+                this.root.focus();
+                return false;
+            }
             const session = this.focusedRenderSession;
             const coverage = this.detailCoverage;
             const entity = model.entities[index];
             if (!session || !coverage || !entity) {
-                return;
+                return false;
             }
             this.selectedPeriodKey = null;
             const featureKey = session.scene.entities.featureKeyByEntityKey.get(entity.key);
@@ -2089,16 +2538,28 @@ export class Visual implements IVisual {
             this.entityElement
                 .querySelector<HTMLElement>(`[data-entity-index="${index}"]`)
                 ?.focus();
+            return true;
         };
         for (const option of options) {
+            option.element.addEventListener("focus", () => {
+                if (!this.canMutateInteractions()) {
+                    this.root.focus();
+                }
+            });
             option.element.addEventListener("click", () => {
-                focusEntity(option.index);
+                if (!focusEntity(option.index)) {
+                    return;
+                }
                 const entity = model.entities[option.index];
                 if (entity) {
                     this.activateEntityHost(entity);
                 }
             });
             option.element.addEventListener("keydown", (event: KeyboardEvent) => {
+                if (!this.canMutateInteractions()) {
+                    this.root.focus();
+                    return;
+                }
                 let next = option.index;
                 switch (event.key) {
                     case "ArrowRight":
@@ -2149,7 +2610,16 @@ export class Visual implements IVisual {
             return;
         }
         const periods = model.periodsByEntity.get(entityIndex) ?? [];
+        slider.addEventListener("focus", () => {
+            if (!this.canMutateInteractions()) {
+                this.root.focus();
+            }
+        });
         slider.addEventListener("keydown", (event: KeyboardEvent) => {
+            if (!this.canMutateInteractions()) {
+                this.root.focus();
+                return;
+            }
             let next = periodIndex;
             switch (event.key) {
                 case "ArrowRight":
@@ -2303,6 +2773,11 @@ export class Visual implements IVisual {
         return this.localization.isRightToLeft ? "rtl" : "ltr";
     }
 
+    private canMutateInteractions(): boolean {
+        return !this.destroyed
+            && this.host.hostCapabilities?.allowInteractions !== false;
+    }
+
     private applyThemeVariables(theme: ReturnType<typeof resolveTheme>): void {
         const selected = theme.isHighContrast
             ? theme.foregroundSelected
@@ -2373,6 +2848,17 @@ function contextPaintIdentity(scene: ContextScene, showNoDataBackdrop: boolean):
         return "all-backdrop";
     }
     return `bound-only:${[...scene.entities.byFeatureKey.keys()].sort().join(",")}`;
+}
+
+function selectionOperationsEqual(
+    left: LocalSelectionOperation,
+    right: LocalSelectionOperation
+): boolean {
+    return left.key === right.key && left.multiSelect === right.multiSelect;
+}
+
+function selectionIdentityKey(identity: ISelectionId): string {
+    return (identity as unknown as powerbi.visuals.ISelectionId).getKey();
 }
 
 function selectionEquals(left: ISelectionId, right: ISelectionId): boolean {

@@ -149,6 +149,9 @@ backdrop and creates optional exact canonical-feature-to-report-Entity bindings 
 DataView. Only those bindings carry analytical values, tooltips, highlights, and host identities.
 Unbound features remain probeable cartographic backdrop and show `No data in current report context`;
 they are not key errors. Hiding no-data paint leaves their picking, navigation, and semantics intact.
+The backdrop also renders when there are zero report Entity rows or no renderable profile roles.
+Adding later report rows changes bindings without resetting a compatible camera or rebuilding the
+stable geometry/picking surfaces.
 
 The fixed center probe resolves the backdrop feature while the camera moves and updates the local
 profile only on effective state changes. A configured fallback is exact raw bound Entity text,

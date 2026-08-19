@@ -54,6 +54,11 @@ Exact key modes reject coercion, fuzzy names, unmatched values, and ambiguous du
 keys. Unbound pack features remain ordinary backdrop rather than errors. See
 [context-packs.md](context-packs.md).
 
+The built-in provider is available from pack configuration alone. It returns the complete backdrop
+when the DataView has zero Entity rows, all report keys are unmatched, or profile roles are not yet
+renderable. Later bindings update only mapping/dynamic state; unchanged geometry identity preserves
+the camera, SVG paths or Canvas base raster, and picking index.
+
 ## Layout and rendering
 
 The composite layout supports `split`, `focusLens`, `locatorInset`, and `profileOnly`; small viewports
@@ -108,8 +113,13 @@ behavior.
 ## Interaction boundary
 
 Context Entity bindings resolve to entity-level matrix identities and profile marks retain bucket-level
-identities. The shared controller owns selection, multi-selection, tooltip, context-menu, keyboard
-focus, and disabled-interaction behavior. Report selection is the default entity action. Local-only
+identities. The shared controller owns gesture arbitration, tooltip, context-menu, keyboard focus,
+and disabled-interaction behavior. One Visual-owned coordinator serializes every profile/context
+selection: one host promise at a time, latest single-select coalescing, ordered explicit multi-select,
+and queued-work invalidation on external callbacks. An already in-flight host call is not cancellable
+and remains an explicit last-writer boundary. A stale successful completion reconciles overlays from
+`SelectionManager.getSelectionIds()` while leaving local focus untouched; stale rejection is
+diagnostic-only. Report selection is the default entity action. Local-only
 mode makes no host mutation. Highlights, RLS, external filters, and external selections remain
 read-only host inputs. The visual declares no filter capability and never calls `applyJsonFilter`.
 
@@ -127,6 +137,10 @@ contained even when zoom is already clamped; zero/invalid or disabled input is n
 pointer pans. Two touch pointers snapshot the starting camera and scene anchor, then solve zoom plus
 midpoint translation from that snapshot and clamp the complete camera once. Returning from two
 pointers to one rebases pan without changing the camera. Pointer cancel/lost capture is idempotent.
+Wheel settle callbacks carry a generation and are cancelled when pointer/pinch, click, plain spatial
+keyboard, keyboard camera/reset, rebind, disabled interaction, or destroy takes ownership. A stale
+callback cannot reassert probe focus or commit host selection. External host selection also
+suppresses pending wheel and current drag/pinch settle ownership without reverting camera state.
 Plain Arrow retains spatial backdrop browsing; Shift+Arrow pans, `+`/`-` zooms, and Home resets.
 After every camera mutation, the camera-aware renderer hit-tests the fixed center pixel. A canonical
 feature/Entity/detail/period token deduplicates unchanged states. Changed states update only the
@@ -134,10 +148,9 @@ focused profile region and dynamic overlay; provider, scene, base geometry/raste
 builders remain untouched.
 
 Probe focus is local during movement. `localOnly` makes no host call. `reportSelection` commits at
-most one final directly matched, loaded Entity per user settle, deduplicated against the effective
-pending or last committed target. Programmatic mount/restore/resize never selects. Sequence-checked
-promise resolution ignores stale results; rejection surfaces a diagnostic without changing local
-focus or retrying. Explicit context activation remains one call and uses the same coordinator.
+most one final directly matched, loaded Entity per current user settle. Programmatic
+mount/restore/resize never selects. The serialized coordinator coalesces superseded settle/explicit
+single-select intent and surfaces rejection without changing local focus or retrying.
 
 The focus state is explicit: loaded Entity, unbound known feature, bound but unloaded Entity, no
 feature, or configured fallback. No-data states clear profile marks/table values. Fallback is an exact

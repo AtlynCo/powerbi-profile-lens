@@ -52,7 +52,10 @@ Pinch uses one gesture-start camera snapshot: zoom and midpoint translation are 
 clamped once, so reaching an edge or zoom limit does not introduce an incremental jump. While
 navigation is active, finite nonzero wheel input is contained inside the viewport even when the camera
 is already at minimum or maximum zoom; zero, invalid, disabled, and navigation-off input is left to the
-host. High-contrast probe, help, focus, and reset chrome use the host foreground, background, and
+host. A pending wheel settle is generation-checked and cancelled when pointer, pinch, click, spatial
+keyboard, reset, rebind, disable, or destroy takes ownership, so a stale timer cannot refocus or
+select. A host-authoritative external selection also cancels pending wheel and current drag/pinch
+settle ownership without rolling back the camera. High-contrast probe, help, focus, and reset chrome use the host foreground, background, and
 selected colors through resolved theme variables.
 
 The fixed center probe is the local profile source while navigation is active. The viewport moves
@@ -61,7 +64,8 @@ accessible table, and status without a click. Built-in packs always keep their c
 backdrop (177/242 world, 56 state/equivalent, or 3,235 county/equivalent features), while only exact
 report matches carry analytical values, tooltips, highlights, and Power BI identities. Known unbound
 features show `No data in current report context`; unloaded detail and no-feature states are distinct
-and never retain the prior profile.
+and never retain the prior profile. A selected built-in pack remains a navigable, semantic backdrop
+even when the current DataView has zero Entity rows or no renderable profile fields.
 
 An optional fallback Entity key is exact raw bound text. It applies only over no feature, is visibly
 disclosed, and is never silently inferred as `WLD`; it never masks a known no-data feature. Authors can
@@ -70,7 +74,12 @@ hide unbound base paint while keeping the complete backdrop probeable, navigable
 Camera movement is local. `localOnly` never calls the host. In `reportSelection`, a user movement
 settle commits at most one final directly matched, loaded Entity with an identity; no-data,
 unloaded, no-feature, and fallback states are not selected. Explicit click/Enter/Space remains one
-activation call. SVG changes one camera group transform. Canvas reuses a bounded base raster and
+activation call. Every visual-owned profile/context selection is serialized through one coordinator:
+one host promise is in flight, superseded single-select intent is coalesced, explicit multi-select is
+queued in order, and an external callback invalidates queued local work. An already in-flight host
+call cannot be cancelled and may remain the unavoidable last writer; when it completes, the visual
+reconciles overlays from the manager's actual selection without changing local probe/profile focus.
+SVG changes one camera group transform. Canvas reuses a bounded base raster and
 inverse-transformed picking surface; neither renderer rebuilds geometry or picking on probe changes.
 Inertia, rotation, double-click zoom, and live tiles remain absent.
 

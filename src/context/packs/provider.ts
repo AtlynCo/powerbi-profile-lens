@@ -43,7 +43,7 @@ export class StaticContextPackProvider implements ContextProvider {
     public constructor(private readonly packs: ContextPackRegistry = new ContextPackRegistry()) {}
 
     public canProvide(mode: ContextMode, input: ContextProviderInput): boolean {
-        return mode === "builtInPack" && input.pack !== undefined && input.entities.length > 0;
+        return mode === "builtInPack" && input.pack !== undefined;
     }
 
     public provide(_mode: ContextMode, input: ContextProviderInput): ContextScene {
