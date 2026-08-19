@@ -40,6 +40,8 @@ candidate; record the package name and SHA-256 from `dist/release-manifest.json`
     feature. Hide no-data paint and confirm hidden features remain probeable and semantic.
 12. Configure an exact bound text fallback and confirm it appears only over no feature with visible
     disclosure. Exercise case, whitespace, non-string, absent, ambiguous, and unloaded rejection.
+13. Filter to zero Entity rows and verify complete world/state/county geometry, no-data semantics,
+    navigation, and zero host selection. Restore rows and confirm camera/base/picking persistence.
 
 ## Layout and rendering
 
@@ -58,6 +60,9 @@ candidate; record the package name and SHA-256 from `dist/release-manifest.json`
    click; remaining inside one effective state must not rerender the profile. At both zoom limits and
    scene edges, confirm pinch remains continuous after one pointer lifts and wheel input stays
    contained.
+9. Start wheel input, then transfer ownership to drag, click, plain Arrow, pinch, Home, rebind,
+   disabled interaction, cancel, and destroy. Confirm the stale wheel generation never adds another
+   move-end or selection.
 8. During multi-step world/state/county pan/zoom, confirm provider, scene/index, SVG geometry or
    Canvas base raster, picking-surface, and spatial-index build counts remain unchanged across probe
    transitions. Record camera, probe-resolution, partial-profile p95/max, and next-frame metrics.
@@ -95,6 +100,10 @@ candidate; record the package name and SHA-256 from `dist/release-manifest.json`
    once at release. Then perform one ordinary click and confirm exactly one additional activation.
 9. Exercise deferred/out-of-order and rejected selection promises. Stale/rejected completion must not
    change local focus, retry, or produce a selection loop.
+10. Rapidly activate Context A-B-A, profile then Context, and explicit multi-select while host
+    promises are delayed. Confirm at most one local select promise is in flight, latest single intent
+    wins, explicit multi-select is serialized, and external selection clears queued local work.
+    Record that an already in-flight host selection cannot be cancelled and may remain the last writer.
 
 ## Accessibility and semantic parity
 

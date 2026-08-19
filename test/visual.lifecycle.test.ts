@@ -82,6 +82,11 @@ function contextMetrics(root: HTMLElement): {
     hostSelectionResolved: number;
     hostSelectionRejected: number;
     hostSelectionStale: number;
+    hostSelectionQueued: number;
+    hostSelectionCoalesced: number;
+    hostSelectionExternalInvalidations: number;
+    hostSelectionInFlight: number;
+    maxHostSelectionInFlight: number;
 } {
     return (root as HTMLElement & {
         __profileLensContextMetrics: {
@@ -101,6 +106,11 @@ function contextMetrics(root: HTMLElement): {
             hostSelectionResolved: number;
             hostSelectionRejected: number;
             hostSelectionStale: number;
+            hostSelectionQueued: number;
+            hostSelectionCoalesced: number;
+            hostSelectionExternalInvalidations: number;
+            hostSelectionInFlight: number;
+            maxHostSelectionInFlight: number;
         };
     }).__profileLensContextMetrics;
 }
@@ -483,6 +493,158 @@ describe("interaction", () => {
         expect(mock.element.querySelector(".profile-lens-context")?.getAttribute("aria-setsize"))
             .toBe("56");
         expect(mock.element.querySelector('[data-code="malformedPackKey"]')).not.toBeNull();
+    });
+
+    it.each([
+        ["worldCountries", "canonical", 177],
+        ["usStates", "geoid2", 56]
+    ] as const)(
+        "renders a binding-free %s pack backdrop with zero report entities",
+        (pack, packKeyMode, expectedFeatures) => {
+            const { mock, visual } = mount();
+            visual.update(updateOptions(buildMatrixDataView({
+                entities: [],
+                bands: [],
+                profiles: [],
+                objects: {
+                    context: {
+                        mode: "builtInPack",
+                        pack,
+                        packKeyMode
+                    }
+                }
+            })));
+            const surface = mock.element.querySelector<HTMLElement>(".profile-lens-context")!;
+            expect(mock.events.failed, JSON.stringify(mock.events.failed)).toHaveLength(0);
+            expect(surface.hasAttribute("hidden")).toBe(false);
+            expect(surface.getAttribute("aria-setsize")).toBe(String(expectedFeatures));
+            expect(surface.classList.contains("profile-lens-context-navigation-active")).toBe(true);
+            expect(mock.element.querySelector(".profile-lens-landing")?.hasAttribute("hidden"))
+                .toBe(true);
+            expect(mock.element.querySelectorAll(".profile-lens-target")).toHaveLength(0);
+            expect(mock.element.querySelector(".profile-lens-table")?.textContent)
+                .toContain("No data in current report context");
+            expect(mock.selection.select).not.toHaveBeenCalled();
+            expect(mock.element.querySelectorAll(".profile-lens-context-semantic [role='option']")
+                .length).toBeLessThanOrEqual(100);
+        }
+    );
+
+    it("keeps a zero-row backdrop static when host interactions are disabled", () => {
+        const { mock, visual } = mount({ allowInteractions: false });
+        visual.update(updateOptions(buildMatrixDataView({
+            entities: [],
+            bands: [],
+            profiles: [],
+            objects: {
+                context: {
+                    mode: "builtInPack",
+                    pack: "worldCountries",
+                    packKeyMode: "canonical"
+                }
+            }
+        })));
+        const surface = mock.element.querySelector<HTMLElement>(".profile-lens-context")!;
+        expect(surface.getAttribute("aria-setsize")).toBe("177");
+        expect(surface.getAttribute("tabindex")).toBe("-1");
+        expect(surface.classList.contains("profile-lens-context-navigation-active")).toBe(false);
+        expect(mock.selection.select).not.toHaveBeenCalled();
+        expect(mock.tooltip.show).not.toHaveBeenCalled();
+    });
+
+    it("renders a persisted pack from an otherwise empty DataView", () => {
+        const { mock, visual } = mount();
+        const empty = {
+            metadata: {
+                columns: [],
+                objects: {
+                    context: {
+                        mode: "builtInPack",
+                        pack: "worldCountries",
+                        packKeyMode: "canonical"
+                    }
+                }
+            }
+        } as unknown as powerbi.DataView;
+        visual.update(updateOptions(empty));
+        expect(mock.events.failed).toHaveLength(0);
+        expect(mock.element.querySelector(".profile-lens-context")?.getAttribute("aria-setsize"))
+            .toBe("177");
+        expect(mock.element.querySelector(".profile-lens-landing")?.hasAttribute("hidden"))
+            .toBe(true);
+        expect(mock.element.querySelectorAll(".profile-lens-target")).toHaveLength(0);
+    });
+
+    it("binds later report data without resetting camera or rebuilding stable backdrop", () => {
+        const { mock, visual } = mount();
+        const objects = {
+            context: {
+                mode: "builtInPack",
+                pack: "worldCountries",
+                packKeyMode: "canonical"
+            },
+            interaction: { mode: "localOnly" }
+        } as unknown as powerbi.DataViewObjects;
+        visual.update(updateOptions(buildMatrixDataView({
+            entities: [],
+            bands: ["Band 1"],
+            profiles: ["Metric A"],
+            objects
+        })));
+        const surface = mock.element.querySelector<HTMLElement>(".profile-lens-context")!;
+        setSurfaceBounds(surface, 320, 300);
+        surface.focus();
+        surface.dispatchEvent(key("keydown", "+"));
+        surface.dispatchEvent(key("keydown", "ArrowLeft", { shiftKey: true }));
+        const transform = mock.element.querySelector(".profile-lens-context-camera-layer")
+            ?.getAttribute("transform");
+        const before = { ...contextMetrics(surface) };
+
+        visual.update(updateOptions(buildMatrixDataView({
+            entities: ["USA"],
+            bands: ["Band 1"],
+            profiles: ["Metric A"],
+            objects
+        })));
+        const after = contextMetrics(surface);
+        expect(mock.element.querySelector(".profile-lens-context-camera-layer")
+            ?.getAttribute("transform")).toBe(transform);
+        expect(after.sceneBuilds).toBe(before.sceneBuilds + 1);
+        expect(after.svgGeometryBuilds).toBe(before.svgGeometryBuilds);
+        expect(after.canvasRasterBuilds).toBe(before.canvasRasterBuilds);
+        expect(after.canvasPickingBuilds).toBe(before.canvasPickingBuilds);
+        expect(after.cameraFrames).toBe(before.cameraFrames);
+    });
+
+    it("preserves a focused pack feature when later filters remove every binding", () => {
+        const { mock, visual } = mount();
+        const objects = {
+            context: {
+                mode: "builtInPack",
+                pack: "worldCountries",
+                packKeyMode: "canonical"
+            },
+            navigation: { enabled: false }
+        } as unknown as powerbi.DataViewObjects;
+        visual.update(updateOptions(buildMatrixDataView({
+            entities: ["USA"],
+            bands: ["Band 1"],
+            profiles: ["Metric A"],
+            objects
+        })));
+        expect(mock.element.querySelector(".profile-lens-header-title")?.textContent).toBe("USA");
+        visual.update(updateOptions(buildMatrixDataView({
+            entities: [],
+            bands: ["Band 1"],
+            profiles: ["Metric A"],
+            objects
+        })));
+        expect(mock.element.querySelector(".profile-lens-header-title")?.textContent)
+            .toBe("United States of America");
+        expect(mock.element.querySelector(".profile-lens-header-subtitle")?.textContent)
+            .toContain("No data in current report context");
+        expect(mock.element.querySelector(".profile-lens-header-title")?.textContent)
+            .not.toContain("No Context feature");
     });
 
     it("keeps bound Context values in semantic option descriptions", () => {
@@ -1050,6 +1212,8 @@ describe("interaction", () => {
         surface.dispatchEvent(key("keydown", "+"));
         surface.dispatchEvent(key("keydown", "+"));
         surface.dispatchEvent(key("keydown", "ArrowLeft", { shiftKey: true }));
+        await Promise.resolve();
+        await Promise.resolve();
         const currentTitle =
             mock.element.querySelector(".profile-lens-header-title")?.textContent ?? "";
         mock.selection.select.mockClear();
@@ -1125,7 +1289,7 @@ describe("interaction", () => {
         expect(mock.selection.select).not.toHaveBeenCalled();
     });
 
-    it("keeps local focus stable across deferred out-of-order Entity selections", async () => {
+    it("serializes and coalesces rapid deferred A-B-A Entity selections", async () => {
         const { mock, visual } = mount({ selectionBehavior: "deferred" });
         visual.update(updateOptions(buildMatrixDataView({
             entities: ["Entity A", "Entity B", "Entity C", "Entity D"],
@@ -1144,23 +1308,196 @@ describe("interaction", () => {
         surface.dispatchEvent(key("keydown", "Enter"));
         surface.dispatchEvent(key("keydown", "ArrowLeft"));
         surface.dispatchEvent(key("keydown", "Enter"));
-        expect(mock.selection.select).toHaveBeenCalledTimes(3);
-        expect(mock.selection.pending).toHaveLength(3);
+        expect(mock.selection.select).toHaveBeenCalledTimes(1);
+        expect(mock.selection.pending).toHaveLength(1);
         expect(mock.element.querySelector(".profile-lens-header-title")?.textContent)
             .toBe("Entity A");
 
-        mock.selection.resolvePending(1);
-        await Promise.resolve();
         mock.selection.resolvePending(0);
         await Promise.resolve();
-        mock.selection.resolvePending(0);
         await Promise.resolve();
 
         const metrics = contextMetrics(surface);
-        expect(metrics.hostSelectionStale).toBe(2);
+        expect(metrics.hostSelectionStale).toBe(0);
         expect(metrics.hostSelectionResolved).toBe(1);
+        expect(metrics.hostSelectionCoalesced).toBeGreaterThanOrEqual(2);
+        expect(metrics.maxHostSelectionInFlight).toBe(1);
+        expect(mock.selection.pending).toHaveLength(0);
+        expect(mock.selection.selected[0]?.getKey()).toContain("entity:0");
         expect(mock.element.querySelector(".profile-lens-header-title")?.textContent)
             .toBe("Entity A");
+    });
+
+    it("serializes profile-mark then Context Entity selection", async () => {
+        const { mock, visual } = mount({ selectionBehavior: "deferred" });
+        visual.update(updateOptions(buildMatrixDataView({
+            entities: ["Entity A", "Entity B"],
+            bands: ["Band 1"],
+            profiles: ["Metric A"],
+            objects: {
+                context: { mode: "grid" },
+                navigation: { enabled: false },
+                interaction: { mode: "reportSelection" }
+            }
+        })));
+        mock.element.querySelector<HTMLElement>(".profile-lens-target")
+            ?.dispatchEvent(pointer("click", { clientX: 10, clientY: 10 }));
+        expect(mock.selection.select).toHaveBeenCalledTimes(1);
+        expect(mock.selection.pending).toHaveLength(1);
+
+        const surface = mock.element.querySelector<HTMLElement>(".profile-lens-context")!;
+        surface.focus();
+        surface.dispatchEvent(key("keydown", "ArrowRight"));
+        surface.dispatchEvent(key("keydown", "Enter"));
+        expect(mock.selection.select).toHaveBeenCalledTimes(1);
+        expect(mock.selection.pending).toHaveLength(1);
+
+        mock.selection.resolvePending();
+        await Promise.resolve();
+        await Promise.resolve();
+        expect(mock.selection.select).toHaveBeenCalledTimes(2);
+        expect(mock.selection.pending).toHaveLength(1);
+        mock.selection.resolvePending();
+        await Promise.resolve();
+        await Promise.resolve();
+
+        expect(mock.selection.pending).toHaveLength(0);
+        expect(mock.selection.selected).toHaveLength(1);
+        expect(mock.selection.selected[0]?.getKey()).toContain("entity:1");
+        expect(contextMetrics(surface).maxHostSelectionInFlight).toBe(1);
+    });
+
+    it("preserves queued explicit profile multi-select operations", async () => {
+        const { mock, visual } = mount({ selectionBehavior: "deferred" });
+        visual.update(updateOptions(buildMatrixDataView({
+            entities: ["Entity A"],
+            bands: ["Band 1", "Band 2"],
+            profiles: ["Metric A"]
+        })));
+        const targets = mock.element.querySelectorAll<HTMLElement>(".profile-lens-target");
+        targets[0]?.dispatchEvent(pointer("click", {
+            clientX: 10,
+            clientY: 10,
+            ctrlKey: true
+        }));
+        targets[1]?.dispatchEvent(pointer("click", {
+            clientX: 20,
+            clientY: 10,
+            ctrlKey: true
+        }));
+        expect(mock.selection.select).toHaveBeenCalledTimes(1);
+        expect(mock.selection.pending).toHaveLength(1);
+
+        mock.selection.resolvePending();
+        await Promise.resolve();
+        await Promise.resolve();
+        expect(mock.selection.select).toHaveBeenCalledTimes(2);
+        expect(mock.selection.pending).toHaveLength(1);
+        mock.selection.resolvePending();
+        await Promise.resolve();
+        await Promise.resolve();
+
+        expect(mock.selection.selected).toHaveLength(2);
+        expect(mock.selection.select.mock.calls.every((call) => call[1] === true)).toBe(true);
+    });
+
+    it("continues with the latest queued selection after a rejected call", async () => {
+        const { mock, visual } = mount({ selectionBehavior: "deferred" });
+        visual.update(updateOptions(buildMatrixDataView({
+            entities: ["Entity A", "Entity B"],
+            bands: ["Band 1"],
+            profiles: ["Metric A"],
+            objects: {
+                context: { mode: "grid" },
+                navigation: { enabled: false },
+                interaction: { mode: "reportSelection" }
+            }
+        })));
+        const surface = mock.element.querySelector<HTMLElement>(".profile-lens-context")!;
+        surface.focus();
+        surface.dispatchEvent(key("keydown", "Enter"));
+        surface.dispatchEvent(key("keydown", "ArrowRight"));
+        surface.dispatchEvent(key("keydown", "Enter"));
+        expect(mock.selection.select).toHaveBeenCalledTimes(1);
+
+        mock.selection.rejectPending();
+        await Promise.resolve();
+        await Promise.resolve();
+        expect(mock.selection.select).toHaveBeenCalledTimes(2);
+        mock.selection.resolvePending();
+        await Promise.resolve();
+        await Promise.resolve();
+
+        expect(mock.selection.selected[0]?.getKey()).toContain("entity:1");
+        expect(contextMetrics(surface)).toMatchObject({
+            hostSelectionRejected: 1,
+            hostSelectionResolved: 1,
+            maxHostSelectionInFlight: 1
+        });
+    });
+
+    it("invalidates queued local selection after an external callback", async () => {
+        const { mock, visual } = mount({ selectionBehavior: "deferred" });
+        visual.update(updateOptions(buildMatrixDataView({
+            entities: ["Entity A", "Entity B", "Entity C"],
+            bands: ["Band 1"],
+            profiles: ["Metric A"],
+            objects: {
+                context: { mode: "grid" },
+                navigation: { enabled: false },
+                interaction: { mode: "reportSelection" }
+            }
+        })));
+        const surface = mock.element.querySelector<HTMLElement>(".profile-lens-context")!;
+        surface.focus();
+        surface.dispatchEvent(key("keydown", "Enter"));
+        surface.dispatchEvent(key("keydown", "ArrowRight"));
+        surface.dispatchEvent(key("keydown", "Enter"));
+        expect(mock.selection.select).toHaveBeenCalledTimes(1);
+
+        const external = mockSelectionId("|node:entity:2");
+        mock.selection.emitExternal([external]);
+        mock.selection.rejectPending();
+        await Promise.resolve();
+        await Promise.resolve();
+
+        expect(mock.selection.select).toHaveBeenCalledTimes(1);
+        expect(mock.selection.pending).toHaveLength(0);
+        expect(mock.selection.selected[0]?.getKey()).toContain("entity:2");
+        expect(contextMetrics(surface).hostSelectionExternalInvalidations).toBe(1);
+        expect(mock.element.querySelector(".profile-lens-header-title")?.textContent)
+            .toBe("Entity B");
+    });
+
+    it("invalidates queued work even when external selection matches the in-flight identity", async () => {
+        const { mock, visual } = mount({ selectionBehavior: "deferred" });
+        visual.update(updateOptions(buildMatrixDataView({
+            entities: ["Entity A", "Entity B"],
+            bands: ["Band 1"],
+            profiles: ["Metric A"],
+            objects: {
+                context: { mode: "grid" },
+                navigation: { enabled: false },
+                interaction: { mode: "reportSelection" }
+            }
+        })));
+        const surface = mock.element.querySelector<HTMLElement>(".profile-lens-context")!;
+        surface.focus();
+        surface.dispatchEvent(key("keydown", "Enter"));
+        surface.dispatchEvent(key("keydown", "ArrowRight"));
+        surface.dispatchEvent(key("keydown", "Enter"));
+        expect(mock.selection.select).toHaveBeenCalledTimes(1);
+
+        const externalA = mockSelectionId("|node:entity:0");
+        mock.selection.emitExternal([externalA]);
+        mock.selection.resolvePending();
+        await Promise.resolve();
+        await Promise.resolve();
+
+        expect(mock.selection.select).toHaveBeenCalledTimes(1);
+        expect(mock.selection.pending).toHaveLength(0);
+        expect(mock.selection.selected[0]?.getKey()).toContain("entity:0");
+        expect(contextMetrics(surface).hostSelectionExternalInvalidations).toBe(1);
     });
 
     it("surfaces a rejected host selection without changing local focus or retrying", async () => {
@@ -1227,7 +1564,7 @@ describe("interaction", () => {
         expect(mock.element.querySelector(".profile-lens-status")?.getAttribute("aria-live"))
             .toBe("polite");
         expect(mock.element.querySelector(".profile-lens-status-summary")?.textContent)
-            .toContain("Power BI rejected the Entity selection");
+            .toContain("Power BI rejected the selection");
         expect(mock.element.querySelector('[data-code="hostSelectionRejected"]')).toBeNull();
         surface.dispatchEvent(pointer("click", {
             clientX: 160,
@@ -1609,6 +1946,239 @@ describe("interaction", () => {
             vi.useRealTimers();
         }
     });
+
+    it.each([
+        ["drag", 1, 1],
+        ["click", 0, 1],
+        ["arrow", 0, 0],
+        ["pinch", 1, 1],
+        ["home", 1, 1],
+        ["rebind", 0, 0],
+        ["disable", 0, 0],
+        ["cancel", 0, 0],
+        ["profilePress", 0, 0],
+        ["resetPress", 0, 0],
+        ["destroy", 0, 0]
+    ] as const)(
+        "cancels stale wheel settle before %s",
+        (action, expectedMoveEnds, expectedSelections) => {
+            vi.useFakeTimers();
+            try {
+                const { mock, visual } = mount();
+                const view = buildMatrixDataView({
+                    entities: ["Entity A", "Entity B", "Entity C", "Entity D"],
+                    bands: ["Band 1"],
+                    profiles: ["Metric A"],
+                    objects: {
+                        context: { mode: "grid" },
+                        navigation: { enabled: true },
+                        interaction: { mode: "reportSelection" }
+                    }
+                });
+                visual.update(updateOptions(view));
+                const surface = mock.element.querySelector<HTMLElement>(".profile-lens-context")!;
+                setSurfaceBounds(surface, 320, 300);
+                const beforeMoveEnds = contextMetrics(surface).moveEnds;
+                surface.dispatchEvent(pointer("wheel", {
+                    deltaY: -120,
+                    deltaMode: 0,
+                    clientX: 160,
+                    clientY: 150
+                }));
+
+                if (action === "drag") {
+                    surface.dispatchEvent(pointer("pointerdown", {
+                        pointerId: 101,
+                        button: 0,
+                        clientX: 120,
+                        clientY: 150
+                    }));
+                    surface.dispatchEvent(pointer("pointermove", {
+                        pointerId: 101,
+                        clientX: 160,
+                        clientY: 150
+                    }));
+                    surface.dispatchEvent(pointer("pointerup", {
+                        pointerId: 101,
+                        clientX: 160,
+                        clientY: 150
+                    }));
+                } else if (action === "click") {
+                    surface.dispatchEvent(pointer("click", {
+                        clientX: 40,
+                        clientY: 250
+                    }));
+                } else if (action === "arrow") {
+                    surface.focus();
+                    surface.dispatchEvent(key("keydown", "ArrowLeft"));
+                } else if (action === "pinch") {
+                    surface.dispatchEvent(pointer("pointerdown", {
+                        pointerId: 102,
+                        pointerType: "touch",
+                        button: 0,
+                        clientX: 100,
+                        clientY: 150
+                    }));
+                    surface.dispatchEvent(pointer("pointerdown", {
+                        pointerId: 103,
+                        pointerType: "touch",
+                        button: 0,
+                        clientX: 200,
+                        clientY: 150
+                    }));
+                    surface.dispatchEvent(pointer("pointermove", {
+                        pointerId: 103,
+                        pointerType: "touch",
+                        clientX: 240,
+                        clientY: 150
+                    }));
+                    surface.dispatchEvent(pointer("pointerup", {
+                        pointerId: 103,
+                        pointerType: "touch",
+                        clientX: 240,
+                        clientY: 150
+                    }));
+                    surface.dispatchEvent(pointer("pointerup", {
+                        pointerId: 102,
+                        pointerType: "touch",
+                        clientX: 100,
+                        clientY: 150
+                    }));
+                } else if (action === "home") {
+                    surface.focus();
+                    surface.dispatchEvent(key("keydown", "Home"));
+                } else if (action === "rebind") {
+                    visual.update(updateOptions(view, { width: 900, height: 700 }));
+                } else if (action === "disable") {
+                    (mock.host.hostCapabilities as { allowInteractions: boolean })
+                        .allowInteractions = false;
+                    visual.update(updateOptions(undefined));
+                } else if (action === "cancel") {
+                    surface.dispatchEvent(pointer("pointerdown", {
+                        pointerId: 104,
+                        button: 0,
+                        clientX: 160,
+                        clientY: 150
+                    }));
+                    surface.dispatchEvent(pointer("pointercancel", {
+                        pointerId: 104,
+                        clientX: 160,
+                        clientY: 150
+                    }));
+                } else if (action === "profilePress") {
+                    mock.element.querySelector<HTMLElement>(".profile-lens-target")
+                        ?.dispatchEvent(pointer("pointerdown", {
+                            pointerId: 105,
+                            button: 0,
+                            clientX: 10,
+                            clientY: 10
+                        }));
+                } else if (action === "resetPress") {
+                    mock.element.querySelector<HTMLElement>(".profile-lens-context-reset")
+                        ?.dispatchEvent(pointer("pointerdown", {
+                            pointerId: 106,
+                            button: 0,
+                            clientX: 10,
+                            clientY: 10
+                        }));
+                } else {
+                    visual.destroy();
+                }
+
+                const moveEndsAfterAction = contextMetrics(surface).moveEnds;
+                const selectionsAfterAction = mock.selection.select.mock.calls.length;
+                vi.advanceTimersByTime(500);
+                expect(contextMetrics(surface).moveEnds - beforeMoveEnds)
+                    .toBe(expectedMoveEnds);
+                expect(mock.selection.select).toHaveBeenCalledTimes(expectedSelections);
+                expect(contextMetrics(surface).moveEnds).toBe(moveEndsAfterAction);
+                expect(mock.selection.select.mock.calls.length).toBe(selectionsAfterAction);
+            } finally {
+                vi.useRealTimers();
+            }
+        }
+    );
+
+    it("uses only the latest repeated wheel settle generation", () => {
+        vi.useFakeTimers();
+        try {
+            const { mock, visual } = mount();
+            visual.update(updateOptions(buildMatrixDataView({
+                entities: ["Entity A", "Entity B", "Entity C", "Entity D"],
+                bands: ["Band 1"],
+                profiles: ["Metric A"],
+                objects: {
+                    context: { mode: "grid" },
+                    navigation: { enabled: true },
+                    interaction: { mode: "reportSelection" }
+                }
+            })));
+            const surface = mock.element.querySelector<HTMLElement>(".profile-lens-context")!;
+            setSurfaceBounds(surface, 320, 300);
+            const before = contextMetrics(surface).moveEnds;
+            for (let index = 0; index < 4; index++) {
+                surface.dispatchEvent(pointer("wheel", {
+                    deltaY: -30,
+                    deltaMode: 0,
+                    clientX: 160,
+                    clientY: 150
+                }));
+            }
+            vi.advanceTimersByTime(120);
+            expect(contextMetrics(surface).moveEnds - before).toBe(1);
+            expect(mock.selection.select).toHaveBeenCalledTimes(1);
+            vi.advanceTimersByTime(500);
+            expect(contextMetrics(surface).moveEnds - before).toBe(1);
+            expect(contextMetrics(surface).maxHostSelectionInFlight).toBe(1);
+        } finally {
+            vi.useRealTimers();
+        }
+    });
+
+    it.each(["pointercancel", "lostpointercapture"] as const)(
+        "cancels wheel started during pointer ownership on %s",
+        (termination) => {
+            vi.useFakeTimers();
+            try {
+                const { mock, visual } = mount();
+                visual.update(updateOptions(buildMatrixDataView({
+                    entities: ["Entity A", "Entity B", "Entity C", "Entity D"],
+                    bands: ["Band 1"],
+                    profiles: ["Metric A"],
+                    objects: {
+                        context: { mode: "grid" },
+                        navigation: { enabled: true },
+                        interaction: { mode: "reportSelection" }
+                    }
+                })));
+                const surface = mock.element.querySelector<HTMLElement>(".profile-lens-context")!;
+                setSurfaceBounds(surface, 320, 300);
+                const before = contextMetrics(surface).moveEnds;
+                surface.dispatchEvent(pointer("pointerdown", {
+                    pointerId: 107,
+                    button: 0,
+                    clientX: 160,
+                    clientY: 150
+                }));
+                surface.dispatchEvent(pointer("wheel", {
+                    deltaY: -120,
+                    deltaMode: 0,
+                    clientX: 160,
+                    clientY: 150
+                }));
+                surface.dispatchEvent(pointer(termination, {
+                    pointerId: 107,
+                    clientX: 160,
+                    clientY: 150
+                }));
+                vi.advanceTimersByTime(500);
+                expect(contextMetrics(surface).moveEnds).toBe(before);
+                expect(mock.selection.select).not.toHaveBeenCalled();
+            } finally {
+                vi.useRealTimers();
+            }
+        }
+    );
 
     it("does not capture or prevent navigation input when interactions are disabled", () => {
         const { mock, visual } = mount({ allowInteractions: false });

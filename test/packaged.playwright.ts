@@ -726,6 +726,156 @@ test.describe("packaged visual in a real browser", () => {
         expect(calls).toMatchObject({ select: 0, filter: 0 });
     });
 
+    test("cancels stale wheel settles across physical input ownership changes", async ({ page }) => {
+        for (const value of [
+            { action: "drag", moveEnds: 1, selections: 1 },
+            { action: "click", moveEnds: 0, selections: 1 },
+            { action: "arrow", moveEnds: 0, selections: 0 },
+            { action: "pinch", moveEnds: 1, selections: 1 },
+            { action: "cancel", moveEnds: 0, selections: 0 },
+            { action: "destroy", moveEnds: 0, selections: 0 }
+        ]) {
+            await mount(page, {
+                contextMode: "grid",
+                navigationEnabled: true,
+                interactionMode: "reportSelection",
+                entities: ["Entity A", "Entity B", "Entity C", "Entity D"],
+                periods: [],
+                bands: ["Band 1"],
+                series: [],
+                profiles: ["Metric A"]
+            });
+            const surface = page.locator(".profile-lens-context");
+            const bounds = await surface.boundingBox();
+            expect(bounds).not.toBeNull();
+            const centerX = (bounds?.x ?? 0) + (bounds?.width ?? 0) / 2;
+            const centerY = (bounds?.y ?? 0) + (bounds?.height ?? 0) / 2;
+            const before = await surface.evaluate((node) => ({
+                moveEnds: (node as HTMLElement & {
+                    __profileLensContextMetrics: { moveEnds: number };
+                }).__profileLensContextMetrics.moveEnds,
+                selections: (window as unknown as {
+                    profileLensHost: { calls: { select: number } };
+                }).profileLensHost.calls.select
+            }));
+            await page.mouse.move(centerX, centerY);
+            await page.mouse.wheel(0, -120);
+
+            if (value.action === "drag") {
+                await page.mouse.down();
+                await page.mouse.move(centerX + 40, centerY, { steps: 8 });
+                await page.mouse.up();
+            } else if (value.action === "click") {
+                await page.mouse.click(centerX, centerY);
+            } else if (value.action === "arrow") {
+                await surface.focus();
+                await surface.press("ArrowLeft");
+            } else if (value.action === "pinch") {
+                await surface.evaluate((node) => {
+                    const root = node as HTMLElement;
+                    const bounds = root.getBoundingClientRect();
+                    const fire = (type: string, id: number, x: number) => {
+                        root.dispatchEvent(new PointerEvent(type, {
+                            bubbles: true,
+                            cancelable: true,
+                            pointerId: id,
+                            pointerType: "touch",
+                            button: 0,
+                            clientX: bounds.left + x,
+                            clientY: bounds.top + bounds.height / 2
+                        }));
+                    };
+                    fire("pointerdown", 201, bounds.width / 2 - 50);
+                    fire("pointerdown", 202, bounds.width / 2 + 50);
+                    fire("pointermove", 202, bounds.width / 2 + 90);
+                    fire("pointerup", 202, bounds.width / 2 + 90);
+                    fire("pointerup", 201, bounds.width / 2 - 50);
+                });
+            } else if (value.action === "cancel") {
+                await surface.evaluate((node) => {
+                    const root = node as HTMLElement;
+                    const bounds = root.getBoundingClientRect();
+                    root.dispatchEvent(new PointerEvent("pointerdown", {
+                        bubbles: true,
+                        cancelable: true,
+                        pointerId: 203,
+                        pointerType: "mouse",
+                        button: 0,
+                        clientX: bounds.left + bounds.width / 2,
+                        clientY: bounds.top + bounds.height / 2
+                    }));
+                    root.dispatchEvent(new PointerEvent("pointercancel", {
+                        bubbles: true,
+                        cancelable: true,
+                        pointerId: 203,
+                        pointerType: "mouse",
+                        clientX: bounds.left + bounds.width / 2,
+                        clientY: bounds.top + bounds.height / 2
+                    }));
+                });
+            } else {
+                await page.evaluate(() => {
+                    (window as unknown as {
+                        profileLensInstance: { destroy: () => void };
+                    }).profileLensInstance.destroy();
+                });
+            }
+            await page.waitForTimeout(250);
+            const after = await surface.evaluate((node) => ({
+                moveEnds: (node as HTMLElement & {
+                    __profileLensContextMetrics: { moveEnds: number };
+                }).__profileLensContextMetrics.moveEnds,
+                selections: (window as unknown as {
+                    profileLensHost: { calls: { select: number } };
+                }).profileLensHost.calls.select
+            }));
+            expect(after.moveEnds - before.moveEnds, value.action).toBe(value.moveEnds);
+            expect(after.selections - before.selections, value.action).toBe(value.selections);
+        }
+    });
+
+    test("settles only the latest physical wheel generation", async ({ page }) => {
+        await mount(page, {
+            contextMode: "grid",
+            navigationEnabled: true,
+            interactionMode: "reportSelection",
+            entities: ["Entity A", "Entity B", "Entity C", "Entity D"],
+            periods: [],
+            bands: ["Band 1"],
+            series: [],
+            profiles: ["Metric A"]
+        });
+        const surface = page.locator(".profile-lens-context");
+        const bounds = await surface.boundingBox();
+        const centerX = (bounds?.x ?? 0) + (bounds?.width ?? 0) / 2;
+        const centerY = (bounds?.y ?? 0) + (bounds?.height ?? 0) / 2;
+        const before = await surface.evaluate((node) =>
+            (node as HTMLElement & {
+                __profileLensContextMetrics: { moveEnds: number };
+            }).__profileLensContextMetrics.moveEnds);
+        await page.mouse.move(centerX, centerY);
+        for (let index = 0; index < 4; index++) {
+            await page.mouse.wheel(0, -30);
+        }
+        await page.waitForTimeout(250);
+        const result = await surface.evaluate((node) => ({
+            moveEnds: (node as HTMLElement & {
+                __profileLensContextMetrics: { moveEnds: number };
+            }).__profileLensContextMetrics.moveEnds,
+            calls: (window as unknown as {
+                profileLensHost: {
+                    calls: {
+                        select: number;
+                        maxSelectionInFlight: number;
+                    };
+                };
+            }).profileLensHost.calls
+        }));
+        expect(result.moveEnds - before).toBe(1);
+        expect(result.calls.select).toBe(1);
+        expect(result.calls.maxSelectionInFlight).toBe(1);
+    });
+
     test("makes no external network request and no recurring work after settling", async ({ page }) => {
         externalRequests.length = 0;
         await mount(page, {
@@ -799,6 +949,117 @@ test.describe("packaged visual in a real browser", () => {
             })
         );
         expect(pathsAreFinite).toBe(true);
+    });
+
+    test("renders complete binding-free world, state, and county packs", async ({ page }) => {
+        for (const value of [
+            { pack: "worldCountries", packKeyMode: "canonical", count: 177, canvas: false },
+            { pack: "usStates", packKeyMode: "geoid2", count: 56, canvas: false },
+            { pack: "usCounties", packKeyMode: "geoid5", count: 3235, canvas: true }
+        ]) {
+            await mount(page, {
+                contextMode: "builtInPack",
+                contextPack: value.pack,
+                packKeyMode: value.packKeyMode,
+                entities: [],
+                periods: [],
+                bands: [],
+                series: [],
+                profiles: []
+            });
+            const surface = page.locator(".profile-lens-context");
+            await expect(surface).toHaveAttribute("aria-setsize", String(value.count));
+            await expect(surface).toHaveClass(/profile-lens-context-navigation-active/);
+            await expect(page.locator(".profile-lens-target")).toHaveCount(0);
+            await expect(page.locator(".profile-lens-table"))
+                .toContainText("No data in current report context");
+            const result = await page.evaluate(() => ({
+                failed: (window as unknown as {
+                    profileLensEvents: { failed: number };
+                }).profileLensEvents.failed,
+                select: (window as unknown as {
+                    profileLensHost: { calls: { select: number } };
+                }).profileLensHost.calls.select
+            }));
+            expect(result).toEqual({ failed: 0, select: 0 });
+            const canvasWidth = await page.locator(".profile-lens-context-canvas")
+                .evaluate((canvas) => (canvas as HTMLCanvasElement).width);
+            expect(canvasWidth > 1).toBe(value.canvas);
+        }
+    });
+
+    test("binds later data without resetting the binding-free camera or base", async ({ page }) => {
+        const base = {
+            width: 1280,
+            height: 620,
+            contextMode: "builtInPack",
+            contextPack: "worldCountries",
+            packKeyMode: "canonical",
+            interactionMode: "localOnly",
+            entities: [] as string[],
+            periods: [] as string[],
+            bands: ["Band 1"],
+            series: [] as string[],
+            profiles: ["Metric A"]
+        };
+        await mount(page, base);
+        const surface = page.locator(".profile-lens-context");
+        await surface.focus();
+        await surface.press("+");
+        await surface.press("Shift+ArrowLeft");
+        const before = await surface.evaluate((node) => {
+            const root = node as HTMLElement & {
+                __profileLensContextMetrics: {
+                    sceneBuilds: number;
+                    svgGeometryBuilds: number;
+                    canvasRasterBuilds: number;
+                    canvasPickingBuilds: number;
+                    cameraFrames: number;
+                };
+            };
+            return {
+                transform: root.querySelector(".profile-lens-context-outline-layer")
+                    ?.getAttribute("transform"),
+                metrics: { ...root.__profileLensContextMetrics }
+            };
+        });
+        await page.evaluate((options) => {
+            const scope = window as unknown as {
+                buildProfileLensDataView: (value: unknown) => unknown;
+                profileLensUpdate: (value: unknown) => void;
+            };
+            scope.profileLensUpdate({
+                width: options.width,
+                height: options.height,
+                dataViews: [scope.buildProfileLensDataView({
+                    ...options,
+                    entities: ["USA"]
+                })],
+                jsonFilters: []
+            });
+        }, base);
+        const after = await surface.evaluate((node) => {
+            const root = node as HTMLElement & {
+                __profileLensContextMetrics: {
+                    sceneBuilds: number;
+                    svgGeometryBuilds: number;
+                    canvasRasterBuilds: number;
+                    canvasPickingBuilds: number;
+                    cameraFrames: number;
+                };
+            };
+            return {
+                transform: root.querySelector(".profile-lens-context-outline-layer")
+                    ?.getAttribute("transform"),
+                metrics: { ...root.__profileLensContextMetrics }
+            };
+        });
+        expect(after.transform).toBe(before.transform);
+        expect(after.metrics.sceneBuilds).toBe(before.metrics.sceneBuilds + 1);
+        expect(after.metrics.svgGeometryBuilds).toBe(before.metrics.svgGeometryBuilds);
+        expect(after.metrics.canvasRasterBuilds).toBe(before.metrics.canvasRasterBuilds);
+        expect(after.metrics.canvasPickingBuilds).toBe(before.metrics.canvasPickingBuilds);
+        expect(after.metrics.cameraFrames).toBe(before.metrics.cameraFrames);
     });
 
     test("keeps optional world 50m within timing, parity, and small-tile gates", async ({ page }) => {
@@ -1100,6 +1361,59 @@ test.describe("packaged visual in a real browser", () => {
 
         expect(await activate("localOnly")).toMatchObject({ filter: 0, select: 0 });
         expect(await activate("reportSelection")).toMatchObject({ filter: 0, select: 1 });
+    });
+
+    test("serializes and coalesces delayed A-B-A host selections", async ({ page }) => {
+        await mount(page, {
+            contextMode: "grid",
+            navigationEnabled: false,
+            interactionMode: "reportSelection",
+            selectionDelayMs: 100,
+            entities: ["Entity A", "Entity B", "Entity C", "Entity D"],
+            periods: [],
+            bands: ["Band 1"],
+            series: [],
+            profiles: ["Metric A"]
+        });
+        const surface = page.locator(".profile-lens-context");
+        await surface.focus();
+        await surface.press("Enter");
+        await surface.press("ArrowRight");
+        await surface.press("Enter");
+        await surface.press("ArrowLeft");
+        await surface.press("Enter");
+        const during = await page.evaluate(() => (window as unknown as {
+            profileLensHost: {
+                calls: {
+                    select: number;
+                    selectionInFlight: number;
+                    maxSelectionInFlight: number;
+                };
+            };
+        }).profileLensHost.calls);
+        expect(during).toMatchObject({
+            select: 1,
+            selectionInFlight: 1,
+            maxSelectionInFlight: 1
+        });
+        await page.waitForTimeout(150);
+        const after = await page.evaluate(() => (window as unknown as {
+            profileLensHost: {
+                calls: {
+                    select: number;
+                    selectionInFlight: number;
+                    maxSelectionInFlight: number;
+                    selectedKeys: string[];
+                };
+            };
+        }).profileLensHost.calls);
+        expect(after).toMatchObject({
+            select: 1,
+            selectionInFlight: 0,
+            maxSelectionInFlight: 1
+        });
+        expect(after.selectedKeys).toHaveLength(1);
+        expect(after.selectedKeys[0]).toContain("entity:0");
     });
 
     test("keeps transformed SVG and Canvas picking under physical camera gestures", async ({ page }) => {

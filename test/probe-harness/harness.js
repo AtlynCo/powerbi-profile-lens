@@ -190,12 +190,29 @@
             tooltipHide: 0,
             contextMenu: 0,
             select: 0,
+            selectionInFlight: 0,
+            maxSelectionInFlight: 0,
+            selectedKeys: [],
             filter: 0,
             lastSelectedKey: null,
             lastTooltipKey: null,
             lastContextKey: null
         };
         var selected = [];
+        function applySelection(ids, multiSelect) {
+            if (!multiSelect) {
+                selected = ids;
+                return selected;
+            }
+            ids.forEach(function (id) {
+                var index = selected.findIndex(function (candidate) {
+                    return candidate.equals(id);
+                });
+                if (index >= 0) selected.splice(index, 1);
+                else selected.push(id);
+            });
+            return selected;
+        }
         var counter = 0;
         var palette = {
             isHighContrast: highContrast,
@@ -239,11 +256,29 @@
             },
             createSelectionManager: function () {
                 return {
-                    select: function (id) {
+                    select: function (id, multiSelect) {
                         calls.select++;
-                        selected = Array.isArray(id) ? id : [id];
-                        calls.lastSelectedKey = selected[0] && selected[0].key;
-                        return Promise.resolve(selected);
+                        var requested = Array.isArray(id) ? id : [id];
+                        calls.lastSelectedKey = requested[0] && requested[0].key;
+                        calls.selectionInFlight++;
+                        calls.maxSelectionInFlight = Math.max(
+                            calls.maxSelectionInFlight,
+                            calls.selectionInFlight
+                        );
+                        var complete = function () {
+                            var result = applySelection(requested, Boolean(multiSelect));
+                            calls.selectionInFlight--;
+                            calls.selectedKeys = result.map(function (entry) { return entry.key; });
+                            return result;
+                        };
+                        if ((options.selectionDelayMs || 0) > 0) {
+                            return new Promise(function (resolveSelection) {
+                                setTimeout(function () {
+                                    resolveSelection(complete());
+                                }, options.selectionDelayMs);
+                            });
+                        }
+                        return Promise.resolve(complete());
                     },
                     showContextMenu: function (id) {
                         calls.contextMenu++;
@@ -300,6 +335,7 @@
 
     window.profileLensEvents = { started: 0, finished: 0, failed: 0, reason: null };
     window.profileLensResources = window.profileLensResources || {};
+    window.buildProfileLensDataView = buildDataView;
 
     window.mountProfileLens = function (options) {
         var namespace = window.atlynProfileLens;

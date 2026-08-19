@@ -148,10 +148,15 @@ interface FocusedRenderSession {
     readonly connectorTarget?: { readonly x: number; readonly y: number };
 }
 
-interface PendingEntitySelection {
+interface LocalSelectionOperation {
     readonly sequence: number;
-    readonly entityKey: string;
+    readonly generation: number;
+    readonly kind: "entity" | "profile";
+    readonly source: "explicit" | "settle" | "profile";
+    readonly key: string;
+    readonly identity: ISelectionId;
     readonly multiSelect: boolean;
+    readonly entityKey?: string;
 }
 
 export class Visual implements IVisual {
@@ -200,7 +205,9 @@ export class Visual implements IVisual {
     private contextRenderRequest: ContextRenderRequest | null = null;
     private lastProbeGeometryKey: string | null = null;
     private selectionSequence = 0;
-    private pendingEntitySelection: PendingEntitySelection | null = null;
+    private selectionGeneration = 0;
+    private selectionInFlight: LocalSelectionOperation | null = null;
+    private readonly selectionQueue: LocalSelectionOperation[] = [];
     private lastCommittedEntityKey: string | null = null;
     private runtimeSelectionRejected = false;
     private runtimeSelectionRejectionNeedsAnnouncement = false;
@@ -270,11 +277,6 @@ export class Visual implements IVisual {
             selectionManager: this.selectionManager,
             tooltipService: this.host.tooltipService,
             emptySelectionId: this.emptySelectionId,
-            onSelectionChanged: () => {
-                this.externalSelection = this.selectionManager.getSelectionIds();
-                this.reconcileCommittedEntitySelection();
-                this.renderFocusedProfileOnly();
-            },
             onFocusChanged: (key, source) => this.handleFocusedTarget(key, source)
         });
         this.contextProviders.register(new NoneContextProvider());
@@ -291,9 +293,7 @@ export class Visual implements IVisual {
         }
 
         this.selectionManager.registerOnSelectCallback((ids: ISelectionId[]) => {
-            this.externalSelection = ids;
-            this.reconcileCommittedEntitySelection();
-            this.renderFocusedProfileOnly();
+            this.handleExternalSelection(ids);
         });
     }
 
@@ -317,6 +317,7 @@ export class Visual implements IVisual {
     }
 
     public destroy(): void {
+        this.invalidateQueuedSelections();
         this.controller.dispose();
         this.clearProbeAnnouncement();
     }
@@ -334,6 +335,7 @@ export class Visual implements IVisual {
         const allowInteractions = this.host.hostCapabilities?.allowInteractions !== false;
         this.controller.setAllowInteractions(allowInteractions);
         if (!allowInteractions) {
+            this.invalidateQueuedSelections();
             this.clearProbeAnnouncement();
         }
 
@@ -417,7 +419,7 @@ export class Visual implements IVisual {
         this.root.classList.toggle("profile-lens-reduced-motion", this.settings.reducedMotion);
         this.root.classList.toggle("profile-lens-high-contrast", Boolean(this.host.colorPalette?.isHighContrast));
 
-        if (!isRenderable(model)) {
+        if (!isRenderable(model) && !this.canRenderBindingFreeContext()) {
             this.clearFocusedRenderSession();
             this.landingElement.removeAttribute("hidden");
             renderLanding(this.landingElement, {
@@ -1161,7 +1163,6 @@ export class Visual implements IVisual {
                     value: this.localization.get("Context_NoData")
                 }])
             ],
-            managesSelection: true,
             activate: ({ multiSelect }) => {
                 if (binding) {
                     this.commitEntitySelection(binding, multiSelect, "explicit");
@@ -1607,42 +1608,144 @@ export class Visual implements IVisual {
         ) {
             return;
         }
-        const effectiveTarget = this.pendingEntitySelection?.entityKey
-            ?? this.lastCommittedEntityKey;
-        if (source === "settle" && effectiveTarget === entityKey) {
+        if (
+            source === "settle"
+            && this.selectionInFlight === null
+            && this.selectionQueue.length === 0
+            && this.lastCommittedEntityKey === entityKey
+        ) {
             return;
         }
-        const sequence = ++this.selectionSequence;
-        this.pendingEntitySelection = { sequence, entityKey, multiSelect };
+        this.enqueueSelection({
+            sequence: ++this.selectionSequence,
+            generation: this.selectionGeneration,
+            kind: "entity",
+            source,
+            key: `entity:${selectionIdentityKey(identity)}`,
+            identity,
+            multiSelect,
+            entityKey
+        });
+    }
+
+    private requestProfileSelection(
+        identity: ISelectionId,
+        multiSelect: boolean
+    ): void {
+        if (this.host.hostCapabilities?.allowInteractions === false) {
+            return;
+        }
+        this.enqueueSelection({
+            sequence: ++this.selectionSequence,
+            generation: this.selectionGeneration,
+            kind: "profile",
+            source: "profile",
+            key: `profile:${selectionIdentityKey(identity)}`,
+            identity,
+            multiSelect
+        });
+    }
+
+    private enqueueSelection(operation: LocalSelectionOperation): void {
+        if (!operation.multiSelect) {
+            const removed = this.selectionQueue.length;
+            if (removed > 0) {
+                this.selectionQueue.splice(0, removed);
+                this.contextMetrics.hostSelectionCoalesced += removed;
+            }
+            if (
+                this.selectionInFlight
+                && this.selectionInFlight.generation === this.selectionGeneration
+                && selectionOperationsEqual(this.selectionInFlight, operation)
+            ) {
+                this.contextMetrics.hostSelectionCoalesced++;
+                return;
+            }
+        }
+        this.selectionQueue.push(operation);
+        this.contextMetrics.hostSelectionQueued++;
+        this.pumpSelectionQueue();
+    }
+
+    private pumpSelectionQueue(): void {
+        if (this.selectionInFlight || this.selectionQueue.length === 0) {
+            return;
+        }
+        const operation = this.selectionQueue.shift()!;
+        if (operation.generation !== this.selectionGeneration) {
+            this.contextMetrics.hostSelectionStale++;
+            this.pumpSelectionQueue();
+            return;
+        }
+        this.selectionInFlight = operation;
+        this.contextMetrics.hostSelectionInFlight = 1;
+        this.contextMetrics.maxHostSelectionInFlight = Math.max(
+            this.contextMetrics.maxHostSelectionInFlight,
+            this.contextMetrics.hostSelectionInFlight
+        );
         this.contextMetrics.hostSelectionRequests++;
-        void this.selectionManager.select(identity, multiSelect).then(
+        void this.selectionManager.select(operation.identity, operation.multiSelect).then(
             (ids) => {
-                if (this.pendingEntitySelection?.sequence !== sequence) {
-                    this.contextMetrics.hostSelectionStale++;
-                    return;
-                }
-                this.pendingEntitySelection = null;
-                this.contextMetrics.hostSelectionResolved++;
-                this.runtimeSelectionRejected = false;
-                this.runtimeSelectionRejectionNeedsAnnouncement = false;
-                this.lastCommittedEntityKey = multiSelect ? null : entityKey;
-                this.externalSelection = Array.isArray(ids)
+                this.completeSelection(operation, Array.isArray(ids)
                     ? ids
-                    : this.selectionManager.getSelectionIds();
-                this.renderFocusedProfileOnly();
+                    : this.selectionManager.getSelectionIds(), null);
             },
-            () => {
-                if (this.pendingEntitySelection?.sequence !== sequence) {
-                    this.contextMetrics.hostSelectionStale++;
-                    return;
-                }
-                this.pendingEntitySelection = null;
-                this.contextMetrics.hostSelectionRejected++;
-                this.runtimeSelectionRejected = true;
-                this.runtimeSelectionRejectionNeedsAnnouncement = true;
-                this.renderFocusedProfileOnly();
+            (error) => {
+                this.completeSelection(operation, null, error);
             }
         );
+    }
+
+    private completeSelection(
+        operation: LocalSelectionOperation,
+        ids: readonly ISelectionId[] | null,
+        error: unknown
+    ): void {
+        if (this.selectionInFlight?.sequence !== operation.sequence) {
+            this.contextMetrics.hostSelectionStale++;
+            return;
+        }
+        this.selectionInFlight = null;
+        this.contextMetrics.hostSelectionInFlight = 0;
+        if (operation.generation !== this.selectionGeneration) {
+            this.contextMetrics.hostSelectionStale++;
+            this.pumpSelectionQueue();
+            return;
+        }
+        if (error === null) {
+            this.contextMetrics.hostSelectionResolved++;
+            this.runtimeSelectionRejected = false;
+            this.runtimeSelectionRejectionNeedsAnnouncement = false;
+            this.lastCommittedEntityKey = operation.kind === "entity"
+                && !operation.multiSelect
+                ? operation.entityKey ?? null
+                : null;
+            this.externalSelection = ids ?? this.selectionManager.getSelectionIds();
+        } else {
+            this.contextMetrics.hostSelectionRejected++;
+            this.runtimeSelectionRejected = true;
+            this.runtimeSelectionRejectionNeedsAnnouncement = true;
+        }
+        this.renderFocusedProfileOnly();
+        this.pumpSelectionQueue();
+    }
+
+    private handleExternalSelection(ids: readonly ISelectionId[]): void {
+        this.externalSelection = ids;
+        this.invalidateQueuedSelections(true);
+        this.reconcileCommittedEntitySelection();
+        this.renderFocusedProfileOnly();
+    }
+
+    private invalidateQueuedSelections(external = false): void {
+        this.selectionGeneration++;
+        if (this.selectionQueue.length > 0) {
+            this.contextMetrics.hostSelectionCoalesced += this.selectionQueue.length;
+            this.selectionQueue.splice(0);
+        }
+        if (external) {
+            this.contextMetrics.hostSelectionExternalInvalidations++;
+        }
     }
 
     private reconcileCommittedEntitySelection(): void {
@@ -1703,7 +1806,33 @@ export class Visual implements IVisual {
         }
         const current = this.activeContextFocus;
         let next: ContextFocusState;
-        if (scene.mode === "none" || scene.backdrop.features.length === 0) {
+        if (
+            model.entities.length === 0
+            && current?.featureKey
+            && scene.backdrop.featureByKey.has(current.featureKey)
+        ) {
+            next = resolveFeatureFocus(
+                scene,
+                model,
+                coverage,
+                current.featureKey,
+                this.selectedPeriodKey,
+                this.fallbackResolution,
+                current.source,
+                this.modelRevision
+            );
+        } else if (model.entities.length === 0) {
+            next = resolveFeatureFocus(
+                scene,
+                model,
+                coverage,
+                null,
+                this.selectedPeriodKey,
+                this.fallbackResolution,
+                scene.mode === "none" ? "modelDefault" : current?.source ?? "modelDefault",
+                this.modelRevision
+            );
+        } else if (scene.mode === "none" || scene.backdrop.features.length === 0) {
             const currentEntityKey = current && "entityKey" in current
                 ? current.entityKey
                 : this.focusedEntityKey;
@@ -1763,6 +1892,11 @@ export class Visual implements IVisual {
         }
         this.activeContextFocus = next;
         this.syncFocusState(next);
+    }
+
+    private canRenderBindingFreeContext(): boolean {
+        return this.settings.contextMode === "builtInPack"
+            && this.settings.contextLayout !== "profileOnly";
     }
 
     private focusPresentation(focus: ContextFocusState): {
@@ -1952,8 +2086,7 @@ export class Visual implements IVisual {
     }
 
     private clearFocusedRenderSession(): void {
-        this.selectionSequence++;
-        this.pendingEntitySelection = null;
+        this.invalidateQueuedSelections();
         this.focusedRenderSession = null;
         this.contextRenderRequest = null;
         this.renderedContext = null;
@@ -1978,14 +2111,23 @@ export class Visual implements IVisual {
         entityIndex: number,
         periodIndex: number
     ): readonly InteractionTarget[] {
-        return rendered.map((target) => ({
-            key: target.key,
-            element: target.element,
-            identity: (model.bandIdentities.get(
+        return rendered.map((target) => {
+            const identity = (model.bandIdentities.get(
                 bandIdentityKey(entityIndex, periodIndex, target.bandIndex)
-            ) as ISelectionId | undefined) ?? null,
-            tooltip: () => this.buildTooltipItems(model, frame, target, entityIndex, periodIndex)
-        }));
+            ) as ISelectionId | undefined) ?? null;
+            return {
+                key: target.key,
+                element: target.element,
+                identity,
+                tooltip: () =>
+                    this.buildTooltipItems(model, frame, target, entityIndex, periodIndex),
+                activate: ({ multiSelect }) => {
+                    if (identity) {
+                        this.requestProfileSelection(identity, multiSelect);
+                    }
+                }
+            };
+        });
     }
 
     private buildTooltipItems(
@@ -2373,6 +2515,17 @@ function contextPaintIdentity(scene: ContextScene, showNoDataBackdrop: boolean):
         return "all-backdrop";
     }
     return `bound-only:${[...scene.entities.byFeatureKey.keys()].sort().join(",")}`;
+}
+
+function selectionOperationsEqual(
+    left: LocalSelectionOperation,
+    right: LocalSelectionOperation
+): boolean {
+    return left.key === right.key && left.multiSelect === right.multiSelect;
+}
+
+function selectionIdentityKey(identity: ISelectionId): string {
+    return (identity as unknown as powerbi.visuals.ISelectionId).getKey();
 }
 
 function selectionEquals(left: ISelectionId, right: ISelectionId): boolean {

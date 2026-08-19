@@ -56,11 +56,13 @@ export interface MockHost {
         onSelectCallback: ((ids: ISelectionId[]) => void) | null;
         readonly pending: Array<{
             readonly ids: ISelectionId[];
+            readonly multiSelect: boolean;
             readonly resolve: (ids: ISelectionId[]) => void;
             readonly reject: (error: Error) => void;
         }>;
         resolvePending(index?: number): void;
         rejectPending(index?: number): void;
+        emitExternal(ids: readonly ISelectionId[]): void;
     };
     readonly fetchMoreData: HostMock;
     readonly applyJsonFilter: HostMock;
@@ -106,8 +108,8 @@ export function createMockHost(options: MockHostOptions = {}): MockHost {
             if (!pending) {
                 throw new Error(`No pending selection exists at index ${index}.`);
             }
-            selection.selected = pending.ids as unknown as MockSelectionId[];
-            pending.resolve(pending.ids);
+            const resolved = applyMockSelection(pending.ids, pending.multiSelect);
+            pending.resolve(resolved);
         },
         rejectPending: (index = 0) => {
             const pending = selection.pending.splice(index, 1)[0];
@@ -115,12 +117,37 @@ export function createMockHost(options: MockHostOptions = {}): MockHost {
                 throw new Error(`No pending selection exists at index ${index}.`);
             }
             pending.reject(new Error("Mock selection rejected."));
+        },
+        emitExternal: (ids) => {
+            selection.selected = [...ids] as unknown as MockSelectionId[];
+            selection.onSelectCallback?.([...ids]);
         }
     };
     const fetchMoreData = vi.fn(() => true) as unknown as HostMock;
     const applyJsonFilter = vi.fn() as HostMock;
 
     let identityCounter = 0;
+
+    const applyMockSelection = (
+        ids: ISelectionId[],
+        multiSelect: boolean
+    ): ISelectionId[] => {
+        if (!multiSelect) {
+            selection.selected = ids as unknown as MockSelectionId[];
+            return ids;
+        }
+        const retained = [...selection.selected];
+        for (const id of ids as unknown as MockSelectionId[]) {
+            const existing = retained.findIndex((candidate) => candidate.equals(id));
+            if (existing >= 0) {
+                retained.splice(existing, 1);
+            } else {
+                retained.push(id);
+            }
+        }
+        selection.selected = retained;
+        return retained as unknown as ISelectionId[];
+    };
 
     const selectionManager = {
         select: (id: ISelectionId | ISelectionId[], multiSelect?: boolean) => {
@@ -133,13 +160,13 @@ export function createMockHost(options: MockHostOptions = {}): MockHost {
                 return new Promise<ISelectionId[]>((resolveSelection, rejectSelection) => {
                     selection.pending.push({
                         ids,
+                        multiSelect: Boolean(multiSelect),
                         resolve: resolveSelection,
                         reject: rejectSelection
                     });
                 });
             }
-            selection.selected = ids as unknown as MockSelectionId[];
-            return Promise.resolve(ids);
+            return Promise.resolve(applyMockSelection(ids, Boolean(multiSelect)));
         },
         showContextMenu: (id: ISelectionId, position: powerbi.extensibility.IPoint) => {
             selection.showContextMenu(id, position);
