@@ -301,12 +301,12 @@ describe("native validation evidence safety", () => {
             "native-validation",
             "run-desktop-validation.ps1"
         ).replaceAll("'", "''");
-        const runInjected = (opener: string): string => execFileSync(
+        const runInjected = (parameters: string): string => execFileSync(
             "pwsh",
             [
                 "-NoProfile",
                 "-Command",
-                `try { & '${runner}' -SnapshotLockOpener ${opener} } `
+                `try { & '${runner}' ${parameters} } `
                     + "catch { $_.Exception.Message }"
             ],
             { cwd: root, stdio: "pipe" }
@@ -330,9 +330,47 @@ describe("native validation evidence safety", () => {
             expect(output).toBe("0");
         };
         fs.rmSync(snapshotPath, { recursive: true, force: true });
+        fs.rmSync(path.dirname(failurePath), { recursive: true, force: true });
         try {
-            const cleanOutput = runInjected("{param($snapshotRoot,$count) "
-                + "throw 'injected-lock-open-failure'}");
+            const fixtureOutput = runInjected("-PostSnapshotFixtureValidator "
+                + "{param($snapshot,$integrity) throw 'injected-fixture-validation-failure'}");
+            expect(fixtureOutput).toContain("injected-fixture-validation-failure");
+            expect(fs.existsSync(failurePath)).toBe(true);
+            const fixtureFailure = readFailure();
+            expect(fixtureFailure.error).toContain("injected-fixture-validation-failure");
+            expect(fixtureFailure.cleanup.allExited).toBe(true);
+            expect(fixtureFailure.guardsRestored).toBe(true);
+            expect(fixtureFailure.snapshotCleanup).toMatchObject({
+                attempted: true,
+                removed: true,
+                errorCount: 0
+            });
+            expect(fs.existsSync(snapshotPath)).toBe(false);
+            assertNoDesktop();
+
+            const fixtureRecreated = createSnapshot(root);
+            expect(removeSnapshot(root, fixtureRecreated.token).removed).toBe(true);
+
+            const metadataOutput = runInjected("-DesktopEvidenceInitializer "
+                + "{param($desktop) throw 'injected-desktop-evidence-failure'}");
+            expect(metadataOutput).toContain("injected-desktop-evidence-failure");
+            const metadataFailure = readFailure();
+            expect(metadataFailure.error).toContain("injected-desktop-evidence-failure");
+            expect(metadataFailure.cleanup.allExited).toBe(true);
+            expect(metadataFailure.guardsRestored).toBe(true);
+            expect(metadataFailure.snapshotCleanup).toMatchObject({
+                attempted: true,
+                removed: true,
+                errorCount: 0
+            });
+            expect(fs.existsSync(snapshotPath)).toBe(false);
+            assertNoDesktop();
+
+            const metadataRecreated = createSnapshot(root);
+            expect(removeSnapshot(root, metadataRecreated.token).removed).toBe(true);
+
+            const cleanOutput = runInjected("-SnapshotLockOpener "
+                + "{param($snapshotRoot,$count) throw 'injected-lock-open-failure'}");
             expect(cleanOutput).toContain("injected-lock-open-failure");
             const cleanFailure = readFailure();
             expect(cleanFailure.error).toContain("injected-lock-open-failure");
@@ -349,7 +387,8 @@ describe("native validation evidence safety", () => {
             const recreated = createSnapshot(root);
             expect(removeSnapshot(root, recreated.token).removed).toBe(true);
 
-            const mutationOutput = runInjected("{param($snapshotRoot,$count) "
+            const mutationOutput = runInjected("-SnapshotLockOpener "
+                + "{param($snapshotRoot,$count) "
                 + "Set-Content -LiteralPath (Join-Path $snapshotRoot "
                 + "'AtlynProfileLensSample.pbip') -Value 'mutation'; "
                 + "throw 'injected-mutated-lock-failure'}");
@@ -368,7 +407,8 @@ describe("native validation evidence safety", () => {
             const external = fs.mkdtempSync(path.join(os.tmpdir(), "profile-lens-runner-link-"));
             try {
                 const externalEscaped = external.replaceAll("'", "''");
-                const reparseOutput = runInjected("{param($snapshotRoot,$count) "
+                const reparseOutput = runInjected("-SnapshotLockOpener "
+                    + "{param($snapshotRoot,$count) "
                     + `New-Item -ItemType Junction -Path (Join-Path $snapshotRoot 'linked') `
                     + `-Target '${externalEscaped}' | Out-Null; `
                     + "throw 'injected-reparse-lock-failure'}");

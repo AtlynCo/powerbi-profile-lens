@@ -260,6 +260,12 @@ if (require.main === module) {
         ? verifySnapshot(root, process.argv[3], process.argv[4])
         : process.argv[2] === "--remove"
             ? removeSnapshot(root, process.argv[3])
+            : process.argv[2] === "--token"
+                ? {
+                    token: manifest(
+                        path.join(root, "samples", "AtlynProfileLensSample")
+                    ).sha256
+                }
             : createSnapshot(root);
     process.stdout.write(JSON.stringify(result));
 }

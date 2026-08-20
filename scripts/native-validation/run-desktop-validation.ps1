@@ -5,6 +5,17 @@ param(
     [Parameter(DontShow)][scriptblock]$SnapshotLockOpener = {
         param($Root, $ExpectedFileCount)
         Open-SnapshotReadLocks -SnapshotRoot $Root -ExpectedFileCount $ExpectedFileCount
+    },
+    [Parameter(DontShow)][scriptblock]$PostSnapshotFixtureValidator = {
+        param($Snapshot, $ComputedSampleIntegrity)
+        if ($Snapshot.fixtureProjectTreeSha256 -ne
+            $ComputedSampleIntegrity.projectTree.sha256) {
+            throw "Native snapshot fixture differs from the pre-copy verified PBIP project"
+        }
+    },
+    [Parameter(DontShow)][scriptblock]$DesktopEvidenceInitializer = {
+        param($DesktopExecutable)
+        (Get-Item $DesktopExecutable).VersionInfo.ProductVersion
     }
 )
 
@@ -87,20 +98,115 @@ if ($LASTEXITCODE -ne 0) {
     throw "PBIVIZ to sample resource parity verification failed"
 }
 $resourceParity = $resourceParityJson | ConvertFrom-Json
-$snapshotJson = & node (Join-Path $root "scripts\native-snapshot.cjs")
-if ($LASTEXITCODE -ne 0) {
-    throw "Verified native snapshot creation failed"
-}
-$snapshot = $snapshotJson | ConvertFrom-Json
-$snapshotRoot = $snapshot.absolutePath
-$snapshotPbipPath = Join-Path $snapshotRoot $snapshot.pbip
-if ($snapshot.fixtureProjectTreeSha256 -ne $computedSampleIntegrity.projectTree.sha256) {
-    throw "Native snapshot fixture differs from the pre-copy verified PBIP project"
-}
 $script:observations = @()
 $script:observationSequence = 0
 $script:ownedProcessJobs = @()
 $runId = [Guid]::NewGuid().ToString("N")
+$snapshotGuard = $null
+$guardsRestored = $false
+$cleanupCompleted = $false
+$primaryFailure = $null
+$secondaryFailure = $null
+$cleanupFailure = $null
+$pbixReadLock = $null
+$releasePbixReadLock = $null
+$ownedCleanupIncomplete = $false
+$record = $null
+$finalizableEvidencePath = Join-Path $evidencePath "native-run.json"
+
+function Create-LaunchSnapshot {
+    $snapshotScript = Join-Path $root "scripts\native-snapshot.cjs"
+    $tokenJson = & node $snapshotScript --token
+    if ($LASTEXITCODE -ne 0) {
+        throw "Native snapshot token computation failed before creation"
+    }
+    $expectedToken = ($tokenJson | ConvertFrom-Json).token
+    $snapshotJson = & node $snapshotScript
+    if ($LASTEXITCODE -ne 0) {
+        throw "Verified native snapshot creation failed"
+    }
+    try {
+        $created = $snapshotJson | ConvertFrom-Json
+        if ($created.token -ne $expectedToken -or -not $created.absolutePath -or
+            -not $created.manifest) {
+            throw "Native snapshot creator returned an invalid result"
+        }
+        return $created
+    } catch {
+        $primary = $_
+        $rollbackToken = if ($created -and
+            $created.token -match "^[0-9a-f]{64}$") {
+            $created.token
+        } else {
+            $expectedToken
+        }
+        $cleanupJson = & node $snapshotScript --remove $rollbackToken
+        if ($LASTEXITCODE -ne 0) {
+            throw [System.AggregateException]::new(
+                "Native snapshot result failed validation and atomic rollback failed",
+                @($primary.Exception, [System.Exception]::new(
+                    "Integrity-gated snapshot rollback failed"
+                ))
+            )
+        }
+        $cleanup = $cleanupJson | ConvertFrom-Json
+        if (-not $cleanup.removed) {
+            throw [System.AggregateException]::new(
+                "Native snapshot result failed validation and no created snapshot was removed",
+                @($primary.Exception, [System.Exception]::new(
+                    "Atomic rollback did not remove a snapshot"
+                ))
+            )
+        }
+        throw $primary
+    }
+}
+
+$snapshot = Create-LaunchSnapshot
+
+try {
+$record = [ordered]@{
+    schemaVersion = 1
+    runId = $runId
+    sourceCommit = $sourceCommit
+    automation = $sourceState.automation
+    startedAt = (Get-Date).ToUniversalTime().ToString("o")
+    desktop = $null
+    pbip = ($pbipRelative -replace "\\", "/")
+    pbix = ($pbixRelative -replace "\\", "/")
+    snapshot = [ordered]@{
+        token = $snapshot.token
+        logicalPath = $snapshot.logicalPath
+        manifest = $snapshot.manifest
+        pathPreflight = $snapshot.pathPreflight
+        lock = $null
+    }
+    sample = [ordered]@{
+        projectTreeSha256 = $computedSampleIntegrity.projectTree.sha256
+        reportDefinitionTreeSha256 = $computedSampleIntegrity.reportDefinitionTree.sha256
+        modelDefinitionTreeSha256 = $computedSampleIntegrity.modelDefinitionTree.sha256
+        generatorSha256 = $computedSampleIntegrity.generator.sha256
+        pbipSha256 = $computedSampleIntegrity.pbip.sha256
+        embeddedVisualResourceSha256 = $computedSampleIntegrity.embeddedVisualResource.sha256
+        resourceParity = $resourceParity
+    }
+    observations = $script:observations
+    passes = @()
+    unavailable = @(
+        "touch input: no touch capability was established",
+        "Power BI Service publication and dashboard pinning: not attempted",
+        "Microsoft certification or Partner Center submission: not attempted"
+    )
+}
+
+New-Item -ItemType Directory -Force -Path $evidencePath | Out-Null
+$snapshotRoot = $snapshot.absolutePath
+$snapshotPbipPath = Join-Path $snapshotRoot $snapshot.pbip
+& $PostSnapshotFixtureValidator $snapshot $computedSampleIntegrity
+$record.desktop = & $DesktopEvidenceInitializer $desktopExe
+if (-not $record.desktop) {
+    throw "Desktop metadata and evidence initialization returned no version"
+}
 
 function Add-SealedObservation {
     param(
@@ -299,53 +405,7 @@ function Close-OwnedReport {
     return Invoke-OwnedProcessCleanup -Job $Job
 }
 
-$snapshotGuard = $null
-$guardsRestored = $false
-$cleanupCompleted = $false
-$primaryFailure = $null
-$secondaryFailure = $null
-$cleanupFailure = $null
-$pbixReadLock = $null
-$releasePbixReadLock = $null
-$ownedCleanupIncomplete = $false
-$finalizableEvidencePath = Join-Path $evidencePath "native-run.json"
-
-$record = [ordered]@{
-    schemaVersion = 1
-    runId = $runId
-    sourceCommit = $sourceCommit
-    automation = $sourceState.automation
-    startedAt = (Get-Date).ToUniversalTime().ToString("o")
-    desktop = (Get-Item $desktopExe).VersionInfo.ProductVersion
-    pbip = ($pbipRelative -replace "\\", "/")
-    pbix = ($pbixRelative -replace "\\", "/")
-    snapshot = [ordered]@{
-        token = $snapshot.token
-        logicalPath = $snapshot.logicalPath
-        manifest = $snapshot.manifest
-        pathPreflight = $snapshot.pathPreflight
-        lock = $null
-    }
-    sample = [ordered]@{
-        projectTreeSha256 = $computedSampleIntegrity.projectTree.sha256
-        reportDefinitionTreeSha256 = $computedSampleIntegrity.reportDefinitionTree.sha256
-        modelDefinitionTreeSha256 = $computedSampleIntegrity.modelDefinitionTree.sha256
-        generatorSha256 = $computedSampleIntegrity.generator.sha256
-        pbipSha256 = $computedSampleIntegrity.pbip.sha256
-        embeddedVisualResourceSha256 = $computedSampleIntegrity.embeddedVisualResource.sha256
-        resourceParity = $resourceParity
-    }
-    observations = $script:observations
-    passes = @()
-    unavailable = @(
-        "touch input: no touch capability was established",
-        "Power BI Service publication and dashboard pinning: not attempted",
-        "Microsoft certification or Partner Center submission: not attempted"
-    )
-}
-
-try {
-New-Item -ItemType Directory -Force -Path (Split-Path $pbixPath), $evidencePath | Out-Null
+New-Item -ItemType Directory -Force -Path (Split-Path $pbixPath) | Out-Null
 if (Test-Path $pbixPath) { Remove-Item $pbixPath -Force }
 $snapshotGuard = & $SnapshotLockOpener $snapshotRoot $snapshot.manifest.files
 if (-not $snapshotGuard -or -not $snapshotGuard.evidence) {
