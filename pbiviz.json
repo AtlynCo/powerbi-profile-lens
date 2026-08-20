@@ -4,8 +4,8 @@
     "displayName": "Atlyn Profile Lens",
     "guid": "atlynProfileLens",
     "visualClassName": "Visual",
-    "version": "1.6.0.0",
-    "description": "Compare report-bound measures through a fixed-center viewport lens over professional offline world cartography, US boundaries, points, strict bound geometry, or generated context. Built-in reference layers remain noninteractive; the visual bundles no observations, makes no external requests, and requests no privileges.",
+    "version": "1.7.0.0",
+    "description": "Compare report-bound measures through a fixed-center viewport lens over professional offline world and US cartography, points, strict bound geometry, or generated context. Built-in reference layers remain noninteractive; the visual bundles no observations, makes no external requests, and requests no privileges.",
     "supportUrl": "https://atlyn.io/contact",
     "gitHubUrl": "https://github.com/garrett-hamers/powerbi-profile-lens"
   },

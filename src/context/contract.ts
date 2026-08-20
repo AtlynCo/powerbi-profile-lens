@@ -23,6 +23,7 @@ export type ContextMapLayerRole =
     | "coastline"
     | "admin0"
     | "admin1"
+    | "admin2"
     | "insetFrame";
 
 /**
@@ -45,6 +46,7 @@ export interface ContextMapLabel {
     readonly rank: number;
     readonly minZoom: number;
     readonly maxZoom?: number;
+    readonly role?: "feature" | "state" | "inset";
 }
 
 export interface ContextCartography {

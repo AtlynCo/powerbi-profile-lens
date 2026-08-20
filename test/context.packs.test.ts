@@ -106,7 +106,31 @@ describe("built-in context pack registry", () => {
                 expect(Math.abs(norway!.anchor.y - norwayFeature!.geometry.center.y))
                     .toBeLessThan(100);
             } else {
-                expect(projected.cartography).toBeUndefined();
+                const roles = projected.cartography?.layers.map((layer) => layer.role);
+                expect(roles).toEqual(manifest.level === "county"
+                    ? ["land", "admin2", "admin1", "coastline", "insetFrame"]
+                    : ["land", "admin1", "coastline", "insetFrame"]);
+                expect(projected.cartography?.labels).toHaveLength(
+                    manifest.level === "county" ? manifest.featureCount + 63 : 63
+                );
+                expect(projected.cartography?.labels.filter((label) =>
+                    label.role === "inset")).toHaveLength(7);
+                expect(projected.cartography?.labels.filter((label) =>
+                    label.role === "state")).toHaveLength(
+                    manifest.level === "county" ? 56 : 0
+                );
+                const featureVertices = new Set(projected.features.flatMap((entry) =>
+                    (entry.geometry.polygons ?? []).flatMap((polygon) =>
+                        polygon.flatMap((ring) => ring.map((point) =>
+                            `${point.x.toFixed(6)},${point.y.toFixed(6)}`)))));
+                for (const layer of projected.cartography?.layers.filter((entry) =>
+                    entry.role !== "insetFrame" && entry.role !== "land") ?? []) {
+                    for (const point of layer.lines?.flat() ?? []) {
+                        expect(featureVertices.has(
+                            `${point.x.toFixed(6)},${point.y.toFixed(6)}`
+                        )).toBe(true);
+                    }
+                }
             }
             for (const entry of projected.features) {
                 expect(Number.isFinite(entry.geometry.center.x)).toBe(true);
@@ -170,15 +194,17 @@ describe("built-in context pack joins", () => {
             expect(result.backdrop.featureByKey.size).toBe(value[3]);
             expect(result.entities.byFeatureKey.size).toBe(1);
             expect(result.entities.featureKeyByEntityKey.size).toBe(1);
-            if (value[0].startsWith("world-")) {
-                expect(result.cartography?.labels).toHaveLength(value[3]);
-                expect(result.cartography?.layers.every((layer) =>
-                    !("index" in layer)
-                    && !("selection" in layer)
-                    && !("tooltipValues" in layer))).toBe(true);
-            } else {
-                expect(result.cartography).toBeUndefined();
-            }
+            expect(result.cartography?.labels).toHaveLength(
+                value[0].startsWith("world-")
+                    ? value[3]
+                    : value[0].startsWith("us-counties")
+                        ? value[3] + 63
+                        : 63
+            );
+            expect(result.cartography?.layers.every((layer) =>
+                !("index" in layer)
+                && !("selection" in layer)
+                && !("tooltipValues" in layer))).toBe(true);
             expect(result.diagnostics).toEqual([]);
 
             const bindingFreeInput = input([], value[0], value[1]);

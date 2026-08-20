@@ -1,6 +1,6 @@
 import { expect, test, Page } from "@playwright/test";
 import { createHash } from "node:crypto";
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { feature } from "topojson-client";
 
@@ -23,6 +23,7 @@ const RUNTIME_LICENSE_SHA256 = createHash("sha256")
     .update(RUNTIME_LICENSE_NOTICES.replace(/\r\n/g, "\n"))
     .digest("hex");
 const generatedPacks = resolve(root, "src", "context", "packs", "generated");
+const cartographyEvidence = resolve(root, "dist", "evidence", "cartography");
 
 function packKeys(filename: string): string[] {
     const artifact = JSON.parse(readFileSync(resolve(generatedPacks, filename), "utf8")) as {
@@ -1098,6 +1099,103 @@ test.describe("packaged visual in a real browser", () => {
             })
         );
         expect(pathsAreFinite).toBe(true);
+    });
+
+    test("renders professional US hierarchy with SVG/Canvas parity and bounded work", async ({ page }) => {
+        mkdirSync(cartographyEvidence, { recursive: true });
+        const common = {
+            referenceDetail: "full",
+            labelDensity: "detailed",
+            showCenterProbe: false,
+            homeView: "fit",
+            entities: [],
+            periods: [],
+            bands: ["Band 1"],
+            series: [],
+            profiles: ["Metric A"]
+        };
+        await mount(page, {
+            ...common,
+            contextMode: "builtInPack",
+            contextPack: "usStates",
+            svgFeatureThreshold: 500
+        });
+        const svgOrder = await page.locator(".profile-lens-context-camera-layer").evaluate((node) =>
+            [...node.querySelectorAll("[data-reference-role], [data-context-key]")]
+                .map((entry) => entry.getAttribute("data-reference-role") ?? "interactive")
+                .filter((value, index, values) => index === 0 || value !== values[index - 1]));
+        expect(svgOrder).toEqual(["land", "interactive", "admin1", "coastline", "insetFrame"]);
+        await expect(page.locator("[data-reference-role='admin1']"))
+            .toHaveAttribute("stroke-width", "1.1");
+        await expect(page.locator("[data-reference-role='admin1']"))
+            .toHaveAttribute("vector-effect", "non-scaling-stroke");
+        await expect(page.locator("[data-label-role='inset']")).toHaveCount(7);
+        await expect(page.locator(".profile-lens-context-attribution"))
+            .toContainText("inset distance and area are not comparable");
+        expect(await page.locator(".profile-lens-context-map-label").count()).toBeLessThanOrEqual(40);
+        await page.locator(".profile-lens-context").screenshot({
+            path: resolve(cartographyEvidence, "us-states-svg.png")
+        });
+
+        await mount(page, {
+            ...common,
+            contextMode: "builtInPack",
+            contextPack: "usCounties",
+            svgFeatureThreshold: 1
+        });
+        const context = page.locator(".profile-lens-context");
+        const initial = await context.evaluate((node) => ({
+            ...(node as HTMLElement & {
+                __profileLensContextMetrics: {
+                    canvasReferenceLineRoles: string[];
+                    canvasReferenceCompositeOrder: string[];
+                    canvasReferenceScreenLineWidths: number[];
+                    referenceGeometryBuilds: number;
+                    canvasRasterBuilds: number;
+                    canvasPickingBuilds: number;
+                    maxVisibleLabels: number;
+                    labelCandidatesEvaluated: number;
+                };
+            }).__profileLensContextMetrics
+        }));
+        expect(initial.canvasReferenceLineRoles).not.toContain("admin2");
+        expect(initial.canvasReferenceCompositeOrder).toEqual([
+            "interactive", "admin1", "coastline", "insetFrame"
+        ]);
+        await context.screenshot({
+            path: resolve(cartographyEvidence, "us-counties-canvas-home.png")
+        });
+        const bounds = await context.boundingBox();
+        await page.mouse.move(
+            (bounds?.x ?? 0) + (bounds?.width ?? 0) / 2,
+            (bounds?.y ?? 0) + (bounds?.height ?? 0) / 2
+        );
+        for (let index = 0; index < 12; index++) {
+            await page.mouse.wheel(0, -120);
+            await page.waitForTimeout(20);
+        }
+        await page.waitForTimeout(250);
+        const zoomed = await context.evaluate((node) => ({
+            ...(node as HTMLElement & {
+                __profileLensContextMetrics: typeof initial;
+            }).__profileLensContextMetrics
+        }));
+        expect(zoomed.canvasReferenceCompositeOrder).toEqual([
+            "interactive", "admin2", "admin1", "coastline", "insetFrame"
+        ]);
+        const stateIndex = zoomed.canvasReferenceLineRoles.indexOf("admin1");
+        const countyIndex = zoomed.canvasReferenceLineRoles.indexOf("admin2");
+        expect(zoomed.canvasReferenceScreenLineWidths[stateIndex]).toBe(1.1);
+        expect(zoomed.canvasReferenceScreenLineWidths[countyIndex]).toBe(0.35);
+        expect(zoomed.referenceGeometryBuilds).toBe(initial.referenceGeometryBuilds);
+        expect(zoomed.canvasRasterBuilds).toBe(initial.canvasRasterBuilds);
+        expect(zoomed.canvasPickingBuilds).toBe(initial.canvasPickingBuilds);
+        expect(zoomed.maxVisibleLabels).toBeLessThanOrEqual(40);
+        expect(zoomed.labelCandidatesEvaluated - initial.labelCandidatesEvaluated)
+            .toBeLessThanOrEqual(3298 * 13);
+        await context.screenshot({
+            path: resolve(cartographyEvidence, "us-counties-canvas-zoom.png")
+        });
     });
 
     test("renders complete binding-free world, state, and county packs", async ({ page }) => {

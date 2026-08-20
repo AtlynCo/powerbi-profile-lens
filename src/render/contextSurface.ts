@@ -37,6 +37,20 @@ export interface ContextSurfaceElements {
     readonly help: HTMLElement;
 }
 
+function updateSvgReferenceVisibility(cache: SurfaceCache): void {
+    for (const node of cache.geometryGroup?.querySelectorAll<SVGElement>(
+        ".profile-lens-context-reference[data-min-zoom], "
+        + ".profile-lens-context-reference[data-max-zoom]"
+    ) ?? []) {
+        const minZoom = Number(node.getAttribute("data-min-zoom") ?? "-Infinity");
+        const maxZoom = Number(node.getAttribute("data-max-zoom") ?? "Infinity");
+        node.setAttribute(
+            "visibility",
+            cache.camera.zoom >= minZoom && cache.camera.zoom <= maxZoom ? "visible" : "hidden"
+        );
+    }
+}
+
 export interface ContextSurfaceStyle {
     readonly fill: string;
     readonly stroke: string;
@@ -54,6 +68,11 @@ export interface ContextSurfaceStyle {
     readonly admin: string;
     readonly mapLabel: string;
     readonly mapLabelHalo: string;
+}
+
+function canvasReferenceVisible(line: CanvasReferenceLine, zoom: number): boolean {
+    return (line.minZoom === undefined || zoom >= line.minZoom)
+        && (line.maxZoom === undefined || zoom <= line.maxZoom);
 }
 
 export interface RenderedContextSurface {
@@ -441,6 +460,9 @@ function buildSurface(
             );
             node.setAttribute("data-context-key", feature.key);
             node.setAttribute("aria-hidden", "true");
+            if (request.scene.cartography && request.cartography.detail !== "none") {
+                node.setAttribute("stroke", "none");
+            }
             if (
                 !request.showNoDataBackdrop
                 && !request.scene.entities.byFeatureKey.has(feature.key)
@@ -454,7 +476,7 @@ function buildSurface(
             geometryGroup,
             request,
             style,
-            new Set(["coastline", "admin0", "admin1", "insetFrame"])
+            new Set(["coastline", "admin0", "admin1", "admin2", "insetFrame"])
         );
         if (request.scene.cartography && request.cartography.detail !== "none") {
             metrics.referenceGeometryBuilds++;
@@ -693,6 +715,7 @@ function applyCamera(elements: ContextSurfaceElements, cache: SurfaceCache): voi
         drawCanvasCamera(elements.canvas, cache);
     }
     cache.geometryGroup?.setAttribute("transform", matrix);
+    updateSvgReferenceVisibility(cache);
     applyDynamicCamera(cache);
     renderMapLabels(cache, cache.currentRequest);
 }
@@ -919,6 +942,17 @@ function referenceLayerVisible(
     layer: ContextMapLayer,
     request: ContextRenderRequest
 ): boolean {
+    if (
+        (layer.minZoom !== undefined && request.camera.zoom < layer.minZoom)
+        || (layer.maxZoom !== undefined && request.camera.zoom > layer.maxZoom)
+    ) return false;
+    return referenceLayerEnabled(layer, request);
+}
+
+function referenceLayerEnabled(
+    layer: ContextMapLayer,
+    request: ContextRenderRequest
+): boolean {
     if (request.cartography.detail === "none") return false;
     if (!request.cartography.showPhysicalLayers && (
         layer.role === "land"
@@ -954,6 +988,12 @@ function referenceStyle(
             return { fill: null, stroke: style.graticule, lineWidth: 0.45 };
         case "coastline":
             return { fill: null, stroke: style.coastline, lineWidth: 0.9 };
+        case "admin1":
+            return { fill: null, stroke: style.admin, lineWidth: 1.1 };
+        case "admin2":
+            return { fill: null, stroke: style.admin, lineWidth: 0.35 };
+        case "insetFrame":
+            return { fill: null, stroke: style.admin, lineWidth: 0.7 };
         default:
             return { fill: null, stroke: style.admin, lineWidth: 0.6 };
     }
@@ -966,7 +1006,7 @@ function appendSvgReferenceLayers(
     roles: ReadonlySet<ContextMapLayer["role"]>
 ): void {
     for (const layer of request.scene.cartography?.layers ?? []) {
-        if (!roles.has(layer.role) || !referenceLayerVisible(layer, request)) continue;
+        if (!roles.has(layer.role) || !referenceLayerEnabled(layer, request)) continue;
         const layerStyle = referenceStyle(layer, style);
         const path = document.createElementNS(SVG_NS, "path");
         path.classList.add("profile-lens-context-reference");
@@ -982,6 +1022,13 @@ function appendSvgReferenceLayers(
         path.setAttribute("vector-effect", "non-scaling-stroke");
         path.setAttribute("pointer-events", "none");
         path.setAttribute("aria-hidden", "true");
+        path.setAttribute("visibility", referenceLayerVisible(layer, request) ? "visible" : "hidden");
+        if (layer.minZoom !== undefined) {
+            path.setAttribute("data-min-zoom", String(layer.minZoom));
+        }
+        if (layer.maxZoom !== undefined) {
+            path.setAttribute("data-max-zoom", String(layer.maxZoom));
+        }
         parent.appendChild(path);
     }
 }
@@ -1046,8 +1093,10 @@ function renderMapLabels(cache: SurfaceCache, request: ContextRenderRequest): vo
     const transform = composeSceneTransform(cache.baseTransform, cache.camera);
     const selected = request.selectedFeatureKeys;
     const labels = [...request.scene.cartography.labels].sort((left, right) => {
-        const leftFocus = left.key === request.focusedFeatureKey ? 0 : selected.has(left.key) ? 1 : 2;
-        const rightFocus = right.key === request.focusedFeatureKey ? 0 : selected.has(right.key) ? 1 : 2;
+        const leftFocus = left.key === request.focusedFeatureKey
+            ? 0 : selected.has(left.key) ? 1 : left.role === "inset" ? 2 : 3;
+        const rightFocus = right.key === request.focusedFeatureKey
+            ? 0 : selected.has(right.key) ? 1 : right.role === "inset" ? 2 : 3;
         return leftFocus - rightFocus
             || left.rank - right.rank
             || (left.key < right.key ? -1 : left.key > right.key ? 1 : 0);
@@ -1056,7 +1105,9 @@ function renderMapLabels(cache: SurfaceCache, request: ContextRenderRequest): vo
     let visible = 0;
     let evaluated = 0;
     for (const label of labels) {
-        const forced = label.key === request.focusedFeatureKey;
+        const forced = label.key === request.focusedFeatureKey
+            || selected.has(label.key)
+            || label.role === "inset";
         if (
             !forced
             && (
@@ -1094,11 +1145,12 @@ function renderMapLabels(cache: SurfaceCache, request: ContextRenderRequest): vo
         const text = document.createElementNS(SVG_NS, "text");
         text.classList.add("profile-lens-context-map-label");
         text.setAttribute("data-label-key", label.key);
+        text.setAttribute("data-label-role", label.role ?? "feature");
         text.setAttribute("x", String(labelX));
         text.setAttribute("y", String(labelY));
         text.setAttribute("text-anchor", "middle");
         text.setAttribute("dominant-baseline", "middle");
-        text.setAttribute("font-size", "11");
+        text.setAttribute("font-size", label.role === "inset" ? "9" : "11");
         text.setAttribute("font-weight", forced ? "600" : "400");
         text.setAttribute("fill", cache.style.mapLabel);
         text.setAttribute("stroke", cache.style.mapLabelHalo);
@@ -1136,6 +1188,8 @@ interface CanvasReferenceLine {
     readonly stroke: string;
     readonly lineWidth: number;
     readonly placement: "underlay" | "overlay";
+    readonly minZoom?: number;
+    readonly maxZoom?: number;
 }
 
 function canvasOverscan(
@@ -1188,7 +1242,8 @@ function drawCanvasCamera(
         compositeOrder.splice(0, compositeOrder.length);
         context.lineJoin = "round";
         context.lineCap = "round";
-        for (const line of referenceLines.filter((entry) => entry.placement === "underlay")) {
+        for (const line of referenceLines.filter((entry) =>
+            entry.placement === "underlay" && canvasReferenceVisible(entry, cache.camera.zoom))) {
             context.strokeStyle = line.stroke;
             context.lineWidth = line.lineWidth / cache.camera.zoom;
             context.stroke(line.path);
@@ -1201,13 +1256,11 @@ function drawCanvasCamera(
     if (cache.canvasInteractivePath) {
         context.fillStyle = cache.style.fill;
         context.fill(cache.canvasInteractivePath, "evenodd");
-        context.strokeStyle = cache.style.stroke;
-        context.lineWidth = 1;
-        context.stroke(cache.canvasInteractivePath);
         cache.metrics.canvasInteractivePathDraws++;
         cache.metrics.canvasReferenceCompositeOrder.push("interactive");
     }
-    for (const line of referenceLines.filter((entry) => entry.placement === "overlay")) {
+    for (const line of referenceLines.filter((entry) =>
+        entry.placement === "overlay" && canvasReferenceVisible(entry, cache.camera.zoom))) {
         context.strokeStyle = line.stroke;
         context.lineWidth = line.lineWidth / cache.camera.zoom;
         context.stroke(line.path);
@@ -1421,7 +1474,7 @@ function createCanvasReferenceLines(
 ): readonly CanvasReferenceLine[] {
     const lines: CanvasReferenceLine[] = [];
     for (const layer of request.scene.cartography?.layers ?? []) {
-        if (!referenceLayerVisible(layer, request)) continue;
+        if (!referenceLayerEnabled(layer, request)) continue;
         const layerStyle = referenceStyle(layer, style);
         if (!layerStyle.stroke || layerStyle.lineWidth <= 0) continue;
         lines.push({
@@ -1429,6 +1482,8 @@ function createCanvasReferenceLines(
             path: new Path2D(referencePathData(layer, request.baseTransform)),
             stroke: layerStyle.stroke,
             lineWidth: layerStyle.lineWidth,
+            minZoom: layer.minZoom,
+            maxZoom: layer.maxZoom,
             placement: layer.role === "river"
                 || layer.role === "graticule"
                 ? "underlay"

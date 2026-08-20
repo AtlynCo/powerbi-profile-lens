@@ -69,7 +69,7 @@
       "shapefileBase": "cb_2025_us_county_5m",
       "retainedFields": ["GEOID", "NAME", "STATEFP", "STUSPS"],
       "license": "U.S. Census Bureau public domain",
-      "budgets": { "raw": 1800000, "gzip": 500000, "vertices": 180000 }
+      "budgets": { "raw": 2100000, "gzip": 500000, "vertices": 180000 }
     }
   ],
   "physicalSources": [

@@ -26,8 +26,11 @@ Built-in packs are optional cartographic resources only:
 - Natural Earth 5.1.1 Admin-0 countries and professional offline land, lake,
   coastline, boundary, graticule, and bounded label reference layers at 110m by
   default, with a 50m detail choice;
-- 2025 Census 5m states/equivalents, including DC, PR, AS, GU, MP, and VI;
-- 2025 Census 5m counties/equivalents, including all island-area equivalents.
+- 2025 Census 5m states/equivalents with derived land/coast, fixed-width state
+  hierarchy, bounded abbreviations, and labeled inset frames for every territory;
+- 2025 Census 5m counties/equivalents with county boundaries revealed above
+  useful zoom, state outlines derived from county `STATEFP` topology, and bounded
+  county labels, including all island-area equivalents.
 
 World keys are exact uppercase ISO alpha-3 or documented generated `NE:` fallbacks. Valid,
 collision-free `ISO_A3_EH` values supply ordinary ISO keys when `ISO_A3` is invalid, including
@@ -87,6 +90,8 @@ call cannot be cancelled and may remain the unavoidable last writer; when it com
 reconciles overlays from the manager's actual selection without changing local probe/profile focus.
 SVG changes one camera group transform. Canvas reuses a bounded base raster and
 inverse-transformed picking surface; neither renderer rebuilds geometry or picking on probe changes.
+Reference land, coast/exterior, state/county hierarchy, inset frames, and
+screen-space labels never enter picking, tooltips, semantic options, or host selection.
 Inertia, rotation, double-click zoom, and live tiles remain absent.
 
 ## Field wells
@@ -181,7 +186,7 @@ the DOM or host services. See
 opens on a large local-only World 50m `focusLens` hero with Automatic/Fill home, a fixed center
 probe, period slider, and three synthetic demographic profiles. The remaining engineering pages
 cover nongeographic grid/hex entities, bound WGS84 points, simple bound polygons, world countries,
-US states/equivalents, US counties/equivalents, report-selection integration, normalization, and
+polished US state and county hierarchy pages with explicit inset instructions, report-selection integration, normalization, and
 progressive authoring. Its semantic model is only a synthetic DAX
 `DATATABLE`; every metric is openly synthetic. It has no data source, credentials, refresh, upload,
 or network dependency.
