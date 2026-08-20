@@ -216,6 +216,31 @@ function Assert-OwnedForeground {
     throw "Refusing input: the owned '$ExpectedTitle' window could not be proven foreground"
 }
 
+function Assert-OwnedWindowBounds {
+    param(
+        [Parameter(Mandatory)][int]$ProcessId,
+        [Parameter(Mandatory)][string]$ExpectedTitle
+    )
+    $process = Get-OwnedDesktop -ProcessId $ProcessId -ExpectedTitle $ExpectedTitle
+    $window = New-Object NativeDesktopGuard+Rect
+    if (-not [NativeDesktopGuard]::GetWindowRect($process.MainWindowHandle, [ref]$window) -or
+        $window.Right -le $window.Left -or $window.Bottom -le $window.Top) {
+        throw "Owned Desktop window has no safe visible rectangle"
+    }
+    $root = [System.Windows.Automation.AutomationElement]::FromHandle($process.MainWindowHandle)
+    if (-not $root -or $root.Current.ProcessId -ne $ProcessId) {
+        throw "Owned Desktop UI Automation root does not match the expected process"
+    }
+    $rootRectangle = $root.Current.BoundingRectangle
+    if ($rootRectangle.Width -le 0 -or $rootRectangle.Height -le 0 -or
+        $rootRectangle.X -lt $window.Left -or $rootRectangle.Y -lt $window.Top -or
+        ($rootRectangle.X + $rootRectangle.Width) -gt $window.Right -or
+        ($rootRectangle.Y + $rootRectangle.Height) -gt $window.Bottom) {
+        throw "Owned Desktop UI Automation root is not bounded by its native window"
+    }
+    return [ordered]@{ process = $process; root = $root; rectangle = $window }
+}
+
 function Assert-OwnedDialogForeground {
     param([int]$ProcessId, [string]$ExpectedDialogTitle, [int]$Attempts = 8)
     for ($attempt = 0; $attempt -lt $Attempts; $attempt++) {
@@ -236,7 +261,7 @@ function Get-OwnedDialog {
             param([int]$ProcessId, [string]$ExpectedDialogTitle, [int]$TimeoutSeconds = 10)
             $deadline = (Get-Date).AddSeconds($TimeoutSeconds)
             while ((Get-Date) -lt $deadline) {
-                Assert-OwnedDialogForeground -ProcessId $ProcessId -ExpectedDialogTitle $ExpectedDialogTitle
+                Get-Process -Id $ProcessId -ErrorAction Stop | Out-Null
                 $titleCondition = New-Object System.Windows.Automation.PropertyCondition(
                     [System.Windows.Automation.AutomationElement]::NameProperty,
                     ($ExpectedDialogTitle -replace "^\*|\*$", "")
@@ -260,6 +285,21 @@ function Get-OwnedDialog {
                 ))
                 $dialog = Select-UniqueCandidate -Candidates $dialogs -LogicalName "Save As dialog"
                 if ($dialog) { return $dialog }
+                $process = Get-OwnedDesktop -ProcessId $ProcessId -ExpectedTitle "*AtlynProfileLensSample*"
+                $root = [System.Windows.Automation.AutomationElement]::FromHandle(
+                    $process.MainWindowHandle
+                )
+                $hostCondition = New-Object System.Windows.Automation.PropertyCondition(
+                    [System.Windows.Automation.AutomationElement]::AutomationIdProperty,
+                    "FileNameControlHost"
+                )
+                $hosts = @($root.FindAll(
+                    [System.Windows.Automation.TreeScope]::Descendants,
+                    $hostCondition
+                ))
+                if ($hosts.Count -eq 1 -and $hosts[0].Current.ProcessId -eq $ProcessId) {
+                    return $root
+                }
                 Start-Sleep -Milliseconds 400
             }
             throw "The verified owned Save As dialog was not exposed through UI Automation"
@@ -267,7 +307,22 @@ function Get-OwnedDialog {
 
 function Assert-ControlInsideDialog {
             param([int]$ProcessId, [string]$ExpectedDialogTitle, $Dialog, $Control)
-            Assert-OwnedDialogForeground -ProcessId $ProcessId -ExpectedDialogTitle $ExpectedDialogTitle
+            Get-Process -Id $ProcessId -ErrorAction Stop | Out-Null
+            $isTitledDialog = $Dialog.Current.Name -like $ExpectedDialogTitle -and
+                $Dialog.Current.ControlType -eq [System.Windows.Automation.ControlType]::Window
+            $hostCondition = New-Object System.Windows.Automation.PropertyCondition(
+                [System.Windows.Automation.AutomationElement]::AutomationIdProperty,
+                "FileNameControlHost"
+            )
+            $isEmbeddedDialog = $Dialog.Current.NativeWindowHandle -ne 0 -and
+                @($Dialog.FindAll(
+                    [System.Windows.Automation.TreeScope]::Descendants,
+                    $hostCondition
+                )).Count -eq 1
+            if ($Dialog.Current.ProcessId -ne $ProcessId -or
+                (-not $isTitledDialog -and -not $isEmbeddedDialog)) {
+                throw "Refusing control action: the owned dialog identity changed"
+            }
             if ($Control.Current.ProcessId -ne $ProcessId) {
                 throw "Refusing control action: the target process changed"
             }
@@ -373,6 +428,21 @@ function Select-UniqueCandidate {
     return $Candidates[0]
 }
 
+function Select-EquivalentOwnedCandidate {
+    param([array]$Candidates, [string]$LogicalName)
+    if ($Candidates.Count -eq 0) { return $null }
+    $identities = @($Candidates | ForEach-Object {
+        $rectangle = $_.Current.BoundingRectangle
+        "$($_.Current.ProcessId)|$($_.Current.Name)|$($_.Current.AutomationId)|" +
+            "$($_.Current.ControlType.ProgrammaticName)|$($rectangle.X)|$($rectangle.Y)|" +
+            "$($rectangle.Width)|$($rectangle.Height)"
+    } | Select-Object -Unique)
+    if ($identities.Count -ne 1) {
+        throw "Ambiguous owned UIA target for '$LogicalName'"
+    }
+    return $Candidates[0]
+}
+
 function Find-OwnedElement {
     param(
         [int]$ProcessId,
@@ -380,6 +450,7 @@ function Find-OwnedElement {
         [string]$Name,
         [string[]]$ControlTypes,
         [AllowEmptyString()][string]$AutomationId,
+        $OwnedJob,
         [int]$TimeoutSeconds = 10
     )
     $deadline = (Get-Date).AddSeconds($TimeoutSeconds)
@@ -389,11 +460,6 @@ function Find-OwnedElement {
             [System.Windows.Automation.AutomationElement]::NameProperty,
             $Name
         )
-        $processCondition = New-Object System.Windows.Automation.PropertyCondition(
-            [System.Windows.Automation.AutomationElement]::ProcessIdProperty,
-            $ProcessId
-        )
-        $condition = New-Object System.Windows.Automation.AndCondition($condition, $processCondition)
         $process = Get-OwnedDesktop -ProcessId $ProcessId -ExpectedTitle $ExpectedTitle
         $window = New-Object NativeDesktopGuard+Rect
         [NativeDesktopGuard]::GetWindowRect($process.MainWindowHandle, [ref]$window) | Out-Null
@@ -404,7 +470,12 @@ function Find-OwnedElement {
         )) {
             $type = $element.Current.ControlType.ProgrammaticName -replace "^ControlType\.", ""
             $rectangle = $element.Current.BoundingRectangle
-            if ($ControlTypes -notcontains $type -or
+            $elementProcess = Get-Process -Id $element.Current.ProcessId -ErrorAction SilentlyContinue
+            $owned = $elementProcess -and (
+                $element.Current.ProcessId -eq $ProcessId -or
+                ($OwnedJob -and (Test-OwnedJobMembership -Process $elementProcess -Job $OwnedJob))
+            )
+            if (-not $owned -or $ControlTypes -notcontains $type -or
                 $element.Current.AutomationId -ne $AutomationId -or
                 $rectangle.Width -le 0 -or $rectangle.Height -le 0 -or
                 $rectangle.X -lt $window.Left -or $rectangle.Y -lt $window.Top -or
@@ -414,7 +485,7 @@ function Find-OwnedElement {
             }
             $matches += $element
         }
-        $selected = Select-UniqueCandidate -Candidates $matches -LogicalName $Name
+        $selected = Select-EquivalentOwnedCandidate -Candidates $matches -LogicalName $Name
         if ($selected) { return $selected }
         Start-Sleep -Milliseconds 400
     }
@@ -422,12 +493,16 @@ function Find-OwnedElement {
 }
 
 function Invoke-OwnedElement {
-    param([int]$ProcessId, [string]$ExpectedTitle, $Element)
-    Assert-OwnedForeground -ProcessId $ProcessId -ExpectedTitle $ExpectedTitle | Out-Null
+    param([int]$ProcessId, [string]$ExpectedTitle, $Element, $OwnedJob)
+    $owned = Assert-OwnedWindowBounds -ProcessId $ProcessId -ExpectedTitle $ExpectedTitle
     $rectangle = $Element.Current.BoundingRectangle
-    $process = Get-OwnedDesktop -ProcessId $ProcessId -ExpectedTitle $ExpectedTitle
-    $window = New-Object NativeDesktopGuard+Rect
-    [NativeDesktopGuard]::GetWindowRect($process.MainWindowHandle, [ref]$window) | Out-Null
+    $elementProcess = Get-Process -Id $Element.Current.ProcessId -ErrorAction Stop
+    if ($Element.Current.ProcessId -ne $ProcessId -and
+        (-not $OwnedJob -or
+            -not (Test-OwnedJobMembership -Process $elementProcess -Job $OwnedJob))) {
+        throw "Refusing input: UIA target process identity changed"
+    }
+    $window = $owned.rectangle
     if ($rectangle.Width -le 0 -or $rectangle.Height -le 0 -or
         $rectangle.X -lt $window.Left -or $rectangle.Y -lt $window.Top -or
         ($rectangle.X + $rectangle.Width) -gt $window.Right -or

@@ -9,7 +9,7 @@ const {
 const { assertEvidenceSafe } = require("./native-evidence-sanitize.cjs");
 const { verifyPbixVisualParity } = require("./sample-resource-parity.cjs");
 const { deriveScenarioOutcomes } = require("./native-observations.cjs");
-const { verifySnapshot } = require("./native-snapshot.cjs");
+const { removeSnapshot, verifySnapshot } = require("./native-snapshot.cjs");
 const { verifyPbixSnapshot } = require("./native-pbix-snapshot.cjs");
 const { acquirePbixPublicationLock } = require("./pbix-publication-lock.cjs");
 
@@ -168,6 +168,7 @@ async function finalizeNativeEvidence(root) {
     writeFileAtomic.sync(target, `${JSON.stringify(evidence, null, 2)}\n`);
     try {
         await publicationLock.verifyAlive();
+        removeSnapshot(root, run.snapshot.token);
     } catch (error) {
         if (previousTarget) writeFileAtomic.sync(target, previousTarget);
         else fs.rmSync(target, { force: true });

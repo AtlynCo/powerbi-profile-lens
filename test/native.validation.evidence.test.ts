@@ -89,9 +89,41 @@ const {
     ): Record<string, { outcome: string }>;
     sealObservation(observation: Record<string, unknown>): Record<string, unknown>;
 };
-const { manifest: snapshotManifest, verifySnapshot } = require("../scripts/native-snapshot.cjs") as {
+const {
+    assertDesktopPathHeadroom,
+    assertSnapshotDirectoryEntries,
+    createSnapshot,
+    manifest: snapshotManifest,
+    removeSnapshot,
+    verifySnapshot
+} = require("../scripts/native-snapshot.cjs") as {
+    assertDesktopPathHeadroom(
+        directory: string,
+        entries: Array<{ path: string }>
+    ): { longestFilePath: number };
+    assertSnapshotDirectoryEntries(directory: string, entries: Array<{ path: string }>): void;
+    createSnapshot(
+        root: string,
+        options?: { snapshotParent: string }
+    ): {
+        absolutePath: string;
+        logicalPath: string;
+        token: string;
+        manifest: { sha256: string };
+        pathPreflight: { longestFilePath: number };
+    };
     manifest(directory: string): { sha256: string };
-    verifySnapshot(root: string, token: string, expected: string): { manifest: { sha256: string } };
+    removeSnapshot(
+        root: string,
+        token: string,
+        options?: { snapshotParent: string }
+    ): { removed: boolean };
+    verifySnapshot(
+        root: string,
+        token: string,
+        expected: string,
+        options?: { snapshotParent: string }
+    ): { manifest: { sha256: string } };
 };
 const { acquirePbixPublicationLock } = require("../scripts/pbix-publication-lock.cjs") as {
     acquirePbixPublicationLock(
@@ -143,7 +175,18 @@ describe("native validation evidence safety", () => {
         expect(combined).toContain("ValuePattern");
         expect(combined).toContain("InvokePattern");
         expect(combined).toContain("Assert-ControlInsideDialog");
+        expect(combined).toContain("Assert-OwnedWindowBounds");
+        expect(combined).toContain("Select-EquivalentOwnedCandidate");
+        expect(combined).toContain("Test-OwnedJobMembership -Process $elementProcess");
+        expect(combined).toContain('-AutomationId "Ribbon-file"');
+        expect(combined).toContain("14 - Progressive authoring landing");
+        expect(combined).toContain("$Element.Current.ProcessId -ne $ProcessId");
+        expect(combined).not.toMatch(
+            /function Invoke-OwnedElement[\s\S]*?Assert-OwnedForeground[\s\S]*?function Get-AllowlistedControlProbe/
+        );
         expect(combined).toContain('-AutomationId "1001"');
+        expect(combined).toContain('"FileNameControlHost"');
+        expect(combined).toContain("-ControlType Pane -AutomationId \"1\"");
         expect(combined).toContain("GetRelativePath");
         expect(combined).toContain("sample-integrity.cjs");
         expect(combined).toContain("native-source-integrity.cjs");
@@ -186,6 +229,16 @@ describe("native validation evidence safety", () => {
             stdio: "pipe"
         }).toString();
         expect(output).toMatch(/Ambiguous owned UIA target/);
+    });
+
+    it("exports the process-bound window guard at script scope", () => {
+        const command = ". 'scripts\\native-validation\\desktop-guard.ps1'; "
+            + "(Get-Command Assert-OwnedWindowBounds -ErrorAction Stop).CommandType";
+        const output = execFileSync("pwsh", ["-NoProfile", "-Command", command], {
+            cwd: root,
+            stdio: "pipe"
+        }).toString();
+        expect(output).toContain("Function");
     });
 
     it("redacts adversarial generated output before the actual evidence path", () => {
@@ -415,6 +468,95 @@ describe("native validation evidence safety", () => {
         fs.cpSync(source, path.join(tokenRoot, token), { recursive: true });
         expect(() => verifySnapshot(temp, token, "0".repeat(64))).toThrow(/token and expected/i);
         fs.rmSync(temp, { recursive: true, force: true });
+    });
+
+    it("materializes long-worktree fixtures under a short content-addressed root", () => {
+        const temp = fs.mkdtempSync(path.join(os.tmpdir(), "profile-lens-short-snapshot-"));
+        const longRoot = path.join(temp, "worktree-" + "w".repeat(120));
+        const sample = path.join(longRoot, "samples", "AtlynProfileLensSample");
+        const shortParent = path.join(temp, "AtlynPBI");
+        fs.mkdirSync(
+            path.join(sample, "AtlynProfileLensSample.SemanticModel", "definition"),
+            { recursive: true }
+        );
+        fs.writeFileSync(path.join(sample, "AtlynProfileLensSample.pbip"), "fixture");
+        fs.writeFileSync(
+            path.join(sample, "AtlynProfileLensSample.SemanticModel", "definition", "model.tmdl"),
+            "model"
+        );
+        try {
+            const snapshot = createSnapshot(longRoot, { snapshotParent: shortParent });
+            expect(snapshot.absolutePath.startsWith(shortParent + path.sep)).toBe(true);
+            expect(snapshot.absolutePath).not.toContain("worktree-");
+            expect(snapshot.logicalPath).toMatch(/^localappdata\/AtlynPBI\/[0-9a-f]{20}$/);
+            expect(snapshot.pathPreflight.longestFilePath).toBeLessThan(260);
+            expect(
+                verifySnapshot(
+                    longRoot,
+                    snapshot.token,
+                    snapshot.token,
+                    { snapshotParent: shortParent }
+                ).manifest.sha256
+            ).toBe(snapshot.manifest.sha256);
+            expect(removeSnapshot(
+                longRoot,
+                snapshot.token,
+                { snapshotParent: shortParent }
+            ).removed).toBe(true);
+            expect(fs.existsSync(snapshot.absolutePath)).toBe(false);
+        } finally {
+            fs.rmSync(temp, { recursive: true, force: true });
+        }
+    });
+
+    it("fails path-headroom preflight before a Desktop launch", () => {
+        const safeRoot = path.join("C:\\", "AtlynPBI", "a".repeat(20));
+        expect(() => assertDesktopPathHeadroom(safeRoot, [{
+            path: `${"directory/".repeat(30)}fixture.pbip`
+        }])).toThrow(/safe limit/i);
+        expect(() => assertDesktopPathHeadroom(safeRoot, [{
+            path: "AtlynProfileLensSample.pbip"
+        }])).not.toThrow();
+    });
+
+    it("allows only the preflighted Desktop settings addition", () => {
+        const temp = fs.mkdtempSync(path.join(os.tmpdir(), "profile-lens-entries-"));
+        const fixture = path.join(temp, "AtlynProfileLensSample.pbip");
+        const settings = path.join(
+            temp,
+            "AtlynProfileLensSample.SemanticModel",
+            ".pbi",
+            "editorSettings.json"
+        );
+        fs.writeFileSync(fixture, "fixture");
+        fs.mkdirSync(path.dirname(settings), { recursive: true });
+        fs.writeFileSync(settings, "{}");
+        const entries = [{ path: "AtlynProfileLensSample.pbip" }];
+        try {
+            expect(() => assertSnapshotDirectoryEntries(temp, entries)).not.toThrow();
+            fs.writeFileSync(path.join(path.dirname(settings), "unexpected.json"), "{}");
+            expect(() => assertSnapshotDirectoryEntries(temp, entries)).toThrow(/unexpected file/i);
+        } finally {
+            fs.rmSync(temp, { recursive: true, force: true });
+        }
+    });
+
+    it("rejects a reparse point in snapshot content", () => {
+        const temp = fs.mkdtempSync(path.join(os.tmpdir(), "profile-lens-reparse-"));
+        const target = path.join(temp, "target");
+        const link = path.join(temp, "linked");
+        fs.mkdirSync(target);
+        try {
+            try {
+                fs.symlinkSync(target, link, "junction");
+            } catch (error) {
+                if ((error as NodeJS.ErrnoException).code === "EPERM") return;
+                throw error;
+            }
+            expect(() => snapshotManifest(temp)).toThrow(/reparse/i);
+        } finally {
+            fs.rmSync(temp, { recursive: true, force: true });
+        }
     });
 
     it("locks expected files and detects directory-set additions at phase checks", () => {

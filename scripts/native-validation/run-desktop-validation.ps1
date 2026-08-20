@@ -88,7 +88,7 @@ if ($LASTEXITCODE -ne 0) {
     throw "Verified native snapshot creation failed"
 }
 $snapshot = $snapshotJson | ConvertFrom-Json
-$snapshotRoot = Join-Path $root $snapshot.logicalPath.Replace("/", "\")
+$snapshotRoot = $snapshot.absolutePath
 $snapshotPbipPath = Join-Path $snapshotRoot $snapshot.pbip
 if ($snapshot.fixtureProjectTreeSha256 -ne $computedSampleIntegrity.projectTree.sha256) {
     throw "Native snapshot fixture differs from the pre-copy verified PBIP project"
@@ -137,18 +137,20 @@ function Add-SealedObservation {
     $script:observations += $sealedJson | ConvertFrom-Json
 }
 $pages = @(
-    "1 - Entity and band",
-    "2 - Entity, period, band with series",
-    "3 - Nongeographic grid and hex",
-    "4 - Bound WGS84 points",
-    "5 - Simple bound polygons",
-    "6 - World countries (synthetic)",
-    "7 - US states and equivalents (synthetic)",
-    "8 - US counties and equivalents (synthetic)",
-    "9 - Six profiles and interaction modes",
-    "10 - Normalization modes",
-    "11 - World 50m exact-key diagnostics",
-    "12 - Progressive authoring landing"
+    "1 - Explore World Community Profiles",
+    "2 - Demographic profile: Population by Age Band",
+    "3 - Multi-period census and urban/rural series",
+    "4 - Nongeographic grid and hex community matrices",
+    "5 - Bound WGS84 community points",
+    "6 - District boundary polygons (WKT)",
+    "7 - Global demographics: World countries (110m)",
+    "8 - Regional demographics: US states & territories",
+    "9 - Local demographics: US counties & equivalents",
+    "10 - Viewport lens navigation (World 50m probe)",
+    "11 - Six demographic profile indicators",
+    "12 - Demographic normalization modes",
+    "13 - Boundary diagnostics: World 50m exact keys",
+    "14 - Progressive authoring landing"
 )
 
 function Start-OwnedReport {
@@ -210,7 +212,8 @@ function Start-OwnedReport {
                 throw "Expected Desktop window is not a member of the owned process job"
             }
             $candidate | Add-Member -NotePropertyName OwnedJob -NotePropertyValue $job
-            Assert-OwnedForeground -ProcessId $candidate.Id -ExpectedTitle $launchExpectedTitle | Out-Null
+            Assert-OwnedWindowBounds -ProcessId $candidate.Id `
+                -ExpectedTitle $launchExpectedTitle | Out-Null
             $script:expectedTitle = $launchExpectedTitle
             return $candidate
         }
@@ -219,16 +222,18 @@ function Start-OwnedReport {
 }
 
 function Invoke-PagePass {
-    param([int]$ProcessId)
+    param([int]$ProcessId, $OwnedJob)
     $observations = @()
     foreach ($page in $pages) {
         $element = Find-OwnedElement -ProcessId $ProcessId -ExpectedTitle $expectedTitle `
-            -Name $page -ControlTypes TabItem -AutomationId "" -TimeoutSeconds 12
+            -Name $page -ControlTypes TabItem -AutomationId "" -OwnedJob $OwnedJob `
+            -TimeoutSeconds 12
         if (-not $element) {
             $observations += [ordered]@{ page = $page; outcome = "not-observed"; reason = "page UIA target not found" }
             continue
         }
-        Invoke-OwnedElement -ProcessId $ProcessId -ExpectedTitle $expectedTitle -Element $element
+        Invoke-OwnedElement -ProcessId $ProcessId -ExpectedTitle $expectedTitle -Element $element `
+            -OwnedJob $OwnedJob
         Start-Sleep -Seconds 5
         $observations += [ordered]@{
             page = $page
@@ -240,30 +245,35 @@ function Invoke-PagePass {
 }
 
 function Invoke-SaveAs {
-    param([int]$ProcessId)
+    param([int]$ProcessId, $OwnedJob)
     $file = Find-OwnedElement -ProcessId $ProcessId -ExpectedTitle $expectedTitle `
-        -Name "File" -ControlTypes @("TabItem", "Button") -AutomationId "" -TimeoutSeconds 15
+        -Name "File" -ControlTypes TabItem -AutomationId "Ribbon-file" -OwnedJob $OwnedJob `
+        -TimeoutSeconds 15
     if (-not $file) { throw "File command was not exposed by the owned Desktop window" }
-    Invoke-OwnedElement -ProcessId $ProcessId -ExpectedTitle $expectedTitle -Element $file
+    Invoke-OwnedElement -ProcessId $ProcessId -ExpectedTitle $expectedTitle -Element $file `
+        -OwnedJob $OwnedJob
     Start-Sleep -Seconds 3
     $saveAs = Find-OwnedElement -ProcessId $ProcessId -ExpectedTitle $expectedTitle `
-        -Name "Save as" -ControlTypes @("ListItem", "Button") -AutomationId "" -TimeoutSeconds 15
+        -Name "Save as" -ControlTypes @("TabItem", "ListItem", "Button") -AutomationId "" `
+        -OwnedJob $OwnedJob -TimeoutSeconds 15
     if (-not $saveAs) { throw "Save as command was not exposed by the owned Desktop window" }
-    Invoke-OwnedElement -ProcessId $ProcessId -ExpectedTitle $expectedTitle -Element $saveAs
+    Invoke-OwnedElement -ProcessId $ProcessId -ExpectedTitle $expectedTitle -Element $saveAs `
+        -OwnedJob $OwnedJob
     Start-Sleep -Seconds 3
     $browse = Find-OwnedElement -ProcessId $ProcessId -ExpectedTitle $expectedTitle `
         -Name "Browse this device" -ControlTypes @("Button", "Hyperlink", "ListItem") `
-        -AutomationId "" -TimeoutSeconds 6
+        -AutomationId "" -OwnedJob $OwnedJob -TimeoutSeconds 6
     if ($browse) {
-        Invoke-OwnedElement -ProcessId $ProcessId -ExpectedTitle $expectedTitle -Element $browse
+        Invoke-OwnedElement -ProcessId $ProcessId -ExpectedTitle $expectedTitle -Element $browse `
+            -OwnedJob $OwnedJob
         Start-Sleep -Seconds 3
     }
     $filename = Find-OwnedDialogControl -ProcessId $ProcessId -ExpectedDialogTitle "*Save As*" `
-        -ControlType Edit -AutomationId "1001" -RequireValuePattern
+        -ControlType Pane -AutomationId "1001" -RequireValuePattern
     Set-OwnedDialogValue -ProcessId $ProcessId -ExpectedDialogTitle "*Save As*" `
         -Target $filename -Value $pbixPath
     $save = Find-OwnedDialogControl -ProcessId $ProcessId -ExpectedDialogTitle "*Save As*" `
-        -Name "Save" -ControlType Button -AutomationId "1" -RequireInvokePattern
+        -Name "Save" -ControlType Pane -AutomationId "1" -RequireInvokePattern
     Invoke-OwnedDialogControl -ProcessId $ProcessId -ExpectedDialogTitle "*Save As*" -Target $save
     $deadline = (Get-Date).AddMinutes(5)
     $lastLength = -1
@@ -314,6 +324,7 @@ $record = [ordered]@{
         token = $snapshot.token
         logicalPath = $snapshot.logicalPath
         manifest = $snapshot.manifest
+        pathPreflight = $snapshot.pathPreflight
         lock = $snapshotLockEvidence
     }
     sample = [ordered]@{
@@ -339,9 +350,9 @@ try {
     $record.passes += [ordered]@{
         kind = "pbip"
         report = $reportName
-        pages = Invoke-PagePass -ProcessId $process.Id
+        pages = Invoke-PagePass -ProcessId $process.Id -OwnedJob $process.OwnedJob
     }
-    Invoke-SaveAs -ProcessId $process.Id
+    Invoke-SaveAs -ProcessId $process.Id -OwnedJob $process.OwnedJob
     $record.pbixBeforeReopen = [ordered]@{
         bytes = (Get-Item $pbixPath).Length
         sha256 = (Get-FileHash $pbixPath -Algorithm SHA256).Hash.ToLowerInvariant()
@@ -373,7 +384,7 @@ try {
     $record.passes += [ordered]@{
         kind = "pbix-reopen"
         report = $reportName
-        pages = Invoke-PagePass -ProcessId $process.Id
+        pages = Invoke-PagePass -ProcessId $process.Id -OwnedJob $process.OwnedJob
     }
     $readerCleanup = Close-OwnedReport -Job $process.OwnedJob
     if (-not $readerCleanup.complete) {

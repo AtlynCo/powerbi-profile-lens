@@ -1,0 +1,34 @@
+{
+  "schemaVersion": 1,
+  "outcome": "blocked",
+  "sourceCommit": "c4e38357baae47e361b6d33069cfdff364e021a2",
+  "desktopVersion": "2.157.879.0 (26.08)+da30fe74eb0b8a8786ab7326b69c400a0e951831",
+  "outcomeBoundary": "The exact PBIP opened from the short immutable snapshot and all fourteen page tabs were safely discoverable through job-owned UI Automation. No PBIX was produced and no native interaction scenario is claimed as passed.",
+  "resolvedBlockers": [
+    "The launch snapshot maximum projected path was 171 characters, below Desktop's legacy limits.",
+    "The exact report window and mirrored WebView controls were bound to the owned process job.",
+    "Desktop 2.157 File, Save as, and Browse this device controls were invoked through bounded SelectionItemPattern or InvokePattern controls."
+  ],
+  "blocker": {
+    "stage": "native-save-as-value-and-commit",
+    "kind": "required-uia-patterns-unavailable",
+    "message": "Desktop 2.157 exposes its embedded common-file filename control (automation ID 1001) and Save control (automation ID 1) as native Pane elements with no supported UI Automation patterns. The related File name label exposes only a read-only ValuePattern. The harness therefore cannot set the deterministic PBIX path or invoke Save using the required control-bound ValuePattern and InvokePattern guards."
+  },
+  "cleanup": {
+    "allOwnedProcessesExited": true,
+    "guardsRestored": true
+  },
+  "unproven": [
+    "genuine PBIX creation",
+    "offline PBIX reopen and byte stability",
+    "PBIX embedded active-resource parity",
+    "native world, state, county, interaction, high-contrast, Reading, Focus, and screenshot scenarios"
+  ],
+  "prohibitedWorkaroundsNotUsed": [
+    "global SendKeys",
+    "coordinate-based input",
+    "Win32 control messages",
+    "PBIX internal editing",
+    "fabricated scenario evidence"
+  ]
+}
