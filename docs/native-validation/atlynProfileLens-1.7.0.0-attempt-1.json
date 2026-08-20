@@ -2,6 +2,8 @@
   "schemaVersion": 1,
   "outcome": "blocked",
   "sourceCommit": "9a8d6be87941e68b283c54d746e16ae55006d88e",
+  "evidenceTrust": "historical-blocked-diagnostic",
+  "releaseClaimEligible": false,
   "desktopVersion": "2.157.879.0 (26.08)+da30fe74eb0b8a8786ab7326b69c400a0e951831",
   "startedAt": "2026-08-20T19:20:35.3806342Z",
   "completedAt": "2026-08-20T19:25:38.4971396Z",

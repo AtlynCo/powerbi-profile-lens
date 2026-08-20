@@ -231,12 +231,16 @@ function verifySnapshot(root, token, expectedSha256 = token, options = {}) {
 }
 
 function removeSnapshot(root, token, options = {}) {
+    const directory = snapshotDirectory(token, options);
+    if (!fs.existsSync(directory)) {
+        return { token, removed: false, alreadyAbsent: true };
+    }
     const verified = verifySnapshot(root, token, token, options);
     fs.rmSync(verified.absolutePath, { recursive: true, force: true });
     if (fs.existsSync(verified.absolutePath)) {
         throw new Error("Native launch snapshot cleanup failed.");
     }
-    return { token, removed: true };
+    return { token, removed: true, alreadyAbsent: false };
 }
 
 module.exports = {
@@ -254,6 +258,14 @@ if (require.main === module) {
     const root = path.resolve(__dirname, "..");
     const result = process.argv[2] === "--verify"
         ? verifySnapshot(root, process.argv[3], process.argv[4])
-        : createSnapshot(root);
+        : process.argv[2] === "--remove"
+            ? removeSnapshot(root, process.argv[3])
+            : process.argv[2] === "--token"
+                ? {
+                    token: manifest(
+                        path.join(root, "samples", "AtlynProfileLensSample")
+                    ).sha256
+                }
+            : createSnapshot(root);
     process.stdout.write(JSON.stringify(result));
 }

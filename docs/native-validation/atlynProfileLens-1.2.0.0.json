@@ -2,6 +2,8 @@
   "schemaVersion": 1,
   "outcome": "blocked",
   "sourceCommit": "15721d6b90b4793728d01c30b0ac582a9dffd3ef",
+  "evidenceTrust": "historical-blocked-diagnostic",
+  "releaseClaimEligible": false,
   "visual": {
     "guid": "atlynProfileLens",
     "version": "1.2.0.0",

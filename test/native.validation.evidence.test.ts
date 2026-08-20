@@ -95,6 +95,7 @@ const {
     createSnapshot,
     manifest: snapshotManifest,
     removeSnapshot,
+    snapshotDirectory,
     verifySnapshot
 } = require("../scripts/native-snapshot.cjs") as {
     assertDesktopPathHeadroom(
@@ -117,7 +118,8 @@ const {
         root: string,
         token: string,
         options?: { snapshotParent: string }
-    ): { removed: boolean };
+    ): { removed: boolean; alreadyAbsent: boolean };
+    snapshotDirectory(token: string, options?: { snapshotParent: string }): string;
     verifySnapshot(
         root: string,
         token: string,
@@ -239,6 +241,493 @@ describe("native validation evidence safety", () => {
             stdio: "pipe"
         }).toString();
         expect(output).toContain("Function");
+    });
+
+    it("rejects embedded-dialog sibling controls with matching IDs", () => {
+        const command = ". 'scripts\\native-validation\\desktop-guard.ps1'; "
+            + "$parents=@{filenameHost='dialog';filename='filenameHost';save='dialog';"
+            + "unrelated1001='dialog';unrelated1='dialog'}; "
+            + "$parent={param($node) $parents[$node]}; "
+            + "$same={param($a,$b) $a -eq $b}; "
+            + "$inside=Test-ControlDescendsFrom -Scope 'filenameHost' -Control 'filename' "
+            + "-ParentResolver $parent -IdentityComparer $same; "
+            + "$sibling1001=Test-ControlDescendsFrom -Scope 'filenameHost' "
+            + "-Control 'unrelated1001' -ParentResolver $parent -IdentityComparer $same; "
+            + "$sibling1=Test-ControlDescendsFrom -Scope 'filenameHost' "
+            + "-Control 'unrelated1' -ParentResolver $parent -IdentityComparer $same; "
+            + "\"$inside,$sibling1001,$sibling1\"";
+        const output = execFileSync("pwsh", ["-NoProfile", "-Command", command], {
+            cwd: root,
+            stdio: "pipe"
+        }).toString();
+        expect(output).toContain("True,False,False");
+    });
+
+    it("gates blocked snapshot cleanup until processes and handles are closed", () => {
+        const command = ". 'scripts\\native-validation\\snapshot-guard.ps1'; "
+            + "$calls=0; $action={$script:calls++;[pscustomobject]@{removed=$true}}; "
+            + "$active=Invoke-BlockedSnapshotCleanup -AllOwnedProcessesExited $false "
+            + "-GuardsRestored $true -CleanupAction $action; "
+            + "$locked=Invoke-BlockedSnapshotCleanup -AllOwnedProcessesExited $true "
+            + "-GuardsRestored $false -CleanupAction $action; "
+            + "$failed=Invoke-BlockedSnapshotCleanup -AllOwnedProcessesExited $true "
+            + "-GuardsRestored $true -CleanupAction {throw 'partial cleanup'}; "
+            + "$done=Invoke-BlockedSnapshotCleanup -AllOwnedProcessesExited $true "
+            + "-GuardsRestored $true -CleanupAction $action; "
+            + "\"$calls,$($active.attempted),$($locked.attempted),"
+            + "$($failed.errorCount),$($done.removed)\"";
+        const output = execFileSync("pwsh", ["-NoProfile", "-Command", command], {
+            cwd: root,
+            stdio: "pipe"
+        }).toString();
+        expect(output).toContain("1,False,False,1,True");
+    });
+
+    it("cleans runner snapshots after injected lock-open failures", () => {
+        if (process.platform !== "win32") return;
+        const sampleRoot = path.join(root, "samples", "AtlynProfileLensSample");
+        const token = snapshotManifest(sampleRoot).sha256;
+        const snapshotPath = snapshotDirectory(token);
+        const failurePath = path.join(
+            root,
+            "dist",
+            "release",
+            "native-evidence",
+            "native-failure.json"
+        );
+        const runner = path.join(
+            root,
+            "scripts",
+            "native-validation",
+            "run-desktop-validation.ps1"
+        ).replaceAll("'", "''");
+        const runInjected = (parameters: string): string => execFileSync(
+            "pwsh",
+            [
+                "-NoProfile",
+                "-Command",
+                `try { & '${runner}' ${parameters} } `
+                    + "catch { $_.Exception.ToString() }"
+            ],
+            { cwd: root, stdio: "pipe" }
+        ).toString();
+        const readFailure = () => JSON.parse(fs.readFileSync(failurePath, "utf8")) as {
+            error: string;
+            cleanup: { allExited: boolean };
+            guardsRestored: boolean;
+            snapshotCleanup: {
+                attempted: boolean;
+                removed: boolean;
+                errorCount: number;
+                retained?: boolean;
+                retainedToken?: string;
+            };
+        };
+        const assertNoDesktop = () => {
+            const output = execFileSync("pwsh", [
+                "-NoProfile",
+                "-Command",
+                "@(Get-Process -Name PBIDesktop -ErrorAction SilentlyContinue).Count"
+            ], { cwd: root }).toString().trim();
+            expect(output).toBe("0");
+        };
+        fs.rmSync(snapshotPath, { recursive: true, force: true });
+        fs.rmSync(path.dirname(failurePath), { recursive: true, force: true });
+        try {
+            const fixtureOutput = runInjected("-PostSnapshotFixtureValidator "
+                + "{param($snapshot,$integrity) throw 'injected-fixture-validation-failure'}");
+            expect(fixtureOutput).toContain("injected-fixture-validation-failure");
+            expect(fs.existsSync(failurePath)).toBe(true);
+            const fixtureFailure = readFailure();
+            expect(fixtureFailure.error).toContain("injected-fixture-validation-failure");
+            expect(fixtureFailure.cleanup.allExited).toBe(true);
+            expect(fixtureFailure.guardsRestored).toBe(true);
+            expect(fixtureFailure.snapshotCleanup).toMatchObject({
+                attempted: true,
+                removed: true,
+                errorCount: 0
+            });
+            expect(fs.existsSync(snapshotPath)).toBe(false);
+            assertNoDesktop();
+
+            const fixtureRecreated = createSnapshot(root);
+            expect(removeSnapshot(root, fixtureRecreated.token).removed).toBe(true);
+
+            const metadataOutput = runInjected("-DesktopEvidenceInitializer "
+                + "{param($desktop) throw 'injected-desktop-evidence-failure'}");
+            expect(metadataOutput).toContain("injected-desktop-evidence-failure");
+            const metadataFailure = readFailure();
+            expect(metadataFailure.error).toContain("injected-desktop-evidence-failure");
+            expect(metadataFailure.cleanup.allExited).toBe(true);
+            expect(metadataFailure.guardsRestored).toBe(true);
+            expect(metadataFailure.snapshotCleanup).toMatchObject({
+                attempted: true,
+                removed: true,
+                errorCount: 0
+            });
+            expect(fs.existsSync(snapshotPath)).toBe(false);
+            assertNoDesktop();
+
+            const metadataRecreated = createSnapshot(root);
+            expect(removeSnapshot(root, metadataRecreated.token).removed).toBe(true);
+
+            const cleanOutput = runInjected("-SnapshotLockOpener "
+                + "{param($snapshotRoot,$count) throw 'injected-lock-open-failure'}");
+            expect(cleanOutput).toContain("injected-lock-open-failure");
+            const cleanFailure = readFailure();
+            expect(cleanFailure.error).toContain("injected-lock-open-failure");
+            expect(cleanFailure.cleanup.allExited).toBe(true);
+            expect(cleanFailure.guardsRestored).toBe(true);
+            expect(cleanFailure.snapshotCleanup).toMatchObject({
+                attempted: true,
+                removed: true,
+                errorCount: 0
+            });
+            expect(fs.existsSync(snapshotPath)).toBe(false);
+            assertNoDesktop();
+
+            const recreated = createSnapshot(root);
+            expect(removeSnapshot(root, recreated.token).removed).toBe(true);
+
+            const mutationOutput = runInjected("-SnapshotLockOpener "
+                + "{param($snapshotRoot,$count) "
+                + "Set-Content -LiteralPath (Join-Path $snapshotRoot "
+                + "'AtlynProfileLensSample.pbip') -Value 'mutation'; "
+                + "throw 'injected-mutated-lock-failure'}");
+            expect(mutationOutput).toContain("injected-mutated-lock-failure");
+            const mutationFailure = readFailure();
+            expect(mutationFailure.error).toContain("injected-mutated-lock-failure");
+            expect(mutationFailure.snapshotCleanup).toMatchObject({
+                attempted: true,
+                removed: false,
+                errorCount: 1,
+                retained: true,
+                retainedToken: token
+            });
+            expect(fs.existsSync(snapshotPath)).toBe(true);
+            assertNoDesktop();
+            fs.rmSync(snapshotPath, { recursive: true, force: true });
+
+            const external = fs.mkdtempSync(path.join(os.tmpdir(), "profile-lens-runner-link-"));
+            try {
+                const externalEscaped = external.replaceAll("'", "''");
+                const reparseOutput = runInjected("-SnapshotLockOpener "
+                    + "{param($snapshotRoot,$count) "
+                    + `New-Item -ItemType Junction -Path (Join-Path $snapshotRoot 'linked') `
+                    + `-Target '${externalEscaped}' | Out-Null; `
+                    + "throw 'injected-reparse-lock-failure'}");
+                expect(reparseOutput).toContain("injected-reparse-lock-failure");
+                const reparseFailure = readFailure();
+                expect(reparseFailure.error).toContain("injected-reparse-lock-failure");
+                expect(reparseFailure.snapshotCleanup).toMatchObject({
+                    attempted: true,
+                    removed: false,
+                    errorCount: 1,
+                    retained: true,
+                    retainedToken: token
+                });
+                expect(fs.existsSync(snapshotPath)).toBe(true);
+                assertNoDesktop();
+            } finally {
+                fs.rmSync(snapshotPath, { recursive: true, force: true });
+                fs.rmSync(external, { recursive: true, force: true });
+            }
+        } finally {
+            fs.rmSync(snapshotPath, { recursive: true, force: true });
+        }
+    }, 240_000);
+
+    it("cleans snapshots after injected evidence transaction failures", () => {
+        if (process.platform !== "win32") return;
+        const sampleRoot = path.join(root, "samples", "AtlynProfileLensSample");
+        const token = snapshotManifest(sampleRoot).sha256;
+        const snapshotPath = snapshotDirectory(token);
+        const evidenceDirectory = path.join(root, "dist", "release", "native-evidence");
+        const nativeRunPath = path.join(evidenceDirectory, "native-run.json");
+        const nativeFailurePath = path.join(evidenceDirectory, "native-failure.json");
+        const runner = path.join(
+            root,
+            "scripts",
+            "native-validation",
+            "run-desktop-validation.ps1"
+        ).replaceAll("'", "''");
+        const runInjected = (parameters: string): string => execFileSync(
+            "pwsh",
+            [
+                "-NoProfile",
+                "-Command",
+                `try { & '${runner}' ${parameters} } `
+                    + "catch { $_.Exception.Message }"
+            ],
+            { cwd: root, stdio: "pipe" }
+        ).toString();
+        const assertNoDesktop = () => {
+            const output = execFileSync("pwsh", [
+                "-NoProfile",
+                "-Command",
+                "@(Get-Process -Name PBIDesktop -ErrorAction SilentlyContinue).Count"
+            ], { cwd: root }).toString().trim();
+            expect(output).toBe("0");
+        };
+        fs.rmSync(snapshotPath, { recursive: true, force: true });
+        try {
+            for (const [mode, message] of [
+                ["sanitize", "Injected evidence sanitization failure"],
+                ["write", "Injected evidence file write failure"],
+                ["replace", "Injected evidence atomic replace failure"]
+            ]) {
+                fs.rmSync(evidenceDirectory, { recursive: true, force: true });
+                const output = runInjected(`-InjectedPersistenceFailure ${mode}`);
+                expect(output).toContain(message);
+                expect(fs.existsSync(snapshotPath)).toBe(false);
+                expect(fs.existsSync(nativeRunPath)).toBe(false);
+                assertNoDesktop();
+                const recreated = createSnapshot(root);
+                expect(removeSnapshot(root, recreated.token).removed).toBe(true);
+            }
+
+            for (const rollback of [
+                {
+                    parameters: "-InjectedPersistenceFailure replace "
+                        + "-InjectedRollbackFailure stagingDelete",
+                    primary: "Injected evidence atomic replace failure",
+                    secondary: "Injected staging deletion rollback failure",
+                    prior: false
+                },
+                {
+                    parameters: "-InjectedPersistenceFailure postcommit "
+                        + "-InjectedRollbackFailure restoreWrite -InjectedPriorEvidence",
+                    primary: "Injected post-commit evidence verification failure",
+                    secondary: "Injected prior-output restore write failure",
+                    prior: true
+                },
+                {
+                    parameters: "-InjectedPersistenceFailure postcommit "
+                        + "-InjectedRollbackFailure restoreReplace -InjectedPriorEvidence",
+                    primary: "Injected post-commit evidence verification failure",
+                    secondary: "Injected prior-output restore replace failure",
+                    prior: true
+                },
+                {
+                    parameters: "-InjectedPersistenceFailure postcommit "
+                        + "-InjectedRollbackFailure outputRemove",
+                    primary: "Injected post-commit evidence verification failure",
+                    secondary: "Injected success-output removal failure",
+                    prior: false
+                },
+                {
+                    parameters: "-InjectedPersistenceFailure sanitize "
+                        + "-InjectedRollbackFailure lockDispose",
+                    primary: "Injected evidence sanitization failure",
+                    secondary: "Injected PBIX lock disposal failure",
+                    prior: false
+                }
+            ]) {
+                fs.rmSync(evidenceDirectory, { recursive: true, force: true });
+                const output = runInjected(rollback.parameters);
+                expect(output).toContain(rollback.primary);
+                expect(output).toContain(rollback.secondary);
+                expect(fs.existsSync(snapshotPath)).toBe(false);
+                if (rollback.prior) {
+                    expect(JSON.parse(fs.readFileSync(nativeRunPath, "utf8")))
+                        .toEqual({ sentinel: true });
+                } else {
+                    expect(fs.existsSync(nativeRunPath)).toBe(false);
+                }
+                expect(fs.readdirSync(evidenceDirectory).some(
+                    (entry) => entry.includes(".staging-") || entry.includes(".restore-")
+                )).toBe(false);
+                assertNoDesktop();
+                const recreated = createSnapshot(root);
+                expect(removeSnapshot(root, recreated.token).removed).toBe(true);
+            }
+
+            fs.rmSync(evidenceDirectory, { recursive: true, force: true });
+            const mutationOutput = runInjected(
+                "-InjectedPersistenceFailure postcommit -InjectedSnapshotTamper mutation "
+                    + "-InjectedRollbackFailure outputRemove"
+            );
+            expect(mutationOutput).toContain("Injected post-commit evidence verification failure");
+            expect(mutationOutput).toContain("Injected success-output removal failure");
+            expect(mutationOutput).toContain("Integrity-gated native snapshot cleanup failed");
+            expect(mutationOutput.indexOf("Injected post-commit evidence verification failure"))
+                .toBeLessThan(
+                    mutationOutput.indexOf("Integrity-gated native snapshot cleanup failed")
+                );
+            expect(fs.existsSync(snapshotPath)).toBe(true);
+            expect(fs.readFileSync(
+                path.join(snapshotPath, "AtlynProfileLensSample.pbip"),
+                "utf8"
+            )).toContain("mutation");
+            expect(fs.existsSync(nativeRunPath)).toBe(false);
+            assertNoDesktop();
+            fs.rmSync(snapshotPath, { recursive: true, force: true });
+
+            fs.rmSync(evidenceDirectory, { recursive: true, force: true });
+            const reparseOutput = runInjected(
+                "-InjectedPersistenceFailure replace -InjectedSnapshotTamper reparse"
+            );
+            expect(reparseOutput).toContain("Injected evidence atomic replace failure");
+            expect(reparseOutput).toContain("Integrity-gated native snapshot cleanup failed");
+            expect(reparseOutput.indexOf("Injected evidence atomic replace failure"))
+                .toBeLessThan(
+                    reparseOutput.indexOf("Integrity-gated native snapshot cleanup failed")
+                );
+            expect(fs.existsSync(snapshotPath)).toBe(true);
+            expect(fs.lstatSync(path.join(snapshotPath, "linked")).isSymbolicLink()).toBe(true);
+            expect(fs.existsSync(nativeRunPath)).toBe(false);
+            assertNoDesktop();
+            fs.rmSync(snapshotPath, { recursive: true, force: true });
+
+            fs.rmSync(evidenceDirectory, { recursive: true, force: true });
+            const cleanupOutput = runInjected(
+                "-InjectedPersistenceFailure postcommit "
+                    + "-InjectedRollbackFailure snapshotCleanup"
+            );
+            expect(cleanupOutput).toContain("Injected post-commit evidence verification failure");
+            expect(cleanupOutput).toContain("Integrity-gated native snapshot cleanup failed");
+            expect(cleanupOutput.indexOf("Injected post-commit evidence verification failure"))
+                .toBeLessThan(
+                    cleanupOutput.indexOf("Integrity-gated native snapshot cleanup failed")
+                );
+            expect(fs.existsSync(snapshotPath)).toBe(true);
+            expect(fs.existsSync(nativeRunPath)).toBe(false);
+            assertNoDesktop();
+            expect(removeSnapshot(root, token).removed).toBe(true);
+
+            fs.rmSync(evidenceDirectory, { recursive: true, force: true });
+            const refusalOutput = runInjected(
+                "-InjectedPersistenceFailure sanitize -InjectedCleanupRefusal"
+            );
+            expect(refusalOutput).toContain("Injected evidence sanitization failure");
+            expect(refusalOutput).toContain("Launch snapshot retained:");
+            expect(refusalOutput).toContain(token);
+            expect(refusalOutput.indexOf("Injected evidence sanitization failure"))
+                .toBeLessThan(refusalOutput.indexOf("Launch snapshot retained:"));
+            expect(refusalOutput).not.toMatch(/[A-Z]:\\Users\\|\/Users\/|\/home\//i);
+            expect(fs.existsSync(snapshotPath)).toBe(true);
+            expect(fs.existsSync(nativeRunPath)).toBe(false);
+            assertNoDesktop();
+            expect(removeSnapshot(root, token).removed).toBe(true);
+
+            fs.rmSync(evidenceDirectory, { recursive: true, force: true });
+            const durableRefusalOutput = runInjected(
+                "-InjectedBlockedRun -InjectedCleanupRefusal"
+            );
+            expect(durableRefusalOutput).toContain("Injected native blocked failure");
+            expect(durableRefusalOutput).toContain("Launch snapshot retained:");
+            const durableRefusal = JSON.parse(
+                fs.readFileSync(nativeFailurePath, "utf8")
+            ) as {
+                outcome: string;
+                snapshotCleanup: {
+                    attempted: boolean;
+                    errorCount: number;
+                    retained: boolean;
+                    retainedToken: string;
+                    reason: string;
+                };
+            };
+            expect(durableRefusal.outcome).toBe("blocked");
+            expect(durableRefusal.snapshotCleanup).toMatchObject({
+                attempted: false,
+                errorCount: 0,
+                retained: true,
+                retainedToken: token,
+                reason: "owned processes or snapshot handles remain active"
+            });
+            expect(() => assertEvidenceSafe(durableRefusal)).not.toThrow();
+            expect(fs.existsSync(snapshotPath)).toBe(true);
+            expect(fs.existsSync(nativeRunPath)).toBe(false);
+            assertNoDesktop();
+            expect(removeSnapshot(root, token).removed).toBe(true);
+
+            fs.rmSync(evidenceDirectory, { recursive: true, force: true });
+            const lateLockOutput = runInjected(
+                "-InjectedBlockedRun -InjectedRollbackFailure lockDispose"
+            );
+            expect(lateLockOutput).toContain("Injected native blocked failure");
+            expect(lateLockOutput).toContain("Injected PBIX lock disposal failure");
+            expect(lateLockOutput.indexOf("Injected native blocked failure"))
+                .toBeLessThan(lateLockOutput.indexOf("Injected PBIX lock disposal failure"));
+            expect(fs.existsSync(nativeFailurePath)).toBe(true);
+            expect(fs.existsSync(nativeRunPath)).toBe(false);
+            expect(fs.existsSync(snapshotPath)).toBe(false);
+            expect(fs.readdirSync(path.join(root, "dist", "release")).some(
+                (entry) => entry.startsWith("injected-lock-")
+            )).toBe(false);
+            assertNoDesktop();
+            const lateLockRecreated = createSnapshot(root);
+            expect(removeSnapshot(root, lateLockRecreated.token).removed).toBe(true);
+
+            for (const tamper of ["mutation", "reparse"]) {
+                fs.rmSync(evidenceDirectory, { recursive: true, force: true });
+                const output = runInjected(`-InjectedFinalSnapshotTamper ${tamper}`);
+                expect(output).toContain("Native snapshot changed before evidence persistence");
+                expect(output).toContain("Integrity-gated native snapshot cleanup failed");
+                expect(output).toContain("Launch snapshot retained:");
+                expect(output.indexOf("Native snapshot changed before evidence persistence"))
+                    .toBeLessThan(
+                        output.indexOf("Integrity-gated native snapshot cleanup failed")
+                    );
+                const blocked = JSON.parse(
+                    fs.readFileSync(nativeFailurePath, "utf8")
+                ) as {
+                    outcome: string;
+                    error: string;
+                    snapshotCleanup: {
+                        retained: boolean;
+                        retainedToken: string;
+                        reason: string;
+                    };
+                };
+                expect(blocked.outcome).toBe("blocked");
+                expect(blocked.error).toBe("Native snapshot changed before evidence persistence");
+                expect(blocked.snapshotCleanup).toMatchObject({
+                    retained: true,
+                    retainedToken: token,
+                    reason: "integrity-gated snapshot cleanup failed"
+                });
+                expect(fs.existsSync(nativeRunPath)).toBe(false);
+                expect(fs.existsSync(snapshotPath)).toBe(true);
+                if (tamper === "mutation") {
+                    expect(fs.existsSync(
+                        path.join(snapshotPath, "injected-final-mutation.txt")
+                    )).toBe(true);
+                } else {
+                    expect(fs.lstatSync(
+                        path.join(snapshotPath, "final-linked")
+                    ).isSymbolicLink()).toBe(true);
+                }
+                assertNoDesktop();
+                fs.rmSync(snapshotPath, { recursive: true, force: true });
+            }
+        } finally {
+            fs.rmSync(snapshotPath, { recursive: true, force: true });
+        }
+    }, 240_000);
+
+    it("marks every blocked evidence commit resolvable and release-ineligible", () => {
+        const evidenceDirectory = path.join(root, "docs", "native-validation");
+        for (const entry of fs.readdirSync(evidenceDirectory).filter((name) => name.endsWith(".json"))) {
+            const evidence = JSON.parse(
+                fs.readFileSync(path.join(evidenceDirectory, entry), "utf8")
+            ) as {
+                outcome?: string;
+                sourceCommit?: string;
+                evidenceTrust?: string;
+                releaseClaimEligible?: boolean;
+            };
+            if (evidence.outcome !== "blocked") continue;
+            expect(evidence.evidenceTrust).toBe("historical-blocked-diagnostic");
+            expect(evidence.releaseClaimEligible).toBe(false);
+            expect(evidence.sourceCommit).toMatch(/^[0-9a-f]{40}$/);
+            expect(() => execFileSync(
+                "git",
+                ["cat-file", "-e", `${evidence.sourceCommit}^{commit}`],
+                { cwd: root, stdio: "pipe" }
+            )).not.toThrow();
+        }
     });
 
     it("redacts adversarial generated output before the actual evidence path", () => {
@@ -504,6 +993,11 @@ describe("native validation evidence safety", () => {
                 { snapshotParent: shortParent }
             ).removed).toBe(true);
             expect(fs.existsSync(snapshot.absolutePath)).toBe(false);
+            expect(removeSnapshot(
+                longRoot,
+                snapshot.token,
+                { snapshotParent: shortParent }
+            ).alreadyAbsent).toBe(true);
         } finally {
             fs.rmSync(temp, { recursive: true, force: true });
         }
@@ -536,6 +1030,50 @@ describe("native validation evidence safety", () => {
             expect(() => assertSnapshotDirectoryEntries(temp, entries)).not.toThrow();
             fs.writeFileSync(path.join(path.dirname(settings), "unexpected.json"), "{}");
             expect(() => assertSnapshotDirectoryEntries(temp, entries)).toThrow(/unexpected file/i);
+        } finally {
+            fs.rmSync(temp, { recursive: true, force: true });
+        }
+    });
+
+    it("refuses to delete mutated or reparsed launch snapshots", () => {
+        const temp = fs.mkdtempSync(path.join(os.tmpdir(), "profile-lens-cleanup-refusal-"));
+        const rootOne = path.join(temp, "root-one");
+        const rootTwo = path.join(temp, "root-two");
+        const parentOne = path.join(temp, "short-one");
+        const parentTwo = path.join(temp, "short-two");
+        for (const fixtureRoot of [rootOne, rootTwo]) {
+            const sample = path.join(fixtureRoot, "samples", "AtlynProfileLensSample");
+            fs.mkdirSync(sample, { recursive: true });
+            fs.writeFileSync(path.join(sample, "AtlynProfileLensSample.pbip"), "fixture");
+        }
+        try {
+            const mutated = createSnapshot(rootOne, { snapshotParent: parentOne });
+            fs.writeFileSync(
+                path.join(mutated.absolutePath, "AtlynProfileLensSample.pbip"),
+                "mutation"
+            );
+            expect(() => removeSnapshot(
+                rootOne,
+                mutated.token,
+                { snapshotParent: parentOne }
+            )).toThrow(/changed/i);
+            expect(fs.existsSync(mutated.absolutePath)).toBe(true);
+
+            const reparsed = createSnapshot(rootTwo, { snapshotParent: parentTwo });
+            const external = path.join(temp, "external");
+            fs.mkdirSync(external);
+            try {
+                fs.symlinkSync(external, path.join(reparsed.absolutePath, "linked"), "junction");
+            } catch (error) {
+                if ((error as NodeJS.ErrnoException).code === "EPERM") return;
+                throw error;
+            }
+            expect(() => removeSnapshot(
+                rootTwo,
+                reparsed.token,
+                { snapshotParent: parentTwo }
+            )).toThrow(/reparse/i);
+            expect(fs.existsSync(reparsed.absolutePath)).toBe(true);
         } finally {
             fs.rmSync(temp, { recursive: true, force: true });
         }

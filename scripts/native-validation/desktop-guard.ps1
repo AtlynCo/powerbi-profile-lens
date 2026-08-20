@@ -298,7 +298,7 @@ function Get-OwnedDialog {
                     $hostCondition
                 ))
                 if ($hosts.Count -eq 1 -and $hosts[0].Current.ProcessId -eq $ProcessId) {
-                    return $root
+                    return $hosts[0]
                 }
                 Start-Sleep -Milliseconds 400
             }
@@ -314,17 +314,18 @@ function Assert-ControlInsideDialog {
                 [System.Windows.Automation.AutomationElement]::AutomationIdProperty,
                 "FileNameControlHost"
             )
-            $isEmbeddedDialog = $Dialog.Current.NativeWindowHandle -ne 0 -and
-                @($Dialog.FindAll(
-                    [System.Windows.Automation.TreeScope]::Descendants,
-                    $hostCondition
-                )).Count -eq 1
+            $isEmbeddedDialog = $Dialog.Current.AutomationId -eq "FileNameControlHost" -and
+                $Dialog.Current.NativeWindowHandle -ne 0
             if ($Dialog.Current.ProcessId -ne $ProcessId -or
                 (-not $isTitledDialog -and -not $isEmbeddedDialog)) {
                 throw "Refusing control action: the owned dialog identity changed"
             }
             if ($Control.Current.ProcessId -ne $ProcessId) {
                 throw "Refusing control action: the target process changed"
+            }
+            if ($isEmbeddedDialog -and
+                -not (Test-ControlDescendsFrom -Scope $Dialog -Control $Control)) {
+                throw "Refusing control action: the target is outside the embedded file-name host"
             }
             $dialogRectangle = $Dialog.Current.BoundingRectangle
             $controlRectangle = $Control.Current.BoundingRectangle
@@ -337,6 +338,27 @@ function Assert-ControlInsideDialog {
                     ($dialogRectangle.Y + $dialogRectangle.Height)) {
                 throw "Refusing control action: the target is not visibly bounded inside the owned dialog"
             }
+}
+
+function Test-ControlDescendsFrom {
+    param(
+        $Scope,
+        $Control,
+        [scriptblock]$ParentResolver = {
+            param($Element)
+            [System.Windows.Automation.TreeWalker]::ControlViewWalker.GetParent($Element)
+        },
+        [scriptblock]$IdentityComparer = {
+            param($First, $Second)
+            [System.Windows.Automation.Automation]::Compare($First, $Second)
+        }
+    )
+    $current = $Control
+    while ($current) {
+        if (& $IdentityComparer $current $Scope) { return $true }
+        $current = & $ParentResolver $current
+    }
+    return $false
 }
 
 function Find-OwnedDialogControl {

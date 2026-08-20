@@ -1,7 +1,41 @@
 param(
     [string]$Pbip = "samples\AtlynProfileLensSample\AtlynProfileLensSample.pbip",
     [string]$Pbix,
-    [string]$EvidenceDirectory = "dist\release\native-evidence"
+    [string]$EvidenceDirectory = "dist\release\native-evidence",
+    [Parameter(DontShow)][scriptblock]$SnapshotLockOpener = {
+        param($Root, $ExpectedFileCount)
+        Open-SnapshotReadLocks -SnapshotRoot $Root -ExpectedFileCount $ExpectedFileCount
+    },
+    [Parameter(DontShow)][scriptblock]$PostSnapshotFixtureValidator = {
+        param($Snapshot, $ComputedSampleIntegrity)
+        if ($Snapshot.fixtureProjectTreeSha256 -ne
+            $ComputedSampleIntegrity.projectTree.sha256) {
+            throw "Native snapshot fixture differs from the pre-copy verified PBIP project"
+        }
+    },
+    [Parameter(DontShow)][scriptblock]$DesktopEvidenceInitializer = {
+        param($DesktopExecutable)
+        (Get-Item $DesktopExecutable).VersionInfo.ProductVersion
+    },
+    [Parameter(DontShow)][ValidateSet("", "sanitize", "write", "replace", "postcommit")]
+    [string]$InjectedPersistenceFailure = "",
+    [Parameter(DontShow)][ValidateSet("", "mutation", "reparse")]
+    [string]$InjectedSnapshotTamper = "",
+    [Parameter(DontShow)][ValidateSet(
+        "",
+        "stagingDelete",
+        "restoreWrite",
+        "restoreReplace",
+        "outputRemove",
+        "lockDispose",
+        "snapshotCleanup"
+    )]
+    [string]$InjectedRollbackFailure = "",
+    [Parameter(DontShow)][switch]$InjectedPriorEvidence,
+    [Parameter(DontShow)][switch]$InjectedCleanupRefusal,
+    [Parameter(DontShow)][switch]$InjectedBlockedRun,
+    [Parameter(DontShow)][ValidateSet("", "mutation", "reparse")]
+    [string]$InjectedFinalSnapshotTamper = ""
 )
 
 $ErrorActionPreference = "Stop"
@@ -13,6 +47,8 @@ $validationMutex = [System.Threading.Mutex]::new(
     "Global\AtlynProfileLensNativeValidation"
 )
 $mutexOwned = $false
+$terminalFailure = $null
+$terminalSecondaryFailures = [System.Collections.Generic.List[System.Exception]]::new()
 try {
     try {
         $mutexOwned = $validationMutex.WaitOne(0)
@@ -83,20 +119,119 @@ if ($LASTEXITCODE -ne 0) {
     throw "PBIVIZ to sample resource parity verification failed"
 }
 $resourceParity = $resourceParityJson | ConvertFrom-Json
-$snapshotJson = & node (Join-Path $root "scripts\native-snapshot.cjs")
-if ($LASTEXITCODE -ne 0) {
-    throw "Verified native snapshot creation failed"
-}
-$snapshot = $snapshotJson | ConvertFrom-Json
-$snapshotRoot = $snapshot.absolutePath
-$snapshotPbipPath = Join-Path $snapshotRoot $snapshot.pbip
-if ($snapshot.fixtureProjectTreeSha256 -ne $computedSampleIntegrity.projectTree.sha256) {
-    throw "Native snapshot fixture differs from the pre-copy verified PBIP project"
-}
 $script:observations = @()
 $script:observationSequence = 0
 $script:ownedProcessJobs = @()
 $runId = [Guid]::NewGuid().ToString("N")
+$snapshotGuard = $null
+$guardsRestored = $false
+$cleanupCompleted = $false
+$primaryFailure = $null
+$secondaryFailure = $null
+$cleanupFailure = $null
+$pbixReadLock = $null
+$releasePbixReadLock = $null
+$ownedCleanupIncomplete = $false
+$record = $null
+$finalizableEvidencePath = Join-Path $evidencePath "native-run.json"
+$script:snapshotCleanupAttempted = $false
+$script:snapshotRetentionFailure = $null
+$injectedReparseTarget = $null
+$injectedLockPath = $null
+
+function Create-LaunchSnapshot {
+    $snapshotScript = Join-Path $root "scripts\native-snapshot.cjs"
+    $tokenJson = & node $snapshotScript --token
+    if ($LASTEXITCODE -ne 0) {
+        throw "Native snapshot token computation failed before creation"
+    }
+    $expectedToken = ($tokenJson | ConvertFrom-Json).token
+    $snapshotJson = & node $snapshotScript
+    if ($LASTEXITCODE -ne 0) {
+        throw "Verified native snapshot creation failed"
+    }
+    try {
+        $created = $snapshotJson | ConvertFrom-Json
+        if ($created.token -ne $expectedToken -or -not $created.absolutePath -or
+            -not $created.manifest) {
+            throw "Native snapshot creator returned an invalid result"
+        }
+        return $created
+    } catch {
+        $primary = $_
+        $rollbackToken = if ($created -and
+            $created.token -match "^[0-9a-f]{64}$") {
+            $created.token
+        } else {
+            $expectedToken
+        }
+        $cleanupJson = & node $snapshotScript --remove $rollbackToken
+        if ($LASTEXITCODE -ne 0) {
+            throw [System.AggregateException]::new(
+                "Native snapshot result failed validation and atomic rollback failed",
+                @($primary.Exception, [System.Exception]::new(
+                    "Integrity-gated snapshot rollback failed"
+                ))
+            )
+        }
+        $cleanup = $cleanupJson | ConvertFrom-Json
+        if (-not $cleanup.removed) {
+            throw [System.AggregateException]::new(
+                "Native snapshot result failed validation and no created snapshot was removed",
+                @($primary.Exception, [System.Exception]::new(
+                    "Atomic rollback did not remove a snapshot"
+                ))
+            )
+        }
+        throw $primary
+    }
+}
+
+$snapshot = Create-LaunchSnapshot
+
+try {
+$record = [ordered]@{
+    schemaVersion = 1
+    runId = $runId
+    sourceCommit = $sourceCommit
+    automation = $sourceState.automation
+    startedAt = (Get-Date).ToUniversalTime().ToString("o")
+    desktop = $null
+    pbip = ($pbipRelative -replace "\\", "/")
+    pbix = ($pbixRelative -replace "\\", "/")
+    snapshot = [ordered]@{
+        token = $snapshot.token
+        logicalPath = $snapshot.logicalPath
+        manifest = $snapshot.manifest
+        pathPreflight = $snapshot.pathPreflight
+        lock = $null
+    }
+    sample = [ordered]@{
+        projectTreeSha256 = $computedSampleIntegrity.projectTree.sha256
+        reportDefinitionTreeSha256 = $computedSampleIntegrity.reportDefinitionTree.sha256
+        modelDefinitionTreeSha256 = $computedSampleIntegrity.modelDefinitionTree.sha256
+        generatorSha256 = $computedSampleIntegrity.generator.sha256
+        pbipSha256 = $computedSampleIntegrity.pbip.sha256
+        embeddedVisualResourceSha256 = $computedSampleIntegrity.embeddedVisualResource.sha256
+        resourceParity = $resourceParity
+    }
+    observations = $script:observations
+    passes = @()
+    unavailable = @(
+        "touch input: no touch capability was established",
+        "Power BI Service publication and dashboard pinning: not attempted",
+        "Microsoft certification or Partner Center submission: not attempted"
+    )
+}
+
+New-Item -ItemType Directory -Force -Path $evidencePath | Out-Null
+$snapshotRoot = $snapshot.absolutePath
+$snapshotPbipPath = Join-Path $snapshotRoot $snapshot.pbip
+& $PostSnapshotFixtureValidator $snapshot $computedSampleIntegrity
+$record.desktop = & $DesktopEvidenceInitializer $desktopExe
+if (-not $record.desktop) {
+    throw "Desktop metadata and evidence initialization returned no version"
+}
 
 function Add-SealedObservation {
     param(
@@ -295,57 +430,21 @@ function Close-OwnedReport {
     return Invoke-OwnedProcessCleanup -Job $Job
 }
 
-$snapshotGuard = Open-SnapshotReadLocks -SnapshotRoot $snapshotRoot `
-    -ExpectedFileCount $snapshot.manifest.files
-$guardsRestored = $false
-$cleanupCompleted = $false
-$primaryFailure = $null
-$secondaryFailure = $null
-$cleanupFailure = $null
-$pbixReadLock = $null
-$releasePbixReadLock = $null
-$ownedCleanupIncomplete = $false
-try {
-$snapshotLockEvidence = $snapshotGuard.evidence
-New-Item -ItemType Directory -Force -Path (Split-Path $pbixPath), $evidencePath | Out-Null
+New-Item -ItemType Directory -Force -Path (Split-Path $pbixPath) | Out-Null
 if (Test-Path $pbixPath) { Remove-Item $pbixPath -Force }
-$finalizableEvidencePath = Join-Path $evidencePath "native-run.json"
-
-$record = [ordered]@{
-    schemaVersion = 1
-    runId = $runId
-    sourceCommit = $sourceCommit
-    automation = $sourceState.automation
-    startedAt = (Get-Date).ToUniversalTime().ToString("o")
-    desktop = (Get-Item $desktopExe).VersionInfo.ProductVersion
-    pbip = ($pbipRelative -replace "\\", "/")
-    pbix = ($pbixRelative -replace "\\", "/")
-    snapshot = [ordered]@{
-        token = $snapshot.token
-        logicalPath = $snapshot.logicalPath
-        manifest = $snapshot.manifest
-        pathPreflight = $snapshot.pathPreflight
-        lock = $snapshotLockEvidence
-    }
-    sample = [ordered]@{
-        projectTreeSha256 = $computedSampleIntegrity.projectTree.sha256
-        reportDefinitionTreeSha256 = $computedSampleIntegrity.reportDefinitionTree.sha256
-        modelDefinitionTreeSha256 = $computedSampleIntegrity.modelDefinitionTree.sha256
-        generatorSha256 = $computedSampleIntegrity.generator.sha256
-        pbipSha256 = $computedSampleIntegrity.pbip.sha256
-        embeddedVisualResourceSha256 = $computedSampleIntegrity.embeddedVisualResource.sha256
-        resourceParity = $resourceParity
-    }
-    observations = $script:observations
-    passes = @()
-    unavailable = @(
-        "touch input: no touch capability was established",
-        "Power BI Service publication and dashboard pinning: not attempted",
-        "Microsoft certification or Partner Center submission: not attempted"
-    )
+$snapshotGuard = & $SnapshotLockOpener $snapshotRoot $snapshot.manifest.files
+if (-not $snapshotGuard -or -not $snapshotGuard.evidence) {
+    throw "Snapshot lock acquisition returned no guard evidence"
 }
+$record.snapshot.lock = $snapshotGuard.evidence
 
 try {
+    if ($InjectedBlockedRun) {
+        throw "Injected native blocked failure"
+    } elseif ($InjectedPersistenceFailure -or $InjectedFinalSnapshotTamper) {
+        $record.outcome = "native-run-completed"
+        $record.observations = $script:observations
+    } else {
     $process = Start-OwnedReport -Path $snapshotPbipPath
     $record.passes += [ordered]@{
         kind = "pbip"
@@ -407,6 +506,7 @@ try {
         -ExpectedPredicate @{ kind = "unchanged" }
     $record.outcome = "native-run-completed"
     $record.observations = $script:observations
+    }
 } catch {
     $record.outcome = "blocked"
     $record.error = $_.Exception.Message
@@ -449,6 +549,16 @@ try {
     }
     $record.completedAt = (Get-Date).ToUniversalTime().ToString("o")
     $record.observations = $script:observations
+    if ($InjectedFinalSnapshotTamper -eq "mutation") {
+        Set-Content -LiteralPath (Join-Path $snapshotRoot "injected-final-mutation.txt") `
+            -Value "mutation"
+    } elseif ($InjectedFinalSnapshotTamper -eq "reparse") {
+        $injectedReparseTarget = Join-Path ([System.IO.Path]::GetTempPath()) `
+            "AtlynPBI-final-reparse-$runId"
+        New-Item -ItemType Directory -Force -Path $injectedReparseTarget | Out-Null
+        New-Item -ItemType Junction -Path (Join-Path $snapshotRoot "final-linked") `
+            -Target $injectedReparseTarget | Out-Null
+    }
     $finalSnapshotJson = & node (Join-Path $root "scripts\native-snapshot.cjs") `
         --verify $snapshot.token $snapshot.manifest.sha256
     if ($LASTEXITCODE -ne 0) {
@@ -457,16 +567,44 @@ try {
         )
     }
 }
+} catch {
+    if (-not $primaryFailure) {
+        $primaryFailure = $_
+        $record.outcome = "blocked"
+        $record.error = $_.Exception.Message
+    }
 } finally {
     if (-not $cleanupCompleted) {
+        $cleanupSummaries = @()
         foreach ($ownedJob in $script:ownedProcessJobs) {
             try {
                 $cleanup = Invoke-OwnedProcessCleanup -Job $ownedJob
-                if (-not $cleanup.complete) { $ownedCleanupIncomplete = $true }
             } catch {
-                $ownedCleanupIncomplete = $true
+                $cleanup = [ordered]@{
+                    graceful = $false
+                    forced = $false
+                    complete = $false
+                    activeProcessCount = $null
+                    errors = @("cleanup threw")
+                }
                 if (-not $cleanupFailure) { $cleanupFailure = $_ }
             }
+            $cleanupSummaries += [ordered]@{
+                graceful = $cleanup.graceful
+                forced = $cleanup.forced
+                complete = $cleanup.complete
+                activeProcessCount = $cleanup.activeProcessCount
+                errorCount = $cleanup.errors.Count
+            }
+            if (-not $cleanup.complete) {
+                $ownedCleanupIncomplete = $true
+            }
+        }
+        $cleanupCompleted = $true
+        $record.cleanup = [ordered]@{
+            ownedProcessCount = $script:ownedProcessJobs.Count
+            outcomes = $cleanupSummaries
+            allExited = -not $ownedCleanupIncomplete
         }
     }
     if ($pbixReadLock -and -not $ownedCleanupIncomplete) {
@@ -474,7 +612,9 @@ try {
     }
     if (-not $ownedCleanupIncomplete) {
         try {
-            Close-SnapshotReadLocks -Guard $snapshotGuard
+            if ($snapshotGuard) {
+                Close-SnapshotReadLocks -Guard $snapshotGuard
+            }
             $guardsRestored = $true
         } catch {
             if (-not $cleanupFailure) { $cleanupFailure = $_ }
@@ -484,21 +624,106 @@ try {
             "Snapshot protections retained because an owned Desktop process remains"
         )
     }
+    if (-not $record.completedAt) {
+        $record.completedAt = (Get-Date).ToUniversalTime().ToString("o")
+        $record.observations = $script:observations
+    }
+}
+
+$blockedSnapshotCleanup = $null
+function Invoke-LaunchSnapshotCleanupOnce {
+    if ($script:snapshotCleanupAttempted) {
+        return $record.snapshotCleanup
+    }
+    $script:snapshotCleanupAttempted = $true
+    $cleanupGuardsRestored = if ($InjectedCleanupRefusal) {
+        $false
+    } else {
+        $guardsRestored
+    }
+    $result = Invoke-BlockedSnapshotCleanup `
+        -AllOwnedProcessesExited $record.cleanup.allExited `
+        -GuardsRestored $cleanupGuardsRestored `
+        -CleanupAction {
+            if ($InjectedRollbackFailure -eq "snapshotCleanup") {
+                throw "Injected late snapshot cleanup failure"
+            }
+            $cleanupJson = & node (Join-Path $root "scripts\native-snapshot.cjs") `
+                --remove $snapshot.token
+            if ($LASTEXITCODE -ne 0) {
+                throw "Integrity-gated native snapshot cleanup failed"
+            }
+            return $cleanupJson | ConvertFrom-Json
+        }
+    if (-not $result.removed -and -not $result.alreadyAbsent) {
+        $result["retained"] = $true
+        $result["retainedToken"] = $snapshot.token
+        $script:snapshotRetentionFailure = [System.Exception]::new(
+            "Launch snapshot retained: $($result.reason); token $($snapshot.token)"
+        )
+    } else {
+        $result["retained"] = $false
+    }
+    $record.snapshotCleanup = $result
+    if ($result.errorCount -gt 0 -and -not $cleanupFailure) {
+        $script:cleanupFailure = [System.Exception]::new(
+            "Integrity-gated native snapshot cleanup failed"
+        )
+    }
+    return $result
+}
+
+$requiresBlockedSnapshotCleanup = $record.outcome -eq "blocked" -or
+    $primaryFailure -or $secondaryFailure -or $cleanupFailure
+if ($requiresBlockedSnapshotCleanup) {
+    $blockedSnapshotCleanup = Invoke-LaunchSnapshotCleanupOnce
 }
 
 $failure = Select-RunFailure -PrimaryFailure $primaryFailure `
-    -CleanupFailure (Select-RunFailure -PrimaryFailure $cleanupFailure -CleanupFailure $secondaryFailure)
+    -CleanupFailure (Select-RunFailure -PrimaryFailure $secondaryFailure `
+        -CleanupFailure $cleanupFailure)
 $record.guardsRestored = $guardsRestored
 if ($failure -or -not $guardsRestored -or -not $record.cleanup.allExited) {
     $record.outcome = "blocked"
+    if (-not $record.error -and $failure) {
+        $record.error = if ($failure -is [System.Exception]) {
+            $failure.Message
+        } else {
+            $failure.Exception.Message
+        }
+    }
 }
+$outputPath = $null
+$stagingPath = $null
+$outputCommitted = $false
+$previousOutputBytes = $null
+$persistenceFailure = $null
+$restorePath = $null
+$persistenceSecondaryFailures = [System.Collections.Generic.List[System.Exception]]::new()
 try {
+    if ($InjectedRollbackFailure -eq "lockDispose") {
+        $injectedLockPath = Join-Path (Split-Path $pbixPath) "injected-lock-$runId.tmp"
+        [System.IO.File]::WriteAllText($injectedLockPath, "lock")
+        $releasePbixReadLock = Open-PbixReadLock -Path $injectedLockPath
+    }
     $preSanitizeSourceJson = & node (Join-Path $root "scripts\native-source-integrity.cjs")
     if ($LASTEXITCODE -ne 0) { throw "Automation source changed before evidence sanitization" }
     $preSanitizeSource = $preSanitizeSourceJson | ConvertFrom-Json
     if ($preSanitizeSource.sourceCommit -ne $sourceCommit -or
         $preSanitizeSource.automation.sha256 -ne $sourceState.automation.sha256) {
         throw "Automation source identity changed before evidence sanitization"
+    }
+    if ($InjectedSnapshotTamper -eq "mutation") {
+        Set-Content -LiteralPath (Join-Path $snapshotRoot $snapshot.pbip) -Value "mutation"
+    } elseif ($InjectedSnapshotTamper -eq "reparse") {
+        $injectedReparseTarget = Join-Path ([System.IO.Path]::GetTempPath()) `
+            "AtlynPBI-reparse-$runId"
+        New-Item -ItemType Directory -Force -Path $injectedReparseTarget | Out-Null
+        New-Item -ItemType Junction -Path (Join-Path $snapshotRoot "linked") `
+            -Target $injectedReparseTarget | Out-Null
+    }
+    if ($InjectedPersistenceFailure -eq "sanitize") {
+        throw "Injected evidence sanitization failure"
     }
     $sanitizedJson = ($record | ConvertTo-Json -Depth 12 -Compress) |
         & node (Join-Path $root "scripts\native-evidence-sanitize.cjs")
@@ -508,31 +733,231 @@ try {
     } else {
         $finalizableEvidencePath
     }
-    Set-Content -Path $outputPath -Value $sanitizedJson
-    & node (Join-Path $root "scripts\native-evidence-sanitize.cjs") --check $outputPath
+    if ($InjectedPriorEvidence) {
+        [System.IO.File]::WriteAllText($outputPath, '{"sentinel":true}')
+    }
+    $stagingPath = "$outputPath.staging-$runId"
+    $previousOutputBytes = if (Test-Path $outputPath) {
+        [System.IO.File]::ReadAllBytes($outputPath)
+    } else {
+        $null
+    }
+    if ($InjectedPersistenceFailure -eq "write") {
+        throw "Injected evidence file write failure"
+    }
+    [System.IO.File]::WriteAllText($stagingPath, $sanitizedJson)
+    & node (Join-Path $root "scripts\native-evidence-sanitize.cjs") --check $stagingPath
     if ($LASTEXITCODE -ne 0) {
-        Remove-Item $outputPath -Force
-        throw "Persisted evidence failed privacy verification"
+        throw "Staged evidence failed privacy verification"
+    }
+    if ($InjectedPersistenceFailure -eq "replace") {
+        throw "Injected evidence atomic replace failure"
+    }
+    [System.IO.File]::Move($stagingPath, $outputPath, $true)
+    $outputCommitted = $true
+    if ($InjectedPersistenceFailure -eq "postcommit") {
+        throw "Injected post-commit evidence verification failure"
     }
     $postSanitizeSourceJson = & node (Join-Path $root "scripts\native-source-integrity.cjs")
     if ($LASTEXITCODE -ne 0) {
-        Remove-Item $outputPath -Force
         throw "Automation source changed after evidence sanitization"
     }
     $postSanitizeSource = $postSanitizeSourceJson | ConvertFrom-Json
     if ($postSanitizeSource.sourceCommit -ne $sourceCommit -or
         $postSanitizeSource.automation.sha256 -ne $sourceState.automation.sha256) {
-        Remove-Item $outputPath -Force
         throw "Automation source identity changed after evidence sanitization"
     }
 } catch {
-    if (-not $failure) { $failure = $_ }
+    $persistenceFailure = $_
+    if (-not $failure) {
+        $failure = $persistenceFailure
+        $record.outcome = "blocked"
+        $record.error = $persistenceFailure.Exception.Message
+    } else {
+        $persistenceSecondaryFailures.Add($persistenceFailure.Exception)
+    }
+    try {
+        if ($InjectedRollbackFailure -eq "stagingDelete") {
+            throw "Injected staging deletion rollback failure"
+        }
+        if ($stagingPath -and (Test-Path $stagingPath)) {
+            Remove-Item -LiteralPath $stagingPath -Force
+        }
+    } catch {
+        $persistenceSecondaryFailures.Add($_.Exception)
+    }
+    if ($outputCommitted -and $outputPath) {
+        if ($null -ne $previousOutputBytes) {
+            try {
+                if ($InjectedRollbackFailure -eq "restoreWrite") {
+                    throw "Injected prior-output restore write failure"
+                }
+                $restorePath = "$outputPath.restore-$runId"
+                [System.IO.File]::WriteAllBytes($restorePath, $previousOutputBytes)
+            } catch {
+                $persistenceSecondaryFailures.Add($_.Exception)
+            }
+            try {
+                if ($InjectedRollbackFailure -eq "restoreReplace") {
+                    throw "Injected prior-output restore replace failure"
+                }
+                if ($restorePath -and (Test-Path $restorePath)) {
+                    [System.IO.File]::Move($restorePath, $outputPath, $true)
+                }
+            } catch {
+                $persistenceSecondaryFailures.Add($_.Exception)
+            }
+        } else {
+            try {
+                if ($InjectedRollbackFailure -eq "outputRemove") {
+                    throw "Injected success-output removal failure"
+                }
+                if (Test-Path $outputPath) {
+                    Remove-Item -LiteralPath $outputPath -Force
+                }
+            } catch {
+                $persistenceSecondaryFailures.Add($_.Exception)
+            }
+        }
+    }
+} finally {
+    if ($persistenceFailure) {
+        try {
+            if ($stagingPath -and (Test-Path $stagingPath)) {
+                Remove-Item -LiteralPath $stagingPath -Force
+            }
+            if ($restorePath -and (Test-Path $restorePath)) {
+                Remove-Item -LiteralPath $restorePath -Force
+            }
+        } catch {
+            $persistenceSecondaryFailures.Add($_.Exception)
+        }
+        try {
+            if ($outputCommitted -and $outputPath) {
+                if ($null -ne $previousOutputBytes) {
+                    $quarantineRestore = "$outputPath.quarantine-$runId"
+                    [System.IO.File]::WriteAllBytes($quarantineRestore, $previousOutputBytes)
+                    [System.IO.File]::Move($quarantineRestore, $outputPath, $true)
+                } elseif (Test-Path $outputPath) {
+                    Remove-Item -LiteralPath $outputPath -Force
+                }
+            }
+        } catch {
+            $persistenceSecondaryFailures.Add($_.Exception)
+        }
+    }
+    try {
+        if ($InjectedRollbackFailure -eq "lockDispose") {
+            throw "Injected PBIX lock disposal failure"
+        }
+        if ($releasePbixReadLock -and -not $ownedCleanupIncomplete) {
+            $releasePbixReadLock.Dispose()
+            $releasePbixReadLock = $null
+        }
+    } catch {
+        $persistenceSecondaryFailures.Add($_.Exception)
+    } finally {
+        if ($releasePbixReadLock -and -not $ownedCleanupIncomplete) {
+            try {
+                $releasePbixReadLock.Dispose()
+                $releasePbixReadLock = $null
+            } catch {
+                $persistenceSecondaryFailures.Add($_.Exception)
+            }
+        }
+    }
+    if ($persistenceFailure) {
+        $blockedSnapshotCleanup = Invoke-LaunchSnapshotCleanupOnce
+        $record.persistenceRollback = [ordered]@{
+            errorCount = $persistenceSecondaryFailures.Count
+            errors = @($persistenceSecondaryFailures | ForEach-Object { $_.Message })
+        }
+    }
 }
-if ($failure) { throw $failure }
+if ($failure) {
+    $primaryException = if ($failure -is [System.Exception]) {
+        $failure
+    } else {
+        $failure.Exception
+    }
+    $finalSecondaryFailures = [System.Collections.Generic.List[System.Exception]]::new()
+    foreach ($candidate in @(
+        $secondaryFailure,
+        $script:cleanupFailure,
+        $script:snapshotRetentionFailure
+    )) {
+        $candidateException = if ($candidate -is [System.Exception]) {
+            $candidate
+        } else {
+            $candidate.Exception
+        }
+        if ($candidateException -and $candidateException -ne $primaryException -and
+            -not ($finalSecondaryFailures | Where-Object {
+                $_.Message -eq $candidateException.Message
+            })) {
+            $finalSecondaryFailures.Add($candidateException)
+        }
+    }
+    foreach ($candidate in $persistenceSecondaryFailures) {
+        if ($candidate -ne $primaryException -and
+            -not ($finalSecondaryFailures | Where-Object {
+                $_.Message -eq $candidate.Message
+            })) {
+            $finalSecondaryFailures.Add($candidate)
+        }
+    }
+    $terminalFailure = $primaryException
+    foreach ($secondary in $finalSecondaryFailures) {
+        $terminalSecondaryFailures.Add($secondary)
+    }
+}
 } finally {
     if ($releasePbixReadLock -and -not $ownedCleanupIncomplete) {
-        $releasePbixReadLock.Dispose()
+        try {
+            $releasePbixReadLock.Dispose()
+            $releasePbixReadLock = $null
+        } catch {
+            if ($terminalFailure) {
+                $terminalSecondaryFailures.Add($_.Exception)
+            } else {
+                $terminalFailure = $_.Exception
+            }
+        }
     }
-    if ($mutexOwned) { $validationMutex.ReleaseMutex() }
-    $validationMutex.Dispose()
+    try {
+        if ($injectedReparseTarget -and (Test-Path $injectedReparseTarget)) {
+            Remove-Item -LiteralPath $injectedReparseTarget -Recurse -Force
+        }
+    } catch {
+        if ($terminalFailure) { $terminalSecondaryFailures.Add($_.Exception) }
+        else { $terminalFailure = $_.Exception }
+    }
+    try {
+        if ($injectedLockPath -and (Test-Path $injectedLockPath)) {
+            Remove-Item -LiteralPath $injectedLockPath -Force
+        }
+    } catch {
+        if ($terminalFailure) { $terminalSecondaryFailures.Add($_.Exception) }
+        else { $terminalFailure = $_.Exception }
+    }
+    try {
+        if ($mutexOwned) { $validationMutex.ReleaseMutex() }
+        $validationMutex.Dispose()
+    } catch {
+        if ($terminalFailure) { $terminalSecondaryFailures.Add($_.Exception) }
+        else { $terminalFailure = $_.Exception }
+    }
+}
+if ($terminalFailure) {
+    if ($terminalSecondaryFailures.Count -gt 0) {
+        $allFailures = [System.Collections.Generic.List[System.Exception]]::new()
+        $allFailures.Add($terminalFailure)
+        foreach ($secondary in $terminalSecondaryFailures) {
+            if (-not ($allFailures | Where-Object { $_.Message -eq $secondary.Message })) {
+                $allFailures.Add($secondary)
+            }
+        }
+        throw [System.AggregateException]::new($terminalFailure.Message, $allFailures)
+    }
+    throw $terminalFailure
 }
