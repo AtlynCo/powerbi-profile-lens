@@ -82,6 +82,16 @@ describe("offline PBIP validation sample", () => {
         for (const metric of ["Metric A", "Metric B", "Metric C", "Metric D", "Metric E", "Metric F"]) {
             expect(model).toContain(metric);
         }
+        for (const measure of [
+            "Population Distribution",
+            "Household Income Brackets",
+            "Educational Attainment",
+            "Community Health Indicators",
+            "Labor Force Participation",
+            "Housing & Infrastructure Index"
+        ]) {
+            expect(model).toContain(measure);
+        }
         expect(model).toContain("mode: import");
         expect(model).not.toMatch(/\b(Web\.Contents|Sql\.Database|OData\.Feed|https?:\/\/)\b/);
     });

@@ -14,9 +14,18 @@ Nothing in this document claims Microsoft certification, approval, submission, o
 | Visualization icon | `assets/icon.png`, 20x20 PNG | Present and package-audited |
 | Listing logo | `assets/partner-center-logo-300x300.png`, 300x300 PNG | Present |
 | Screenshots | 1-5 native release screenshots | **Blocked: no safe native capture was completed** |
-| Offline sample project | `samples/AtlynProfileLensSample/AtlynProfileLensSample.pbip` | Present |
+| Offline sample project | `samples/AtlynProfileLensSample/AtlynProfileLensSample.pbip` | Present (Demographics & Community Profile Demo) |
 | Genuine offline PBIX | `dist/release/AtlynProfileLensSample-1.4.0.0.pbix` | **Blocked: not produced** |
 | Native evidence | No 1.4.0.0 native record | **Not run; 1.2.0.0 evidence is historical only** |
+
+## Demographics & Community Profile Sample (v1.4.0.0)
+
+The offline PBIP sample (`samples/AtlynProfileLensSample/AtlynProfileLensSample.pbip`) showcases 13 comprehensive pages exercising:
+- **Demographic Metric Dimensions**: Population Distribution by Age Band, Household Income Brackets, Educational Attainment, Community Health Indicators, Labor Force Participation, and Housing & Infrastructure Index.
+- **Probe-driven Viewport Navigation**: Camera drag, wheel, pinch, and keyboard controls across Natural Earth 50m / 110m, US States, and US Counties with fixed-center probe interrogation.
+- **Bound Geographic Entities & Matrices**: WGS84 point coordinates with locator inset, custom WKT polygon geometries with focus lens, nongeographic grid and hex matrices, and progressive authoring.
+- **Zero Runtime Dependencies**: The semantic model is an offline DAX `DATATABLE` calculated table requiring zero external data sources, credentials, or network connections.
+- **Embedded Custom Visual**: Embeds the exact `atlynProfileLens.1.4.0.0.pbiviz` package payload with verified SHA-256 byte parity.
 
 ## Source and artifact parity
 
@@ -35,3 +44,4 @@ release PBIVIZ. Record unavailable surfaces as unproven.
 The offer remains a free distribution of the visual. Partner Center upload, Microsoft review,
 certification, Service publication, and dashboard pinning are owner-controlled steps and were not
 performed by this release-preparation work.
+
