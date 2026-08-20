@@ -431,6 +431,82 @@ describe("native validation evidence safety", () => {
         }
     }, 120_000);
 
+    it("cleans snapshots after injected evidence transaction failures", () => {
+        if (process.platform !== "win32") return;
+        const sampleRoot = path.join(root, "samples", "AtlynProfileLensSample");
+        const token = snapshotManifest(sampleRoot).sha256;
+        const snapshotPath = snapshotDirectory(token);
+        const evidenceDirectory = path.join(root, "dist", "release", "native-evidence");
+        const nativeRunPath = path.join(evidenceDirectory, "native-run.json");
+        const runner = path.join(
+            root,
+            "scripts",
+            "native-validation",
+            "run-desktop-validation.ps1"
+        ).replaceAll("'", "''");
+        const runInjected = (parameters: string): string => execFileSync(
+            "pwsh",
+            [
+                "-NoProfile",
+                "-Command",
+                `try { & '${runner}' ${parameters} } `
+                    + "catch { $_.Exception.Message }"
+            ],
+            { cwd: root, stdio: "pipe" }
+        ).toString();
+        const assertNoDesktop = () => {
+            const output = execFileSync("pwsh", [
+                "-NoProfile",
+                "-Command",
+                "@(Get-Process -Name PBIDesktop -ErrorAction SilentlyContinue).Count"
+            ], { cwd: root }).toString().trim();
+            expect(output).toBe("0");
+        };
+        fs.rmSync(snapshotPath, { recursive: true, force: true });
+        try {
+            for (const [mode, message] of [
+                ["sanitize", "Injected evidence sanitization failure"],
+                ["write", "Injected evidence file write failure"],
+                ["replace", "Injected evidence atomic replace failure"]
+            ]) {
+                fs.rmSync(evidenceDirectory, { recursive: true, force: true });
+                const output = runInjected(`-InjectedPersistenceFailure ${mode}`);
+                expect(output).toContain(message);
+                expect(fs.existsSync(snapshotPath)).toBe(false);
+                expect(fs.existsSync(nativeRunPath)).toBe(false);
+                assertNoDesktop();
+                const recreated = createSnapshot(root);
+                expect(removeSnapshot(root, recreated.token).removed).toBe(true);
+            }
+
+            fs.rmSync(evidenceDirectory, { recursive: true, force: true });
+            const mutationOutput = runInjected(
+                "-InjectedPersistenceFailure sanitize -InjectedSnapshotTamper mutation"
+            );
+            expect(mutationOutput).toContain("Injected evidence sanitization failure");
+            expect(fs.existsSync(snapshotPath)).toBe(true);
+            expect(fs.readFileSync(
+                path.join(snapshotPath, "AtlynProfileLensSample.pbip"),
+                "utf8"
+            )).toContain("mutation");
+            expect(fs.existsSync(nativeRunPath)).toBe(false);
+            assertNoDesktop();
+            fs.rmSync(snapshotPath, { recursive: true, force: true });
+
+            fs.rmSync(evidenceDirectory, { recursive: true, force: true });
+            const reparseOutput = runInjected(
+                "-InjectedPersistenceFailure replace -InjectedSnapshotTamper reparse"
+            );
+            expect(reparseOutput).toContain("Injected evidence atomic replace failure");
+            expect(fs.existsSync(snapshotPath)).toBe(true);
+            expect(fs.lstatSync(path.join(snapshotPath, "linked")).isSymbolicLink()).toBe(true);
+            expect(fs.existsSync(nativeRunPath)).toBe(false);
+            assertNoDesktop();
+        } finally {
+            fs.rmSync(snapshotPath, { recursive: true, force: true });
+        }
+    }, 120_000);
+
     it("marks every blocked evidence commit resolvable and release-ineligible", () => {
         const evidenceDirectory = path.join(root, "docs", "native-validation");
         for (const entry of fs.readdirSync(evidenceDirectory).filter((name) => name.endsWith(".json"))) {

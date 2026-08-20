@@ -16,7 +16,11 @@ param(
     [Parameter(DontShow)][scriptblock]$DesktopEvidenceInitializer = {
         param($DesktopExecutable)
         (Get-Item $DesktopExecutable).VersionInfo.ProductVersion
-    }
+    },
+    [Parameter(DontShow)][ValidateSet("", "sanitize", "write", "replace")]
+    [string]$InjectedPersistenceFailure = "",
+    [Parameter(DontShow)][ValidateSet("", "mutation", "reparse")]
+    [string]$InjectedSnapshotTamper = ""
 )
 
 $ErrorActionPreference = "Stop"
@@ -113,6 +117,8 @@ $releasePbixReadLock = $null
 $ownedCleanupIncomplete = $false
 $record = $null
 $finalizableEvidencePath = Join-Path $evidencePath "native-run.json"
+$script:snapshotCleanupAttempted = $false
+$injectedReparseTarget = $null
 
 function Create-LaunchSnapshot {
     $snapshotScript = Join-Path $root "scripts\native-snapshot.cjs"
@@ -414,6 +420,10 @@ if (-not $snapshotGuard -or -not $snapshotGuard.evidence) {
 $record.snapshot.lock = $snapshotGuard.evidence
 
 try {
+    if ($InjectedPersistenceFailure) {
+        $record.outcome = "native-run-completed"
+        $record.observations = $script:observations
+    } else {
     $process = Start-OwnedReport -Path $snapshotPbipPath
     $record.passes += [ordered]@{
         kind = "pbip"
@@ -475,6 +485,7 @@ try {
         -ExpectedPredicate @{ kind = "unchanged" }
     $record.outcome = "native-run-completed"
     $record.observations = $script:observations
+    }
 } catch {
     $record.outcome = "blocked"
     $record.error = $_.Exception.Message
@@ -589,10 +600,12 @@ try {
 }
 
 $blockedSnapshotCleanup = $null
-$requiresBlockedSnapshotCleanup = $record.outcome -eq "blocked" -or
-    $primaryFailure -or $secondaryFailure -or $cleanupFailure
-if ($requiresBlockedSnapshotCleanup) {
-    $blockedSnapshotCleanup = Invoke-BlockedSnapshotCleanup `
+function Invoke-LaunchSnapshotCleanupOnce {
+    if ($script:snapshotCleanupAttempted) {
+        return $record.snapshotCleanup
+    }
+    $script:snapshotCleanupAttempted = $true
+    $result = Invoke-BlockedSnapshotCleanup `
         -AllOwnedProcessesExited $record.cleanup.allExited `
         -GuardsRestored $guardsRestored `
         -CleanupAction {
@@ -603,12 +616,19 @@ if ($requiresBlockedSnapshotCleanup) {
             }
             return $cleanupJson | ConvertFrom-Json
         }
-    $record.snapshotCleanup = $blockedSnapshotCleanup
-    if ($blockedSnapshotCleanup.errorCount -gt 0 -and -not $cleanupFailure) {
-        $cleanupFailure = [System.Exception]::new(
+    $record.snapshotCleanup = $result
+    if ($result.errorCount -gt 0 -and -not $cleanupFailure) {
+        $script:cleanupFailure = [System.Exception]::new(
             "Integrity-gated native snapshot cleanup failed"
         )
     }
+    return $result
+}
+
+$requiresBlockedSnapshotCleanup = $record.outcome -eq "blocked" -or
+    $primaryFailure -or $secondaryFailure -or $cleanupFailure
+if ($requiresBlockedSnapshotCleanup) {
+    $blockedSnapshotCleanup = Invoke-LaunchSnapshotCleanupOnce
 }
 
 $failure = Select-RunFailure -PrimaryFailure $primaryFailure `
@@ -617,6 +637,10 @@ $record.guardsRestored = $guardsRestored
 if ($failure -or -not $guardsRestored -or -not $record.cleanup.allExited) {
     $record.outcome = "blocked"
 }
+$outputPath = $null
+$stagingPath = $null
+$outputCommitted = $false
+$previousOutputBytes = $null
 try {
     $preSanitizeSourceJson = & node (Join-Path $root "scripts\native-source-integrity.cjs")
     if ($LASTEXITCODE -ne 0) { throw "Automation source changed before evidence sanitization" }
@@ -624,6 +648,18 @@ try {
     if ($preSanitizeSource.sourceCommit -ne $sourceCommit -or
         $preSanitizeSource.automation.sha256 -ne $sourceState.automation.sha256) {
         throw "Automation source identity changed before evidence sanitization"
+    }
+    if ($InjectedSnapshotTamper -eq "mutation") {
+        Set-Content -LiteralPath (Join-Path $snapshotRoot $snapshot.pbip) -Value "mutation"
+    } elseif ($InjectedSnapshotTamper -eq "reparse") {
+        $injectedReparseTarget = Join-Path ([System.IO.Path]::GetTempPath()) `
+            "AtlynPBI-reparse-$runId"
+        New-Item -ItemType Directory -Force -Path $injectedReparseTarget | Out-Null
+        New-Item -ItemType Junction -Path (Join-Path $snapshotRoot "linked") `
+            -Target $injectedReparseTarget | Out-Null
+    }
+    if ($InjectedPersistenceFailure -eq "sanitize") {
+        throw "Injected evidence sanitization failure"
     }
     $sanitizedJson = ($record | ConvertTo-Json -Depth 12 -Compress) |
         & node (Join-Path $root "scripts\native-evidence-sanitize.cjs")
@@ -633,30 +669,66 @@ try {
     } else {
         $finalizableEvidencePath
     }
-    Set-Content -Path $outputPath -Value $sanitizedJson
-    & node (Join-Path $root "scripts\native-evidence-sanitize.cjs") --check $outputPath
-    if ($LASTEXITCODE -ne 0) {
-        Remove-Item $outputPath -Force
-        throw "Persisted evidence failed privacy verification"
+    $stagingPath = "$outputPath.staging-$runId"
+    $previousOutputBytes = if (Test-Path $outputPath) {
+        [System.IO.File]::ReadAllBytes($outputPath)
+    } else {
+        $null
     }
+    if ($InjectedPersistenceFailure -eq "write") {
+        throw "Injected evidence file write failure"
+    }
+    [System.IO.File]::WriteAllText($stagingPath, $sanitizedJson)
+    & node (Join-Path $root "scripts\native-evidence-sanitize.cjs") --check $stagingPath
+    if ($LASTEXITCODE -ne 0) {
+        throw "Staged evidence failed privacy verification"
+    }
+    if ($InjectedPersistenceFailure -eq "replace") {
+        throw "Injected evidence atomic replace failure"
+    }
+    [System.IO.File]::Move($stagingPath, $outputPath, $true)
+    $outputCommitted = $true
     $postSanitizeSourceJson = & node (Join-Path $root "scripts\native-source-integrity.cjs")
     if ($LASTEXITCODE -ne 0) {
-        Remove-Item $outputPath -Force
         throw "Automation source changed after evidence sanitization"
     }
     $postSanitizeSource = $postSanitizeSourceJson | ConvertFrom-Json
     if ($postSanitizeSource.sourceCommit -ne $sourceCommit -or
         $postSanitizeSource.automation.sha256 -ne $sourceState.automation.sha256) {
-        Remove-Item $outputPath -Force
         throw "Automation source identity changed after evidence sanitization"
     }
 } catch {
-    if (-not $failure) { $failure = $_ }
+    $persistenceFailure = $_
+    if ($stagingPath -and (Test-Path $stagingPath)) {
+        Remove-Item -LiteralPath $stagingPath -Force
+    }
+    if ($outputCommitted -and $outputPath) {
+        if ($null -ne $previousOutputBytes) {
+            $restorePath = "$outputPath.restore-$runId"
+            [System.IO.File]::WriteAllBytes($restorePath, $previousOutputBytes)
+            [System.IO.File]::Move($restorePath, $outputPath, $true)
+        } elseif (Test-Path $outputPath) {
+            Remove-Item -LiteralPath $outputPath -Force
+        }
+    }
+    if (-not $failure) {
+        $failure = $persistenceFailure
+        $record.outcome = "blocked"
+        $record.error = $persistenceFailure.Exception.Message
+    }
+    if ($releasePbixReadLock -and -not $ownedCleanupIncomplete) {
+        $releasePbixReadLock.Dispose()
+        $releasePbixReadLock = $null
+    }
+    $blockedSnapshotCleanup = Invoke-LaunchSnapshotCleanupOnce
 }
 if ($failure) { throw $failure }
 } finally {
     if ($releasePbixReadLock -and -not $ownedCleanupIncomplete) {
         $releasePbixReadLock.Dispose()
+    }
+    if ($injectedReparseTarget -and (Test-Path $injectedReparseTarget)) {
+        Remove-Item -LiteralPath $injectedReparseTarget -Recurse -Force
     }
     if ($mutexOwned) { $validationMutex.ReleaseMutex() }
     $validationMutex.Dispose()
