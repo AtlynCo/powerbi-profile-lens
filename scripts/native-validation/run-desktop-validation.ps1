@@ -1,7 +1,11 @@
 param(
     [string]$Pbip = "samples\AtlynProfileLensSample\AtlynProfileLensSample.pbip",
     [string]$Pbix,
-    [string]$EvidenceDirectory = "dist\release\native-evidence"
+    [string]$EvidenceDirectory = "dist\release\native-evidence",
+    [Parameter(DontShow)][scriptblock]$SnapshotLockOpener = {
+        param($Root, $ExpectedFileCount)
+        Open-SnapshotReadLocks -SnapshotRoot $Root -ExpectedFileCount $ExpectedFileCount
+    }
 )
 
 $ErrorActionPreference = "Stop"
@@ -295,8 +299,7 @@ function Close-OwnedReport {
     return Invoke-OwnedProcessCleanup -Job $Job
 }
 
-$snapshotGuard = Open-SnapshotReadLocks -SnapshotRoot $snapshotRoot `
-    -ExpectedFileCount $snapshot.manifest.files
+$snapshotGuard = $null
 $guardsRestored = $false
 $cleanupCompleted = $false
 $primaryFailure = $null
@@ -305,10 +308,6 @@ $cleanupFailure = $null
 $pbixReadLock = $null
 $releasePbixReadLock = $null
 $ownedCleanupIncomplete = $false
-try {
-$snapshotLockEvidence = $snapshotGuard.evidence
-New-Item -ItemType Directory -Force -Path (Split-Path $pbixPath), $evidencePath | Out-Null
-if (Test-Path $pbixPath) { Remove-Item $pbixPath -Force }
 $finalizableEvidencePath = Join-Path $evidencePath "native-run.json"
 
 $record = [ordered]@{
@@ -325,7 +324,7 @@ $record = [ordered]@{
         logicalPath = $snapshot.logicalPath
         manifest = $snapshot.manifest
         pathPreflight = $snapshot.pathPreflight
-        lock = $snapshotLockEvidence
+        lock = $null
     }
     sample = [ordered]@{
         projectTreeSha256 = $computedSampleIntegrity.projectTree.sha256
@@ -344,6 +343,15 @@ $record = [ordered]@{
         "Microsoft certification or Partner Center submission: not attempted"
     )
 }
+
+try {
+New-Item -ItemType Directory -Force -Path (Split-Path $pbixPath), $evidencePath | Out-Null
+if (Test-Path $pbixPath) { Remove-Item $pbixPath -Force }
+$snapshotGuard = & $SnapshotLockOpener $snapshotRoot $snapshot.manifest.files
+if (-not $snapshotGuard -or -not $snapshotGuard.evidence) {
+    throw "Snapshot lock acquisition returned no guard evidence"
+}
+$record.snapshot.lock = $snapshotGuard.evidence
 
 try {
     $process = Start-OwnedReport -Path $snapshotPbipPath
@@ -457,16 +465,44 @@ try {
         )
     }
 }
+} catch {
+    if (-not $primaryFailure) {
+        $primaryFailure = $_
+        $record.outcome = "blocked"
+        $record.error = $_.Exception.Message
+    }
 } finally {
     if (-not $cleanupCompleted) {
+        $cleanupSummaries = @()
         foreach ($ownedJob in $script:ownedProcessJobs) {
             try {
                 $cleanup = Invoke-OwnedProcessCleanup -Job $ownedJob
-                if (-not $cleanup.complete) { $ownedCleanupIncomplete = $true }
             } catch {
-                $ownedCleanupIncomplete = $true
+                $cleanup = [ordered]@{
+                    graceful = $false
+                    forced = $false
+                    complete = $false
+                    activeProcessCount = $null
+                    errors = @("cleanup threw")
+                }
                 if (-not $cleanupFailure) { $cleanupFailure = $_ }
             }
+            $cleanupSummaries += [ordered]@{
+                graceful = $cleanup.graceful
+                forced = $cleanup.forced
+                complete = $cleanup.complete
+                activeProcessCount = $cleanup.activeProcessCount
+                errorCount = $cleanup.errors.Count
+            }
+            if (-not $cleanup.complete) {
+                $ownedCleanupIncomplete = $true
+            }
+        }
+        $cleanupCompleted = $true
+        $record.cleanup = [ordered]@{
+            ownedProcessCount = $script:ownedProcessJobs.Count
+            outcomes = $cleanupSummaries
+            allExited = -not $ownedCleanupIncomplete
         }
     }
     if ($pbixReadLock -and -not $ownedCleanupIncomplete) {
@@ -474,7 +510,9 @@ try {
     }
     if (-not $ownedCleanupIncomplete) {
         try {
-            Close-SnapshotReadLocks -Guard $snapshotGuard
+            if ($snapshotGuard) {
+                Close-SnapshotReadLocks -Guard $snapshotGuard
+            }
             $guardsRestored = $true
         } catch {
             if (-not $cleanupFailure) { $cleanupFailure = $_ }
@@ -483,6 +521,10 @@ try {
         $cleanupFailure = [System.Exception]::new(
             "Snapshot protections retained because an owned Desktop process remains"
         )
+    }
+    if (-not $record.completedAt) {
+        $record.completedAt = (Get-Date).ToUniversalTime().ToString("o")
+        $record.observations = $script:observations
     }
 }
 

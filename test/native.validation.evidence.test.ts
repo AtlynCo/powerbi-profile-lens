@@ -95,6 +95,7 @@ const {
     createSnapshot,
     manifest: snapshotManifest,
     removeSnapshot,
+    snapshotDirectory,
     verifySnapshot
 } = require("../scripts/native-snapshot.cjs") as {
     assertDesktopPathHeadroom(
@@ -118,6 +119,7 @@ const {
         token: string,
         options?: { snapshotParent: string }
     ): { removed: boolean; alreadyAbsent: boolean };
+    snapshotDirectory(token: string, options?: { snapshotParent: string }): string;
     verifySnapshot(
         root: string,
         token: string,
@@ -280,6 +282,114 @@ describe("native validation evidence safety", () => {
         }).toString();
         expect(output).toContain("1,False,False,1,True");
     });
+
+    it("cleans runner snapshots after injected lock-open failures", () => {
+        if (process.platform !== "win32") return;
+        const sampleRoot = path.join(root, "samples", "AtlynProfileLensSample");
+        const token = snapshotManifest(sampleRoot).sha256;
+        const snapshotPath = snapshotDirectory(token);
+        const failurePath = path.join(
+            root,
+            "dist",
+            "release",
+            "native-evidence",
+            "native-failure.json"
+        );
+        const runner = path.join(
+            root,
+            "scripts",
+            "native-validation",
+            "run-desktop-validation.ps1"
+        ).replaceAll("'", "''");
+        const runInjected = (opener: string): string => execFileSync(
+            "pwsh",
+            [
+                "-NoProfile",
+                "-Command",
+                `try { & '${runner}' -SnapshotLockOpener ${opener} } `
+                    + "catch { $_.Exception.Message }"
+            ],
+            { cwd: root, stdio: "pipe" }
+        ).toString();
+        const readFailure = () => JSON.parse(fs.readFileSync(failurePath, "utf8")) as {
+            error: string;
+            cleanup: { allExited: boolean };
+            guardsRestored: boolean;
+            snapshotCleanup: {
+                attempted: boolean;
+                removed: boolean;
+                errorCount: number;
+            };
+        };
+        const assertNoDesktop = () => {
+            const output = execFileSync("pwsh", [
+                "-NoProfile",
+                "-Command",
+                "@(Get-Process -Name PBIDesktop -ErrorAction SilentlyContinue).Count"
+            ], { cwd: root }).toString().trim();
+            expect(output).toBe("0");
+        };
+        fs.rmSync(snapshotPath, { recursive: true, force: true });
+        try {
+            const cleanOutput = runInjected("{param($snapshotRoot,$count) "
+                + "throw 'injected-lock-open-failure'}");
+            expect(cleanOutput).toContain("injected-lock-open-failure");
+            const cleanFailure = readFailure();
+            expect(cleanFailure.error).toContain("injected-lock-open-failure");
+            expect(cleanFailure.cleanup.allExited).toBe(true);
+            expect(cleanFailure.guardsRestored).toBe(true);
+            expect(cleanFailure.snapshotCleanup).toMatchObject({
+                attempted: true,
+                removed: true,
+                errorCount: 0
+            });
+            expect(fs.existsSync(snapshotPath)).toBe(false);
+            assertNoDesktop();
+
+            const recreated = createSnapshot(root);
+            expect(removeSnapshot(root, recreated.token).removed).toBe(true);
+
+            const mutationOutput = runInjected("{param($snapshotRoot,$count) "
+                + "Set-Content -LiteralPath (Join-Path $snapshotRoot "
+                + "'AtlynProfileLensSample.pbip') -Value 'mutation'; "
+                + "throw 'injected-mutated-lock-failure'}");
+            expect(mutationOutput).toContain("injected-mutated-lock-failure");
+            const mutationFailure = readFailure();
+            expect(mutationFailure.error).toContain("injected-mutated-lock-failure");
+            expect(mutationFailure.snapshotCleanup).toMatchObject({
+                attempted: true,
+                removed: false,
+                errorCount: 1
+            });
+            expect(fs.existsSync(snapshotPath)).toBe(true);
+            assertNoDesktop();
+            fs.rmSync(snapshotPath, { recursive: true, force: true });
+
+            const external = fs.mkdtempSync(path.join(os.tmpdir(), "profile-lens-runner-link-"));
+            try {
+                const externalEscaped = external.replaceAll("'", "''");
+                const reparseOutput = runInjected("{param($snapshotRoot,$count) "
+                    + `New-Item -ItemType Junction -Path (Join-Path $snapshotRoot 'linked') `
+                    + `-Target '${externalEscaped}' | Out-Null; `
+                    + "throw 'injected-reparse-lock-failure'}");
+                expect(reparseOutput).toContain("injected-reparse-lock-failure");
+                const reparseFailure = readFailure();
+                expect(reparseFailure.error).toContain("injected-reparse-lock-failure");
+                expect(reparseFailure.snapshotCleanup).toMatchObject({
+                    attempted: true,
+                    removed: false,
+                    errorCount: 1
+                });
+                expect(fs.existsSync(snapshotPath)).toBe(true);
+                assertNoDesktop();
+            } finally {
+                fs.rmSync(snapshotPath, { recursive: true, force: true });
+                fs.rmSync(external, { recursive: true, force: true });
+            }
+        } finally {
+            fs.rmSync(snapshotPath, { recursive: true, force: true });
+        }
+    }, 120_000);
 
     it("marks every blocked evidence commit resolvable and release-ineligible", () => {
         const evidenceDirectory = path.join(root, "docs", "native-validation");
