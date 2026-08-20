@@ -176,6 +176,10 @@ describe("native validation evidence safety", () => {
         expect(combined).toContain("InvokePattern");
         expect(combined).toContain("Assert-ControlInsideDialog");
         expect(combined).toContain("Assert-OwnedWindowBounds");
+        expect(combined).toContain("Select-EquivalentOwnedCandidate");
+        expect(combined).toContain("Test-OwnedJobMembership -Process $elementProcess");
+        expect(combined).toContain('-AutomationId "Ribbon-file"');
+        expect(combined).toContain("14 - Progressive authoring landing");
         expect(combined).toContain("$Element.Current.ProcessId -ne $ProcessId");
         expect(combined).not.toMatch(
             /function Invoke-OwnedElement[\s\S]*?Assert-OwnedForeground[\s\S]*?function Get-AllowlistedControlProbe/

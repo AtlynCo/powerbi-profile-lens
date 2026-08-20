@@ -403,6 +403,21 @@ function Select-UniqueCandidate {
     return $Candidates[0]
 }
 
+function Select-EquivalentOwnedCandidate {
+    param([array]$Candidates, [string]$LogicalName)
+    if ($Candidates.Count -eq 0) { return $null }
+    $identities = @($Candidates | ForEach-Object {
+        $rectangle = $_.Current.BoundingRectangle
+        "$($_.Current.ProcessId)|$($_.Current.Name)|$($_.Current.AutomationId)|" +
+            "$($_.Current.ControlType.ProgrammaticName)|$($rectangle.X)|$($rectangle.Y)|" +
+            "$($rectangle.Width)|$($rectangle.Height)"
+    } | Select-Object -Unique)
+    if ($identities.Count -ne 1) {
+        throw "Ambiguous owned UIA target for '$LogicalName'"
+    }
+    return $Candidates[0]
+}
+
 function Find-OwnedElement {
     param(
         [int]$ProcessId,
@@ -410,6 +425,7 @@ function Find-OwnedElement {
         [string]$Name,
         [string[]]$ControlTypes,
         [AllowEmptyString()][string]$AutomationId,
+        $OwnedJob,
         [int]$TimeoutSeconds = 10
     )
     $deadline = (Get-Date).AddSeconds($TimeoutSeconds)
@@ -419,11 +435,6 @@ function Find-OwnedElement {
             [System.Windows.Automation.AutomationElement]::NameProperty,
             $Name
         )
-        $processCondition = New-Object System.Windows.Automation.PropertyCondition(
-            [System.Windows.Automation.AutomationElement]::ProcessIdProperty,
-            $ProcessId
-        )
-        $condition = New-Object System.Windows.Automation.AndCondition($condition, $processCondition)
         $process = Get-OwnedDesktop -ProcessId $ProcessId -ExpectedTitle $ExpectedTitle
         $window = New-Object NativeDesktopGuard+Rect
         [NativeDesktopGuard]::GetWindowRect($process.MainWindowHandle, [ref]$window) | Out-Null
@@ -434,7 +445,12 @@ function Find-OwnedElement {
         )) {
             $type = $element.Current.ControlType.ProgrammaticName -replace "^ControlType\.", ""
             $rectangle = $element.Current.BoundingRectangle
-            if ($ControlTypes -notcontains $type -or
+            $elementProcess = Get-Process -Id $element.Current.ProcessId -ErrorAction SilentlyContinue
+            $owned = $elementProcess -and (
+                $element.Current.ProcessId -eq $ProcessId -or
+                ($OwnedJob -and (Test-OwnedJobMembership -Process $elementProcess -Job $OwnedJob))
+            )
+            if (-not $owned -or $ControlTypes -notcontains $type -or
                 $element.Current.AutomationId -ne $AutomationId -or
                 $rectangle.Width -le 0 -or $rectangle.Height -le 0 -or
                 $rectangle.X -lt $window.Left -or $rectangle.Y -lt $window.Top -or
@@ -444,7 +460,7 @@ function Find-OwnedElement {
             }
             $matches += $element
         }
-        $selected = Select-UniqueCandidate -Candidates $matches -LogicalName $Name
+        $selected = Select-EquivalentOwnedCandidate -Candidates $matches -LogicalName $Name
         if ($selected) { return $selected }
         Start-Sleep -Milliseconds 400
     }
@@ -452,10 +468,13 @@ function Find-OwnedElement {
 }
 
 function Invoke-OwnedElement {
-    param([int]$ProcessId, [string]$ExpectedTitle, $Element)
+    param([int]$ProcessId, [string]$ExpectedTitle, $Element, $OwnedJob)
     $owned = Assert-OwnedWindowBounds -ProcessId $ProcessId -ExpectedTitle $ExpectedTitle
     $rectangle = $Element.Current.BoundingRectangle
-    if ($Element.Current.ProcessId -ne $ProcessId) {
+    $elementProcess = Get-Process -Id $Element.Current.ProcessId -ErrorAction Stop
+    if ($Element.Current.ProcessId -ne $ProcessId -and
+        (-not $OwnedJob -or
+            -not (Test-OwnedJobMembership -Process $elementProcess -Job $OwnedJob))) {
         throw "Refusing input: UIA target process identity changed"
     }
     $window = $owned.rectangle

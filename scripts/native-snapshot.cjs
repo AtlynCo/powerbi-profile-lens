@@ -7,6 +7,8 @@ const DESKTOP_FILE_LIMIT = 260;
 const SNAPSHOT_FOLDER = "AtlynPBI";
 const SHORT_TOKEN_LENGTH = 20;
 const DESKTOP_CREATED_PATHS = [
+    "AtlynProfileLensSample.Report/.pbi/localSettings.json",
+    "AtlynProfileLensSample.SemanticModel/.pbi/localSettings.json",
     "AtlynProfileLensSample.SemanticModel/.pbi/editorSettings.json"
 ];
 
@@ -170,7 +172,8 @@ function createSnapshot(root, options = {}) {
     assertNoReparsePoint(parent, parent);
     if (fs.existsSync(destination)) {
         assertNoReparsePoint(destination, parent);
-        const existing = manifest(destination);
+        const existing = manifest(destination, new Set(DESKTOP_CREATED_PATHS));
+        assertSnapshotDirectoryEntries(destination, existing.entries);
         if (existing.sha256 !== token) {
             throw new Error("Native snapshot short content token collision detected.");
         }
