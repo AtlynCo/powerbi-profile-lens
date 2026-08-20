@@ -19,6 +19,7 @@ export interface Theme {
         readonly ocean: string;
         readonly land: string;
         readonly water: string;
+        readonly waterOutline: string;
         readonly river: string;
         readonly graticule: string;
         readonly coastline: string;
@@ -59,6 +60,7 @@ export function resolveTheme(
                 ocean: background,
                 land: background,
                 water: background,
+                waterOutline: foreground,
                 river: foreground,
                 graticule: foreground,
                 coastline: foreground,
@@ -87,6 +89,7 @@ export function resolveTheme(
             ocean: "#17242B",
             land: "#29383D",
             water: "#1D3038",
+            waterOutline: "#547582",
             river: "#547582",
             graticule: "rgba(190,210,216,0.24)",
             coastline: "#9AABB0",
@@ -97,6 +100,7 @@ export function resolveTheme(
             ocean: "#DCE8EC",
             land: "#F1EFE8",
             water: "#C7DCE3",
+            waterOutline: "#7FA9B8",
             river: "#7FA9B8",
             graticule: "rgba(80,105,112,0.28)",
             coastline: "#6D7474",

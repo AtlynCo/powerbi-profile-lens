@@ -94,6 +94,7 @@ const style = {
     ocean: "#dce8ec",
     land: "#f1efe8",
     water: "#c7dce3",
+    waterOutline: "#7fa9b8",
     river: "#7fa9b8",
     graticule: "#9aa",
     coastline: "#667",
@@ -115,6 +116,12 @@ describe("noninteractive reference cartography", () => {
             background: { value: "#000000" },
             foregroundSelected: { value: "#00ffff" }
         } as never, defaultSettings());
+        const lightHighContrast = resolveTheme({
+            isHighContrast: true,
+            foreground: { value: "#000000" },
+            background: { value: "#ffffff" },
+            foregroundSelected: { value: "#0000ff" }
+        } as never, defaultSettings());
         expect(light.cartography).toMatchObject({
             ocean: "#DCE8EC",
             land: "#F1EFE8",
@@ -125,11 +132,38 @@ describe("noninteractive reference cartography", () => {
         expect(highContrast.cartography).toMatchObject({
             ocean: "#000000",
             land: "#000000",
+            water: "#000000",
+            waterOutline: "#ffff00",
             coastline: "#ffff00",
             label: "#ffff00",
             labelHalo: "#000000"
         });
+        expect(lightHighContrast.cartography).toMatchObject({
+            water: "#ffffff",
+            waterOutline: "#000000"
+        });
         expect(highContrast.foregroundSelected).toBe("#00ffff");
+    });
+
+    it("uses a distinct lake boundary while preserving the water fill", () => {
+        const parent = document.createElement("div");
+        const elements = createContextSurface(parent);
+        renderContextSurface(
+            elements,
+            request(contextScene()),
+            "svg",
+            {
+                ...style,
+                water: "#000000",
+                waterOutline: "#ffff00"
+            },
+            1,
+            createContextPerformanceMetrics()
+        );
+        const lake = elements.svg.querySelector("[data-reference-role='water']");
+        expect(lake?.getAttribute("fill")).toBe("#000000");
+        expect(lake?.getAttribute("stroke")).toBe("#ffff00");
+        expect(lake?.getAttribute("vector-effect")).toBe("non-scaling-stroke");
     });
 
     it("keeps strict layer order and reference geometry outside picking and semantics", () => {

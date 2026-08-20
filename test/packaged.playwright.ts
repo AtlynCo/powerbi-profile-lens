@@ -1146,6 +1146,12 @@ test.describe("packaged visual in a real browser", () => {
         expect(roles.indexOf("graticule")).toBeLessThan(roles.indexOf("interactive"));
         expect(roles.lastIndexOf("interactive")).toBeLessThan(roles.indexOf("coastline"));
         expect(roles.indexOf("coastline")).toBeLessThan(roles.indexOf("admin0"));
+        const svgReferenceWidths = await page.locator(
+            "[data-reference-role='water'],"
+            + "[data-reference-role='graticule'],"
+            + "[data-reference-role='coastline'],"
+            + "[data-reference-role='admin0']"
+        ).evaluateAll((nodes) => nodes.map((node) => Number(node.getAttribute("stroke-width"))));
         const labels = page.locator(".profile-lens-context-map-label");
         expect(await labels.count()).toBeGreaterThan(0);
         expect(await labels.count()).toBeLessThanOrEqual(40);
@@ -1199,6 +1205,95 @@ test.describe("packaged visual in a real browser", () => {
         expect(canvasWidth).toBeGreaterThan(1);
         expect(await page.locator(".profile-lens-context-map-label").count())
             .toBeLessThanOrEqual(40);
+        const canvasBefore = await page.locator(".profile-lens-context").evaluate((node) => ({
+            ...(node as HTMLElement & {
+                __profileLensContextMetrics: {
+                    referenceGeometryBuilds: number;
+                    canvasRasterBuilds: number;
+                    canvasPickingBuilds: number;
+                    canvasReferenceLineDraws: number;
+                    canvasInteractivePathDraws: number;
+                    canvasReferenceScreenLineWidths: number[];
+                    canvasReferenceCompositeOrder: string[];
+                };
+            }).__profileLensContextMetrics
+        }));
+        for (let index = 0; index < 4; index++) {
+            await page.locator(".profile-lens-context").press("+");
+        }
+        const canvasAfter = await page.locator(".profile-lens-context").evaluate((node) => ({
+            ...(node as HTMLElement & {
+                __profileLensContextMetrics: typeof canvasBefore;
+            }).__profileLensContextMetrics
+        }));
+        expect(canvasAfter.canvasReferenceScreenLineWidths).toEqual(svgReferenceWidths);
+        expect(canvasAfter.canvasReferenceScreenLineWidths)
+            .toEqual(canvasBefore.canvasReferenceScreenLineWidths);
+        expect(canvasAfter.canvasReferenceLineDraws).toBeGreaterThan(
+            canvasBefore.canvasReferenceLineDraws
+        );
+        expect(canvasAfter.canvasInteractivePathDraws).toBeGreaterThan(
+            canvasBefore.canvasInteractivePathDraws
+        );
+        expect(canvasAfter.canvasReferenceCompositeOrder).toEqual([
+            "water",
+            "graticule",
+            "interactive",
+            "coastline",
+            "admin0"
+        ]);
+        expect(canvasAfter.referenceGeometryBuilds).toBe(canvasBefore.referenceGeometryBuilds);
+        expect(canvasAfter.canvasRasterBuilds).toBe(canvasBefore.canvasRasterBuilds);
+        expect(canvasAfter.canvasPickingBuilds).toBe(canvasBefore.canvasPickingBuilds);
+    });
+
+    test("keeps lake boundaries visible in dark and light high contrast", async ({ page }) => {
+        const base = {
+            contextMode: "builtInPack",
+            contextPack: "worldCountries",
+            worldDetail: "50m",
+            referenceDetail: "full",
+            entities: ["USA", "CAN", "MEX"],
+            periods: [],
+            bands: ["Band 1"],
+            series: [],
+            profiles: ["Metric A"],
+            highContrast: true
+        };
+        for (const colors of [
+            { foreground: "#ffff00", background: "#000000", selected: "#00ffff" },
+            { foreground: "#000000", background: "#ffffff", selected: "#0000ff" }
+        ]) {
+            await mount(page, {
+                ...base,
+                svgFeatureThreshold: 500,
+                highContrastForeground: colors.foreground,
+                highContrastBackground: colors.background,
+                highContrastSelected: colors.selected
+            });
+            const lake = page.locator("[data-reference-role='water']").first();
+            await expect(lake).toHaveAttribute("fill", colors.background);
+            await expect(lake).toHaveAttribute("stroke", colors.foreground);
+
+            await mount(page, {
+                ...base,
+                svgFeatureThreshold: 1,
+                highContrastForeground: colors.foreground,
+                highContrastBackground: colors.background,
+                highContrastSelected: colors.selected
+            });
+            const metrics = await page.locator(".profile-lens-context").evaluate((node) => ({
+                ...(node as HTMLElement & {
+                    __profileLensContextMetrics: {
+                        canvasReferenceLineRoles: string[];
+                        canvasReferenceStrokeColors: string[];
+                    };
+                }).__profileLensContextMetrics
+            }));
+            const waterIndex = metrics.canvasReferenceLineRoles.indexOf("water");
+            expect(waterIndex).toBeGreaterThanOrEqual(0);
+            expect(metrics.canvasReferenceStrokeColors[waterIndex]).toBe(colors.foreground);
+        }
     });
 
     test("keeps adversarial boundaries, holes, and overlaps in SVG/Canvas parity", async ({ page }) => {

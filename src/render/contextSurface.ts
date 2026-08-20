@@ -46,6 +46,7 @@ export interface ContextSurfaceStyle {
     readonly ocean: string;
     readonly land: string;
     readonly water: string;
+    readonly waterOutline: string;
     readonly river: string;
     readonly graticule: string;
     readonly coastline: string;
@@ -78,6 +79,12 @@ export interface ContextPerformanceMetrics {
     canvasPickingBuilds: number;
     canvasPickingBuildDurationMs: number;
     canvasCameraDraws: number;
+    canvasReferenceLineDraws: number;
+    canvasInteractivePathDraws: number;
+    readonly canvasReferenceScreenLineWidths: number[];
+    readonly canvasReferenceStrokeColors: string[];
+    readonly canvasReferenceLineRoles: string[];
+    readonly canvasReferenceCompositeOrder: string[];
     cameraFrames: number;
     moveEnds: number;
     cameraFrameDurationMs: number;
@@ -124,6 +131,8 @@ interface SurfaceCache {
     readonly canvasBaseOverscan: number;
     readonly canvasDisplayContext: CanvasRenderingContext2D | null;
     readonly canvasDisplayDpr: number;
+    readonly canvasReferenceLines: readonly CanvasReferenceLine[] | null;
+    readonly canvasInteractivePath: Path2D | null;
     readonly geometryGroup: SVGGElement | null;
     readonly outlineGroup: SVGGElement;
     readonly fixedGroup: SVGGElement;
@@ -154,6 +163,12 @@ export function createContextPerformanceMetrics(): ContextPerformanceMetrics {
         canvasPickingBuilds: 0,
         canvasPickingBuildDurationMs: 0,
         canvasCameraDraws: 0,
+        canvasReferenceLineDraws: 0,
+        canvasInteractivePathDraws: 0,
+        canvasReferenceScreenLineWidths: [],
+        canvasReferenceStrokeColors: [],
+        canvasReferenceLineRoles: [],
+        canvasReferenceCompositeOrder: [],
         cameraFrames: 0,
         moveEnds: 0,
         cameraFrameDurationMs: 0,
@@ -362,6 +377,7 @@ function surfaceBuildKey(
         , style.ocean
         , style.land
         , style.water
+        , style.waterOutline
         , style.graticule
         , style.coastline
         , style.admin
@@ -401,6 +417,8 @@ function buildSurface(
     let canvasBaseOverscan = 0;
     let canvasDisplayContext: CanvasRenderingContext2D | null = null;
     let canvasDisplayDpr = 1;
+    let canvasReferenceLines: readonly CanvasReferenceLine[] | null = null;
+    let canvasInteractivePath: Path2D | null = null;
 
     if (kind === "svg") {
         const started = performance.now();
@@ -451,6 +469,8 @@ function buildSurface(
         canvasBaseOverscan = result.overscan;
         canvasDisplayContext = result.displayContext;
         canvasDisplayDpr = result.displayDpr;
+        canvasReferenceLines = result.referenceLines;
+        canvasInteractivePath = result.interactivePath;
         metrics.canvasRasterBuilds++;
         metrics.canvasRasterBuildDurationMs += result.rasterDurationMs;
         metrics.canvasPickingBuilds++;
@@ -492,6 +512,8 @@ function buildSurface(
         canvasBaseOverscan,
         canvasDisplayContext,
         canvasDisplayDpr,
+        canvasReferenceLines,
+        canvasInteractivePath,
         geometryGroup,
         outlineGroup,
         fixedGroup,
@@ -918,7 +940,7 @@ function referenceStyle(
         case "land":
             return { fill: style.land, stroke: null, lineWidth: 0 };
         case "water":
-            return { fill: style.water, stroke: style.water, lineWidth: 0.35 };
+            return { fill: style.water, stroke: style.waterOutline, lineWidth: 0.35 };
         case "river":
             return { fill: null, stroke: style.river, lineWidth: 0.45 };
         case "graticule":
@@ -1067,11 +1089,21 @@ function renderMapLabels(cache: SurfaceCache, request: ContextRenderRequest): vo
 interface CanvasBuildResult {
     readonly picking: PickingState;
     readonly baseCanvas: HTMLCanvasElement;
+    readonly referenceLines: readonly CanvasReferenceLine[];
+    readonly interactivePath: Path2D | null;
     readonly overscan: number;
     readonly displayContext: CanvasRenderingContext2D;
     readonly displayDpr: number;
     readonly rasterDurationMs: number;
     readonly pickingDurationMs: number;
+}
+
+interface CanvasReferenceLine {
+    readonly role: ContextMapLayer["role"];
+    readonly path: Path2D;
+    readonly stroke: string;
+    readonly lineWidth: number;
+    readonly placement: "underlay" | "overlay";
 }
 
 function canvasOverscan(
@@ -1112,6 +1144,47 @@ function drawCanvasCamera(
         width + overscan * 2,
         height + overscan * 2
     );
+    const referenceLines = cache.canvasReferenceLines ?? [];
+    if (referenceLines.length > 0) {
+        const screenWidths = cache.metrics.canvasReferenceScreenLineWidths;
+        const strokeColors = cache.metrics.canvasReferenceStrokeColors;
+        const lineRoles = cache.metrics.canvasReferenceLineRoles;
+        const compositeOrder = cache.metrics.canvasReferenceCompositeOrder;
+        screenWidths.splice(0, screenWidths.length);
+        strokeColors.splice(0, strokeColors.length);
+        lineRoles.splice(0, lineRoles.length);
+        compositeOrder.splice(0, compositeOrder.length);
+        context.lineJoin = "round";
+        context.lineCap = "round";
+        for (const line of referenceLines.filter((entry) => entry.placement === "underlay")) {
+            context.strokeStyle = line.stroke;
+            context.lineWidth = line.lineWidth / cache.camera.zoom;
+            context.stroke(line.path);
+            screenWidths.push(line.lineWidth);
+            strokeColors.push(line.stroke);
+            lineRoles.push(line.role);
+            compositeOrder.push(line.role);
+        }
+    }
+    if (cache.canvasInteractivePath) {
+        context.fillStyle = cache.style.fill;
+        context.fill(cache.canvasInteractivePath, "evenodd");
+        context.strokeStyle = cache.style.stroke;
+        context.lineWidth = 1;
+        context.stroke(cache.canvasInteractivePath);
+        cache.metrics.canvasInteractivePathDraws++;
+        cache.metrics.canvasReferenceCompositeOrder.push("interactive");
+    }
+    for (const line of referenceLines.filter((entry) => entry.placement === "overlay")) {
+        context.strokeStyle = line.stroke;
+        context.lineWidth = line.lineWidth / cache.camera.zoom;
+        context.stroke(line.path);
+        cache.metrics.canvasReferenceScreenLineWidths.push(line.lineWidth);
+        cache.metrics.canvasReferenceStrokeColors.push(line.stroke);
+        cache.metrics.canvasReferenceLineRoles.push(line.role);
+        cache.metrics.canvasReferenceCompositeOrder.push(line.role);
+    }
+    if (referenceLines.length > 0) cache.metrics.canvasReferenceLineDraws++;
     context.restore();
     canvas.style.transform = "";
     cache.metrics.canvasCameraDraws++;
@@ -1151,33 +1224,36 @@ function renderCanvas(
     }
     context.setTransform(baseAllocation.dpr, 0, 0, baseAllocation.dpr, 0, 0);
     context.translate(overscan, overscan);
-    drawCanvasReferenceLayers(
+    drawCanvasReferenceFills(
         context,
         request,
         style,
-        new Set(["sphere", "land", "water", "river", "graticule"])
+        new Set(["sphere", "land", "water"])
     );
-    for (const feature of request.scene.backdrop.features) {
-        if (
-            !request.showNoDataBackdrop
-            && !request.scene.entities.byFeatureKey.has(feature.key)
-        ) {
-            continue;
+    const hasCartography = Boolean(
+        request.scene.cartography && request.cartography.detail !== "none"
+    );
+    if (!hasCartography) {
+        for (const feature of request.scene.backdrop.features) {
+            if (
+                !request.showNoDataBackdrop
+                && !request.scene.entities.byFeatureKey.has(feature.key)
+            ) {
+                continue;
+            }
+            drawCanvasFeature(
+                context,
+                feature,
+                request.baseTransform,
+                request.pointSize ?? style.pointSize,
+                { fill: style.fill, stroke: style.stroke, lineWidth: 1 }
+            );
         }
-        drawCanvasFeature(
-            context,
-            feature,
-            request.baseTransform,
-            request.pointSize ?? style.pointSize,
-            { fill: style.fill, stroke: style.stroke, lineWidth: 1 }
-        );
     }
-    drawCanvasReferenceLayers(
-        context,
-        request,
-        style,
-        new Set(["coastline", "admin0", "admin1", "insetFrame"])
-    );
+    const interactivePath = hasCartography
+        ? createCanvasInteractivePath(request)
+        : null;
+    const referenceLines = createCanvasReferenceLines(request, style);
     const rasterDurationMs = measuredDuration(rasterStarted);
 
     const pickingStarted = performance.now();
@@ -1221,6 +1297,8 @@ function renderCanvas(
     );
     return {
         baseCanvas,
+        referenceLines,
+        interactivePath,
         overscan,
         displayContext,
         displayDpr: displayAllocation.dpr,
@@ -1282,7 +1360,7 @@ function drawCanvasFeature(
     }
 }
 
-function drawCanvasReferenceLayers(
+function drawCanvasReferenceFills(
     context: CanvasRenderingContext2D,
     request: ContextRenderRequest,
     style: ContextSurfaceStyle,
@@ -1302,12 +1380,41 @@ function drawCanvasReferenceLayers(
             context.fillStyle = layerStyle.fill;
             context.fill("evenodd");
         }
-        if (layerStyle.stroke && layerStyle.lineWidth > 0) {
-            context.strokeStyle = layerStyle.stroke;
-            context.lineWidth = layerStyle.lineWidth;
-            context.stroke();
-        }
     }
+}
+
+function createCanvasReferenceLines(
+    request: ContextRenderRequest,
+    style: ContextSurfaceStyle
+): readonly CanvasReferenceLine[] {
+    const lines: CanvasReferenceLine[] = [];
+    for (const layer of request.scene.cartography?.layers ?? []) {
+        if (!referenceLayerVisible(layer, request)) continue;
+        const layerStyle = referenceStyle(layer, style);
+        if (!layerStyle.stroke || layerStyle.lineWidth <= 0) continue;
+        lines.push({
+            role: layer.role,
+            path: new Path2D(referencePathData(layer, request.baseTransform)),
+            stroke: layerStyle.stroke,
+            lineWidth: layerStyle.lineWidth,
+            placement: layer.role === "water"
+                || layer.role === "river"
+                || layer.role === "graticule"
+                ? "underlay"
+                : "overlay"
+        });
+    }
+
+    return lines;
+}
+
+function createCanvasInteractivePath(request: ContextRenderRequest): Path2D {
+    const commands = request.scene.backdrop.features
+        .filter((feature) =>
+            request.showNoDataBackdrop || request.scene.entities.byFeatureKey.has(feature.key))
+        .map((feature) => pathData(feature, request.baseTransform))
+        .join(" ");
+    return new Path2D(commands);
 }
 
 function appendCanvasLine(
