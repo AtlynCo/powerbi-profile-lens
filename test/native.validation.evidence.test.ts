@@ -319,6 +319,8 @@ describe("native validation evidence safety", () => {
                 attempted: boolean;
                 removed: boolean;
                 errorCount: number;
+                retained?: boolean;
+                retainedToken?: string;
             };
         };
         const assertNoDesktop = () => {
@@ -398,7 +400,9 @@ describe("native validation evidence safety", () => {
             expect(mutationFailure.snapshotCleanup).toMatchObject({
                 attempted: true,
                 removed: false,
-                errorCount: 1
+                errorCount: 1,
+                retained: true,
+                retainedToken: token
             });
             expect(fs.existsSync(snapshotPath)).toBe(true);
             assertNoDesktop();
@@ -418,7 +422,9 @@ describe("native validation evidence safety", () => {
                 expect(reparseFailure.snapshotCleanup).toMatchObject({
                     attempted: true,
                     removed: false,
-                    errorCount: 1
+                    errorCount: 1,
+                    retained: true,
+                    retainedToken: token
                 });
                 expect(fs.existsSync(snapshotPath)).toBe(true);
                 assertNoDesktop();
@@ -542,6 +548,11 @@ describe("native validation evidence safety", () => {
             );
             expect(mutationOutput).toContain("Injected post-commit evidence verification failure");
             expect(mutationOutput).toContain("Injected success-output removal failure");
+            expect(mutationOutput).toContain("Integrity-gated native snapshot cleanup failed");
+            expect(mutationOutput.indexOf("Injected post-commit evidence verification failure"))
+                .toBeLessThan(
+                    mutationOutput.indexOf("Integrity-gated native snapshot cleanup failed")
+                );
             expect(fs.existsSync(snapshotPath)).toBe(true);
             expect(fs.readFileSync(
                 path.join(snapshotPath, "AtlynProfileLensSample.pbip"),
@@ -556,10 +567,32 @@ describe("native validation evidence safety", () => {
                 "-InjectedPersistenceFailure replace -InjectedSnapshotTamper reparse"
             );
             expect(reparseOutput).toContain("Injected evidence atomic replace failure");
+            expect(reparseOutput).toContain("Integrity-gated native snapshot cleanup failed");
+            expect(reparseOutput.indexOf("Injected evidence atomic replace failure"))
+                .toBeLessThan(
+                    reparseOutput.indexOf("Integrity-gated native snapshot cleanup failed")
+                );
             expect(fs.existsSync(snapshotPath)).toBe(true);
             expect(fs.lstatSync(path.join(snapshotPath, "linked")).isSymbolicLink()).toBe(true);
             expect(fs.existsSync(nativeRunPath)).toBe(false);
             assertNoDesktop();
+            fs.rmSync(snapshotPath, { recursive: true, force: true });
+
+            fs.rmSync(evidenceDirectory, { recursive: true, force: true });
+            const cleanupOutput = runInjected(
+                "-InjectedPersistenceFailure postcommit "
+                    + "-InjectedRollbackFailure snapshotCleanup"
+            );
+            expect(cleanupOutput).toContain("Injected post-commit evidence verification failure");
+            expect(cleanupOutput).toContain("Integrity-gated native snapshot cleanup failed");
+            expect(cleanupOutput.indexOf("Injected post-commit evidence verification failure"))
+                .toBeLessThan(
+                    cleanupOutput.indexOf("Integrity-gated native snapshot cleanup failed")
+                );
+            expect(fs.existsSync(snapshotPath)).toBe(true);
+            expect(fs.existsSync(nativeRunPath)).toBe(false);
+            assertNoDesktop();
+            expect(removeSnapshot(root, token).removed).toBe(true);
         } finally {
             fs.rmSync(snapshotPath, { recursive: true, force: true });
         }

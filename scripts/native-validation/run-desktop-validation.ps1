@@ -27,7 +27,8 @@ param(
         "restoreWrite",
         "restoreReplace",
         "outputRemove",
-        "lockDispose"
+        "lockDispose",
+        "snapshotCleanup"
     )]
     [string]$InjectedRollbackFailure = "",
     [Parameter(DontShow)][switch]$InjectedPriorEvidence
@@ -620,6 +621,9 @@ function Invoke-LaunchSnapshotCleanupOnce {
         -AllOwnedProcessesExited $record.cleanup.allExited `
         -GuardsRestored $guardsRestored `
         -CleanupAction {
+            if ($InjectedRollbackFailure -eq "snapshotCleanup") {
+                throw "Injected late snapshot cleanup failure"
+            }
             $cleanupJson = & node (Join-Path $root "scripts\native-snapshot.cjs") `
                 --remove $snapshot.token
             if ($LASTEXITCODE -ne 0) {
@@ -627,6 +631,12 @@ function Invoke-LaunchSnapshotCleanupOnce {
             }
             return $cleanupJson | ConvertFrom-Json
         }
+    if (-not $result.removed -and -not $result.alreadyAbsent) {
+        $result["retained"] = $true
+        $result["retainedToken"] = $snapshot.token
+    } else {
+        $result["retained"] = $false
+    }
     $record.snapshotCleanup = $result
     if ($result.errorCount -gt 0 -and -not $cleanupFailure) {
         $script:cleanupFailure = [System.Exception]::new(
@@ -828,13 +838,43 @@ try {
     }
 }
 if ($failure) {
-    if ($persistenceSecondaryFailures.Count -gt 0) {
+    $primaryException = if ($failure -is [System.Exception]) {
+        $failure
+    } else {
+        $failure.Exception
+    }
+    $finalSecondaryFailures = [System.Collections.Generic.List[System.Exception]]::new()
+    foreach ($candidate in @(
+        $secondaryFailure,
+        $script:cleanupFailure
+    )) {
+        $candidateException = if ($candidate -is [System.Exception]) {
+            $candidate
+        } else {
+            $candidate.Exception
+        }
+        if ($candidateException -and $candidateException -ne $primaryException -and
+            -not ($finalSecondaryFailures | Where-Object {
+                $_.Message -eq $candidateException.Message
+            })) {
+            $finalSecondaryFailures.Add($candidateException)
+        }
+    }
+    foreach ($candidate in $persistenceSecondaryFailures) {
+        if ($candidate -ne $primaryException -and
+            -not ($finalSecondaryFailures | Where-Object {
+                $_.Message -eq $candidate.Message
+            })) {
+            $finalSecondaryFailures.Add($candidate)
+        }
+    }
+    if ($finalSecondaryFailures.Count -gt 0) {
         $allFailures = [System.Collections.Generic.List[System.Exception]]::new()
-        $allFailures.Add($failure.Exception)
-        foreach ($secondary in $persistenceSecondaryFailures) {
+        $allFailures.Add($primaryException)
+        foreach ($secondary in $finalSecondaryFailures) {
             $allFailures.Add($secondary)
         }
-        throw [System.AggregateException]::new($failure.Exception.Message, $allFailures)
+        throw [System.AggregateException]::new($primaryException.Message, $allFailures)
     }
     throw $failure
 }
