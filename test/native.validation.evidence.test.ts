@@ -117,7 +117,7 @@ const {
         root: string,
         token: string,
         options?: { snapshotParent: string }
-    ): { removed: boolean };
+    ): { removed: boolean; alreadyAbsent: boolean };
     verifySnapshot(
         root: string,
         token: string,
@@ -239,6 +239,69 @@ describe("native validation evidence safety", () => {
             stdio: "pipe"
         }).toString();
         expect(output).toContain("Function");
+    });
+
+    it("rejects embedded-dialog sibling controls with matching IDs", () => {
+        const command = ". 'scripts\\native-validation\\desktop-guard.ps1'; "
+            + "$parents=@{filenameHost='dialog';filename='filenameHost';save='dialog';"
+            + "unrelated1001='dialog';unrelated1='dialog'}; "
+            + "$parent={param($node) $parents[$node]}; "
+            + "$same={param($a,$b) $a -eq $b}; "
+            + "$inside=Test-ControlDescendsFrom -Scope 'filenameHost' -Control 'filename' "
+            + "-ParentResolver $parent -IdentityComparer $same; "
+            + "$sibling1001=Test-ControlDescendsFrom -Scope 'filenameHost' "
+            + "-Control 'unrelated1001' -ParentResolver $parent -IdentityComparer $same; "
+            + "$sibling1=Test-ControlDescendsFrom -Scope 'filenameHost' "
+            + "-Control 'unrelated1' -ParentResolver $parent -IdentityComparer $same; "
+            + "\"$inside,$sibling1001,$sibling1\"";
+        const output = execFileSync("pwsh", ["-NoProfile", "-Command", command], {
+            cwd: root,
+            stdio: "pipe"
+        }).toString();
+        expect(output).toContain("True,False,False");
+    });
+
+    it("gates blocked snapshot cleanup until processes and handles are closed", () => {
+        const command = ". 'scripts\\native-validation\\snapshot-guard.ps1'; "
+            + "$calls=0; $action={$script:calls++;[pscustomobject]@{removed=$true}}; "
+            + "$active=Invoke-BlockedSnapshotCleanup -AllOwnedProcessesExited $false "
+            + "-GuardsRestored $true -CleanupAction $action; "
+            + "$locked=Invoke-BlockedSnapshotCleanup -AllOwnedProcessesExited $true "
+            + "-GuardsRestored $false -CleanupAction $action; "
+            + "$failed=Invoke-BlockedSnapshotCleanup -AllOwnedProcessesExited $true "
+            + "-GuardsRestored $true -CleanupAction {throw 'partial cleanup'}; "
+            + "$done=Invoke-BlockedSnapshotCleanup -AllOwnedProcessesExited $true "
+            + "-GuardsRestored $true -CleanupAction $action; "
+            + "\"$calls,$($active.attempted),$($locked.attempted),"
+            + "$($failed.errorCount),$($done.removed)\"";
+        const output = execFileSync("pwsh", ["-NoProfile", "-Command", command], {
+            cwd: root,
+            stdio: "pipe"
+        }).toString();
+        expect(output).toContain("1,False,False,1,True");
+    });
+
+    it("marks every blocked evidence commit resolvable and release-ineligible", () => {
+        const evidenceDirectory = path.join(root, "docs", "native-validation");
+        for (const entry of fs.readdirSync(evidenceDirectory).filter((name) => name.endsWith(".json"))) {
+            const evidence = JSON.parse(
+                fs.readFileSync(path.join(evidenceDirectory, entry), "utf8")
+            ) as {
+                outcome?: string;
+                sourceCommit?: string;
+                evidenceTrust?: string;
+                releaseClaimEligible?: boolean;
+            };
+            if (evidence.outcome !== "blocked") continue;
+            expect(evidence.evidenceTrust).toBe("historical-blocked-diagnostic");
+            expect(evidence.releaseClaimEligible).toBe(false);
+            expect(evidence.sourceCommit).toMatch(/^[0-9a-f]{40}$/);
+            expect(() => execFileSync(
+                "git",
+                ["cat-file", "-e", `${evidence.sourceCommit}^{commit}`],
+                { cwd: root, stdio: "pipe" }
+            )).not.toThrow();
+        }
     });
 
     it("redacts adversarial generated output before the actual evidence path", () => {
@@ -504,6 +567,11 @@ describe("native validation evidence safety", () => {
                 { snapshotParent: shortParent }
             ).removed).toBe(true);
             expect(fs.existsSync(snapshot.absolutePath)).toBe(false);
+            expect(removeSnapshot(
+                longRoot,
+                snapshot.token,
+                { snapshotParent: shortParent }
+            ).alreadyAbsent).toBe(true);
         } finally {
             fs.rmSync(temp, { recursive: true, force: true });
         }
@@ -536,6 +604,50 @@ describe("native validation evidence safety", () => {
             expect(() => assertSnapshotDirectoryEntries(temp, entries)).not.toThrow();
             fs.writeFileSync(path.join(path.dirname(settings), "unexpected.json"), "{}");
             expect(() => assertSnapshotDirectoryEntries(temp, entries)).toThrow(/unexpected file/i);
+        } finally {
+            fs.rmSync(temp, { recursive: true, force: true });
+        }
+    });
+
+    it("refuses to delete mutated or reparsed launch snapshots", () => {
+        const temp = fs.mkdtempSync(path.join(os.tmpdir(), "profile-lens-cleanup-refusal-"));
+        const rootOne = path.join(temp, "root-one");
+        const rootTwo = path.join(temp, "root-two");
+        const parentOne = path.join(temp, "short-one");
+        const parentTwo = path.join(temp, "short-two");
+        for (const fixtureRoot of [rootOne, rootTwo]) {
+            const sample = path.join(fixtureRoot, "samples", "AtlynProfileLensSample");
+            fs.mkdirSync(sample, { recursive: true });
+            fs.writeFileSync(path.join(sample, "AtlynProfileLensSample.pbip"), "fixture");
+        }
+        try {
+            const mutated = createSnapshot(rootOne, { snapshotParent: parentOne });
+            fs.writeFileSync(
+                path.join(mutated.absolutePath, "AtlynProfileLensSample.pbip"),
+                "mutation"
+            );
+            expect(() => removeSnapshot(
+                rootOne,
+                mutated.token,
+                { snapshotParent: parentOne }
+            )).toThrow(/changed/i);
+            expect(fs.existsSync(mutated.absolutePath)).toBe(true);
+
+            const reparsed = createSnapshot(rootTwo, { snapshotParent: parentTwo });
+            const external = path.join(temp, "external");
+            fs.mkdirSync(external);
+            try {
+                fs.symlinkSync(external, path.join(reparsed.absolutePath, "linked"), "junction");
+            } catch (error) {
+                if ((error as NodeJS.ErrnoException).code === "EPERM") return;
+                throw error;
+            }
+            expect(() => removeSnapshot(
+                rootTwo,
+                reparsed.token,
+                { snapshotParent: parentTwo }
+            )).toThrow(/reparse/i);
+            expect(fs.existsSync(reparsed.absolutePath)).toBe(true);
         } finally {
             fs.rmSync(temp, { recursive: true, force: true });
         }

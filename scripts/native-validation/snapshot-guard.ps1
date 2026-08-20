@@ -47,3 +47,35 @@ function Open-PbixReadLock {
         [System.IO.FileShare]::Read
     )
 }
+
+function Invoke-BlockedSnapshotCleanup {
+    param(
+        [bool]$AllOwnedProcessesExited,
+        [bool]$GuardsRestored,
+        [Parameter(Mandatory)][scriptblock]$CleanupAction
+    )
+    if (-not $AllOwnedProcessesExited -or -not $GuardsRestored) {
+        return [ordered]@{
+            attempted = $false
+            removed = $false
+            errorCount = 0
+            reason = "owned processes or snapshot handles remain active"
+        }
+    }
+    try {
+        $result = & $CleanupAction
+        return [ordered]@{
+            attempted = $true
+            removed = [bool]$result.removed
+            alreadyAbsent = [bool]$result.alreadyAbsent
+            errorCount = 0
+        }
+    } catch {
+        return [ordered]@{
+            attempted = $true
+            removed = $false
+            errorCount = 1
+            reason = "integrity-gated snapshot cleanup failed"
+        }
+    }
+}

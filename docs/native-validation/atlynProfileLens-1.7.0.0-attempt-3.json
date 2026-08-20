@@ -1,7 +1,9 @@
 {
   "schemaVersion": 1,
   "outcome": "blocked",
-  "sourceCommit": "c4e38357baae47e361b6d33069cfdff364e021a2",
+  "sourceCommit": "c4e3835f251f9ff8303e410c20bef194bb150ccd",
+  "evidenceTrust": "historical-blocked-diagnostic",
+  "releaseClaimEligible": false,
   "desktopVersion": "2.157.879.0 (26.08)+da30fe74eb0b8a8786ab7326b69c400a0e951831",
   "outcomeBoundary": "The exact PBIP opened from the short immutable snapshot and all fourteen page tabs were safely discoverable through job-owned UI Automation. No PBIX was produced and no native interaction scenario is claimed as passed.",
   "resolvedBlockers": [

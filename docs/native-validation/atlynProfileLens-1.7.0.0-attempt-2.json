@@ -1,7 +1,9 @@
 {
   "schemaVersion": 1,
   "outcome": "blocked",
-  "sourceCommit": "ec9e98b3a842af3b882d3500310fc31420267a0d",
+  "sourceCommit": "ec9e98bad6c079a113bfa803d51a96fe42c470c2",
+  "evidenceTrust": "historical-blocked-diagnostic",
+  "releaseClaimEligible": false,
   "desktopVersion": "2.157.879.0 (26.08)+da30fe74eb0b8a8786ab7326b69c400a0e951831",
   "outcomeBoundary": "No native scenario is claimed as passed and no PBIX was produced.",
   "resolvedBlocker": {

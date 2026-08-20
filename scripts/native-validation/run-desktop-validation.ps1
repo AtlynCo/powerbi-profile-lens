@@ -486,6 +486,29 @@ try {
     }
 }
 
+$blockedSnapshotCleanup = $null
+$requiresBlockedSnapshotCleanup = $record.outcome -eq "blocked" -or
+    $primaryFailure -or $secondaryFailure -or $cleanupFailure
+if ($requiresBlockedSnapshotCleanup) {
+    $blockedSnapshotCleanup = Invoke-BlockedSnapshotCleanup `
+        -AllOwnedProcessesExited $record.cleanup.allExited `
+        -GuardsRestored $guardsRestored `
+        -CleanupAction {
+            $cleanupJson = & node (Join-Path $root "scripts\native-snapshot.cjs") `
+                --remove $snapshot.token
+            if ($LASTEXITCODE -ne 0) {
+                throw "Integrity-gated native snapshot cleanup failed"
+            }
+            return $cleanupJson | ConvertFrom-Json
+        }
+    $record.snapshotCleanup = $blockedSnapshotCleanup
+    if ($blockedSnapshotCleanup.errorCount -gt 0 -and -not $cleanupFailure) {
+        $cleanupFailure = [System.Exception]::new(
+            "Integrity-gated native snapshot cleanup failed"
+        )
+    }
+}
+
 $failure = Select-RunFailure -PrimaryFailure $primaryFailure `
     -CleanupFailure (Select-RunFailure -PrimaryFailure $cleanupFailure -CleanupFailure $secondaryFailure)
 $record.guardsRestored = $guardsRestored
