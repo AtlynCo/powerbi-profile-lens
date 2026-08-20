@@ -6,7 +6,9 @@ geography build toolchain use the following third-party materials.
 ## Natural Earth
 
 The world-country packs are derived from Natural Earth 5.1.1 Admin-0 Countries
-at 1:110m and, when selected, 1:50m.
+and Lakes at 1:110m and, when selected, 1:50m. Land, coastline, internal
+boundaries, graticules, and label ranks are deterministic build products; no
+Natural Earth analytical population attributes are retained.
 
 Natural Earth declares all raster and vector map data distributed from
 naturalearthdata.com to be in the public domain. No permission or attribution is

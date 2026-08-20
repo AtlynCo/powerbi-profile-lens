@@ -14,6 +14,44 @@ export type LinearRing = readonly ScenePoint[];
 export type PolygonCoordinates = readonly LinearRing[];
 export type MultiPolygonCoordinates = readonly PolygonCoordinates[];
 
+export type ContextMapLayerRole =
+    | "sphere"
+    | "land"
+    | "water"
+    | "river"
+    | "graticule"
+    | "coastline"
+    | "admin0"
+    | "admin1"
+    | "insetFrame";
+
+/**
+ * Immutable reference geometry. It deliberately has no feature index, Entity binding, selection
+ * identity, tooltip values, or semantic description, so it cannot enter analytical interaction.
+ */
+export interface ContextMapLayer {
+    readonly id: string;
+    readonly role: ContextMapLayerRole;
+    readonly polygons?: MultiPolygonCoordinates;
+    readonly lines?: readonly (readonly ScenePoint[])[];
+    readonly minZoom?: number;
+    readonly maxZoom?: number;
+}
+
+export interface ContextMapLabel {
+    readonly key: string;
+    readonly text: string;
+    readonly anchor: ScenePoint;
+    readonly rank: number;
+    readonly minZoom: number;
+    readonly maxZoom?: number;
+}
+
+export interface ContextCartography {
+    readonly layers: readonly ContextMapLayer[];
+    readonly labels: readonly ContextMapLabel[];
+}
+
 export interface ContextGeometry {
     readonly kind: ContextGeometryKind;
     readonly points?: readonly ScenePoint[];
@@ -85,6 +123,7 @@ export interface ContextSceneMetadata {
 export interface ContextScene {
     readonly providerId: string;
     readonly mode: ContextMode;
+    readonly cartography?: ContextCartography;
     readonly backdrop: ContextBackdrop;
     readonly entities: ContextEntityMappings;
     readonly diagnostics: readonly Diagnostic[];
@@ -148,6 +187,13 @@ export interface ContextRenderRequest {
     readonly featureDescriptions?: ReadonlyMap<string, string>;
     readonly showNoDataBackdrop: boolean;
     readonly interactive: boolean;
+    readonly cartography: {
+        readonly detail: "none" | "standard" | "full";
+        readonly showPhysicalLayers: boolean;
+        readonly showLabels: boolean;
+        readonly showGraticule: boolean;
+        readonly labelDensity: "sparse" | "balanced" | "detailed";
+    };
     readonly navigation: {
         readonly enabled: boolean;
         readonly showProbe: boolean;

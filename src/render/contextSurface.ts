@@ -2,9 +2,11 @@ import { LIMITS } from "../model/contract";
 import type {
     ContextFeature,
     ContextHit,
+    ContextMapLayer,
     ContextRenderRequest,
     ContextRendererKind,
     ContextScene,
+    ScenePoint,
     SceneTransform,
 } from "../context/contract";
 import type { ContextCamera } from "../context/viewport/contract";
@@ -41,6 +43,16 @@ export interface ContextSurfaceStyle {
     readonly selected: string;
     readonly background: string;
     readonly pointSize: number;
+    readonly ocean: string;
+    readonly land: string;
+    readonly water: string;
+    readonly waterOutline: string;
+    readonly river: string;
+    readonly graticule: string;
+    readonly coastline: string;
+    readonly admin: string;
+    readonly mapLabel: string;
+    readonly mapLabelHalo: string;
 }
 
 export interface RenderedContextSurface {
@@ -67,6 +79,12 @@ export interface ContextPerformanceMetrics {
     canvasPickingBuilds: number;
     canvasPickingBuildDurationMs: number;
     canvasCameraDraws: number;
+    canvasReferenceLineDraws: number;
+    canvasInteractivePathDraws: number;
+    readonly canvasReferenceScreenLineWidths: number[];
+    readonly canvasReferenceStrokeColors: string[];
+    readonly canvasReferenceLineRoles: string[];
+    readonly canvasReferenceCompositeOrder: string[];
     cameraFrames: number;
     moveEnds: number;
     cameraFrameDurationMs: number;
@@ -83,6 +101,10 @@ export interface ContextPerformanceMetrics {
     maxProfilePartialDurationMs: number;
     readonly profilePartialDurationsMs: number[];
     dynamicOverlayUpdates: number;
+    referenceGeometryBuilds: number;
+    labelLayoutUpdates: number;
+    labelCandidatesEvaluated: number;
+    maxVisibleLabels: number;
     hostSelectionRequests: number;
     hostSelectionResolved: number;
     hostSelectionRejected: number;
@@ -109,9 +131,13 @@ interface SurfaceCache {
     readonly canvasBaseOverscan: number;
     readonly canvasDisplayContext: CanvasRenderingContext2D | null;
     readonly canvasDisplayDpr: number;
+    readonly canvasReferenceLines: readonly CanvasReferenceLine[] | null;
+    readonly canvasInteractivePath: Path2D | null;
     readonly geometryGroup: SVGGElement | null;
     readonly outlineGroup: SVGGElement;
     readonly fixedGroup: SVGGElement;
+    readonly labelGroup: SVGGElement;
+    currentRequest: ContextRenderRequest;
     camera: ContextCamera;
     connectorLine: SVGLineElement | null;
     connectorFeatureCenter: ContextFeature["geometry"]["center"] | null;
@@ -137,6 +163,12 @@ export function createContextPerformanceMetrics(): ContextPerformanceMetrics {
         canvasPickingBuilds: 0,
         canvasPickingBuildDurationMs: 0,
         canvasCameraDraws: 0,
+        canvasReferenceLineDraws: 0,
+        canvasInteractivePathDraws: 0,
+        canvasReferenceScreenLineWidths: [],
+        canvasReferenceStrokeColors: [],
+        canvasReferenceLineRoles: [],
+        canvasReferenceCompositeOrder: [],
         cameraFrames: 0,
         moveEnds: 0,
         cameraFrameDurationMs: 0,
@@ -153,6 +185,10 @@ export function createContextPerformanceMetrics(): ContextPerformanceMetrics {
         maxProfilePartialDurationMs: 0,
         profilePartialDurationsMs: [],
         dynamicOverlayUpdates: 0,
+        referenceGeometryBuilds: 0,
+        labelLayoutUpdates: 0,
+        labelCandidatesEvaluated: 0,
+        maxVisibleLabels: 0,
         hostSelectionRequests: 0,
         hostSelectionResolved: 0,
         hostSelectionRejected: 0,
@@ -231,6 +267,7 @@ export function renderContextSurface(
         surfaceCaches.set(elements.root, cache);
     }
     cache.camera = request.camera;
+    cache.currentRequest = request;
     performanceMetrics.cameraZoom = request.camera.zoom;
     performanceMetrics.panX = request.camera.panX;
     performanceMetrics.panY = request.camera.panY;
@@ -251,6 +288,7 @@ function updateSurfaceDynamic(
     request: ContextRenderRequest
 ): void {
     const cache = requireSurfaceCache(elements.root);
+    cache.currentRequest = request;
     renderSemanticOptions(elements, request);
     renderDynamicOverlay(cache, request);
     applyDynamicCamera(cache);
@@ -336,6 +374,20 @@ function surfaceBuildKey(
         style.stroke,
         style.selected,
         style.background
+        , style.ocean
+        , style.land
+        , style.water
+        , style.waterOutline
+        , style.graticule
+        , style.coastline
+        , style.admin
+        , style.mapLabel
+        , style.mapLabelHalo
+        , request.cartography.detail
+        , request.cartography.showPhysicalLayers
+        , request.cartography.showLabels
+        , request.cartography.showGraticule
+        , request.cartography.labelDensity
     ].join("|");
 }
 
@@ -353,6 +405,10 @@ function buildSurface(
     svg.setAttribute("width", String(request.viewport.width));
     svg.setAttribute("height", String(request.viewport.height));
     svg.setAttribute("viewBox", `0 0 ${request.viewport.width} ${request.viewport.height}`);
+    elements.root.style.backgroundColor = request.scene.cartography
+        && request.cartography.detail !== "none"
+        ? style.ocean
+        : style.background;
     const pointSize = request.pointSize ?? style.pointSize;
     let geometryGroup: SVGGElement | null = null;
     let picking: PickingState | null = null;
@@ -361,11 +417,19 @@ function buildSurface(
     let canvasBaseOverscan = 0;
     let canvasDisplayContext: CanvasRenderingContext2D | null = null;
     let canvasDisplayDpr = 1;
+    let canvasReferenceLines: readonly CanvasReferenceLine[] | null = null;
+    let canvasInteractivePath: Path2D | null = null;
 
     if (kind === "svg") {
         const started = performance.now();
         geometryGroup = document.createElementNS(SVG_NS, "g");
         geometryGroup.classList.add("profile-lens-context-camera-layer");
+        appendSvgReferenceLayers(
+            geometryGroup,
+            request,
+            style,
+            new Set(["sphere", "land", "water", "river", "graticule"])
+        );
         for (const feature of request.scene.backdrop.features) {
             const node = createSvgFeature(
                 feature,
@@ -383,6 +447,15 @@ function buildSurface(
             }
             geometryGroup.appendChild(node);
         }
+        appendSvgReferenceLayers(
+            geometryGroup,
+            request,
+            style,
+            new Set(["coastline", "admin0", "admin1", "insetFrame"])
+        );
+        if (request.scene.cartography && request.cartography.detail !== "none") {
+            metrics.referenceGeometryBuilds++;
+        }
         metrics.svgGeometryBuilds++;
         metrics.svgGeometryBuildDurationMs += measuredDuration(started);
         svg.appendChild(geometryGroup);
@@ -396,10 +469,15 @@ function buildSurface(
         canvasBaseOverscan = result.overscan;
         canvasDisplayContext = result.displayContext;
         canvasDisplayDpr = result.displayDpr;
+        canvasReferenceLines = result.referenceLines;
+        canvasInteractivePath = result.interactivePath;
         metrics.canvasRasterBuilds++;
         metrics.canvasRasterBuildDurationMs += result.rasterDurationMs;
         metrics.canvasPickingBuilds++;
         metrics.canvasPickingBuildDurationMs += result.pickingDurationMs;
+        if (request.scene.cartography && request.cartography.detail !== "none") {
+            metrics.referenceGeometryBuilds++;
+        }
         canvasHitMetrics = createCanvasHitMetrics(
             request.scene,
             picking,
@@ -410,6 +488,9 @@ function buildSurface(
     }
 
     const outlineGroup = document.createElementNS(SVG_NS, "g");
+    const labelGroup = document.createElementNS(SVG_NS, "g");
+    labelGroup.classList.add("profile-lens-context-label-layer");
+    svg.appendChild(labelGroup);
     outlineGroup.classList.add("profile-lens-context-outline-layer");
     svg.appendChild(outlineGroup);
     const fixedGroup = document.createElementNS(SVG_NS, "g");
@@ -431,9 +512,13 @@ function buildSurface(
         canvasBaseOverscan,
         canvasDisplayContext,
         canvasDisplayDpr,
+        canvasReferenceLines,
+        canvasInteractivePath,
         geometryGroup,
         outlineGroup,
         fixedGroup,
+        labelGroup,
+        currentRequest: request,
         camera: request.camera,
         connectorLine: null,
         connectorFeatureCenter: null,
@@ -486,6 +571,7 @@ function renderDynamicOverlay(cache: SurfaceCache, request: ContextRenderRequest
     cache.connectorLine = null;
     cache.connectorFeatureCenter = null;
     cache.connectorTarget = request.connectorTarget ?? null;
+    renderMapLabels(cache, request);
     const focused = request.focusedFeatureKey === null
         ? null
         : request.scene.backdrop.featureByKey.get(request.focusedFeatureKey) ?? null;
@@ -605,6 +691,7 @@ function applyCamera(elements: ContextSurfaceElements, cache: SurfaceCache): voi
     }
     cache.geometryGroup?.setAttribute("transform", matrix);
     applyDynamicCamera(cache);
+    renderMapLabels(cache, cache.currentRequest);
 }
 
 function applyDynamicCamera(cache: SurfaceCache): void {
@@ -825,14 +912,198 @@ function applySvgStyle(
     element.setAttribute("stroke-width", "1");
 }
 
+function referenceLayerVisible(
+    layer: ContextMapLayer,
+    request: ContextRenderRequest
+): boolean {
+    if (request.cartography.detail === "none") return false;
+    if (!request.cartography.showPhysicalLayers && (
+        layer.role === "land"
+        || layer.role === "water"
+        || layer.role === "river"
+    )) return false;
+    if (!request.cartography.showGraticule && layer.role === "graticule") return false;
+    if (
+        request.cartography.detail === "standard"
+        && (layer.role === "water" || layer.role === "river")
+    ) return false;
+    return true;
+}
+
+function referenceStyle(
+    layer: ContextMapLayer,
+    style: ContextSurfaceStyle
+): { readonly fill: string | null; readonly stroke: string | null; readonly lineWidth: number } {
+    switch (layer.role) {
+        case "sphere":
+            return { fill: style.ocean, stroke: null, lineWidth: 0 };
+        case "land":
+            return { fill: style.land, stroke: null, lineWidth: 0 };
+        case "water":
+            return { fill: style.water, stroke: style.waterOutline, lineWidth: 0.35 };
+        case "river":
+            return { fill: null, stroke: style.river, lineWidth: 0.45 };
+        case "graticule":
+            return { fill: null, stroke: style.graticule, lineWidth: 0.45 };
+        case "coastline":
+            return { fill: null, stroke: style.coastline, lineWidth: 0.9 };
+        default:
+            return { fill: null, stroke: style.admin, lineWidth: 0.6 };
+    }
+}
+
+function appendSvgReferenceLayers(
+    parent: SVGGElement,
+    request: ContextRenderRequest,
+    style: ContextSurfaceStyle,
+    roles: ReadonlySet<ContextMapLayer["role"]>
+): void {
+    for (const layer of request.scene.cartography?.layers ?? []) {
+        if (!roles.has(layer.role) || !referenceLayerVisible(layer, request)) continue;
+        const layerStyle = referenceStyle(layer, style);
+        const path = document.createElementNS(SVG_NS, "path");
+        path.classList.add("profile-lens-context-reference");
+        path.setAttribute("data-reference-role", layer.role);
+        path.setAttribute("d", referencePathData(layer, request.baseTransform));
+        path.setAttribute("fill-rule", "evenodd");
+        path.setAttribute("fill", layerStyle.fill ?? "none");
+        path.setAttribute("stroke", layerStyle.stroke ?? "none");
+        path.setAttribute("stroke-width", String(layerStyle.lineWidth));
+        path.setAttribute("vector-effect", "non-scaling-stroke");
+        path.setAttribute("pointer-events", "none");
+        path.setAttribute("aria-hidden", "true");
+        parent.appendChild(path);
+    }
+}
+
+function referencePathData(layer: ContextMapLayer, transform: SceneTransform): string {
+    const commands: string[] = [];
+    for (const polygon of layer.polygons ?? []) {
+        for (const ring of polygon) {
+            appendLineCommands(commands, ring, transform, true);
+        }
+    }
+    for (const line of layer.lines ?? []) {
+        appendLineCommands(commands, line, transform, false);
+    }
+    return commands.join(" ");
+}
+
+function appendLineCommands(
+    commands: string[],
+    points: readonly ScenePoint[],
+    transform: SceneTransform,
+    closed: boolean
+): void {
+    points.forEach((raw, index) => {
+        const point = projectPoint(raw, transform);
+        commands.push(`${index === 0 ? "M" : "L"}${point.x},${point.y}`);
+    });
+    if (closed) commands.push("Z");
+}
+
+function renderMapLabels(cache: SurfaceCache, request: ContextRenderRequest): void {
+    clearSvg(cache.labelGroup);
+    if (
+        !request.scene.cartography
+        || request.cartography.detail === "none"
+        || !request.cartography.showLabels
+    ) return;
+    const caps = { sparse: 16, balanced: 28, detailed: 40 } as const;
+    const cap = caps[request.cartography.labelDensity];
+    const transform = composeSceneTransform(cache.baseTransform, cache.camera);
+    const selected = request.selectedFeatureKeys;
+    const labels = [...request.scene.cartography.labels].sort((left, right) => {
+        const leftFocus = left.key === request.focusedFeatureKey ? 0 : selected.has(left.key) ? 1 : 2;
+        const rightFocus = right.key === request.focusedFeatureKey ? 0 : selected.has(right.key) ? 1 : 2;
+        return leftFocus - rightFocus
+            || left.rank - right.rank
+            || (left.key < right.key ? -1 : left.key > right.key ? 1 : 0);
+    });
+    const occupied: { x1: number; y1: number; x2: number; y2: number }[] = [];
+    let visible = 0;
+    let evaluated = 0;
+    for (const label of labels) {
+        const forced = label.key === request.focusedFeatureKey;
+        if (
+            !forced
+            && (
+                cache.camera.zoom < label.minZoom
+                || (label.maxZoom !== undefined && cache.camera.zoom > label.maxZoom)
+            )
+        ) continue;
+        evaluated++;
+        const point = projectPoint(label.anchor, transform);
+        if (
+            point.x < 0
+            || point.y < 0
+            || point.x > cache.viewport.width
+            || point.y > cache.viewport.height
+        ) continue;
+        const width = Math.max(20, label.text.length * 6.2 + 6);
+        if (width > cache.viewport.width - 4) continue;
+        const labelX = Math.min(
+            Math.max(point.x, width / 2 + 2),
+            cache.viewport.width - width / 2 - 2
+        );
+        const labelY = Math.min(Math.max(point.y, 10), cache.viewport.height - 9);
+        const box = {
+            x1: labelX - width / 2,
+            y1: labelY - 8,
+            x2: labelX + width / 2,
+            y2: labelY + 7
+        };
+        if (!forced && occupied.some((other) =>
+            box.x1 < other.x2
+            && box.x2 > other.x1
+            && box.y1 < other.y2
+            && box.y2 > other.y1
+        )) continue;
+        const text = document.createElementNS(SVG_NS, "text");
+        text.classList.add("profile-lens-context-map-label");
+        text.setAttribute("data-label-key", label.key);
+        text.setAttribute("x", String(labelX));
+        text.setAttribute("y", String(labelY));
+        text.setAttribute("text-anchor", "middle");
+        text.setAttribute("dominant-baseline", "middle");
+        text.setAttribute("font-size", "11");
+        text.setAttribute("font-weight", forced ? "600" : "400");
+        text.setAttribute("fill", cache.style.mapLabel);
+        text.setAttribute("stroke", cache.style.mapLabelHalo);
+        text.setAttribute("stroke-width", "3");
+        text.setAttribute("stroke-linejoin", "round");
+        text.setAttribute("paint-order", "stroke fill");
+        text.setAttribute("pointer-events", "none");
+        text.setAttribute("aria-hidden", "true");
+        text.textContent = label.text;
+        cache.labelGroup.appendChild(text);
+        occupied.push(box);
+        visible++;
+        if (visible >= cap) break;
+    }
+    cache.metrics.labelLayoutUpdates++;
+    cache.metrics.labelCandidatesEvaluated += Math.min(evaluated, labels.length);
+    cache.metrics.maxVisibleLabels = Math.max(cache.metrics.maxVisibleLabels, visible);
+}
+
 interface CanvasBuildResult {
     readonly picking: PickingState;
     readonly baseCanvas: HTMLCanvasElement;
+    readonly referenceLines: readonly CanvasReferenceLine[];
+    readonly interactivePath: Path2D | null;
     readonly overscan: number;
     readonly displayContext: CanvasRenderingContext2D;
     readonly displayDpr: number;
     readonly rasterDurationMs: number;
     readonly pickingDurationMs: number;
+}
+
+interface CanvasReferenceLine {
+    readonly role: ContextMapLayer["role"];
+    readonly path: Path2D;
+    readonly stroke: string;
+    readonly lineWidth: number;
+    readonly placement: "underlay" | "overlay";
 }
 
 function canvasOverscan(
@@ -855,6 +1126,10 @@ function drawCanvasCamera(
     const overscan = cache.canvasBaseOverscan;
     context.setTransform(cache.canvasDisplayDpr, 0, 0, cache.canvasDisplayDpr, 0, 0);
     context.clearRect(0, 0, width, height);
+    if (cache.currentRequest.scene.cartography && cache.currentRequest.cartography.detail !== "none") {
+        context.fillStyle = cache.style.ocean;
+        context.fillRect(0, 0, width, height);
+    }
     context.save();
     context.translate(cache.camera.panX, cache.camera.panY);
     context.scale(cache.camera.zoom, cache.camera.zoom);
@@ -869,6 +1144,47 @@ function drawCanvasCamera(
         width + overscan * 2,
         height + overscan * 2
     );
+    const referenceLines = cache.canvasReferenceLines ?? [];
+    if (referenceLines.length > 0) {
+        const screenWidths = cache.metrics.canvasReferenceScreenLineWidths;
+        const strokeColors = cache.metrics.canvasReferenceStrokeColors;
+        const lineRoles = cache.metrics.canvasReferenceLineRoles;
+        const compositeOrder = cache.metrics.canvasReferenceCompositeOrder;
+        screenWidths.splice(0, screenWidths.length);
+        strokeColors.splice(0, strokeColors.length);
+        lineRoles.splice(0, lineRoles.length);
+        compositeOrder.splice(0, compositeOrder.length);
+        context.lineJoin = "round";
+        context.lineCap = "round";
+        for (const line of referenceLines.filter((entry) => entry.placement === "underlay")) {
+            context.strokeStyle = line.stroke;
+            context.lineWidth = line.lineWidth / cache.camera.zoom;
+            context.stroke(line.path);
+            screenWidths.push(line.lineWidth);
+            strokeColors.push(line.stroke);
+            lineRoles.push(line.role);
+            compositeOrder.push(line.role);
+        }
+    }
+    if (cache.canvasInteractivePath) {
+        context.fillStyle = cache.style.fill;
+        context.fill(cache.canvasInteractivePath, "evenodd");
+        context.strokeStyle = cache.style.stroke;
+        context.lineWidth = 1;
+        context.stroke(cache.canvasInteractivePath);
+        cache.metrics.canvasInteractivePathDraws++;
+        cache.metrics.canvasReferenceCompositeOrder.push("interactive");
+    }
+    for (const line of referenceLines.filter((entry) => entry.placement === "overlay")) {
+        context.strokeStyle = line.stroke;
+        context.lineWidth = line.lineWidth / cache.camera.zoom;
+        context.stroke(line.path);
+        cache.metrics.canvasReferenceScreenLineWidths.push(line.lineWidth);
+        cache.metrics.canvasReferenceStrokeColors.push(line.stroke);
+        cache.metrics.canvasReferenceLineRoles.push(line.role);
+        cache.metrics.canvasReferenceCompositeOrder.push(line.role);
+    }
+    if (referenceLines.length > 0) cache.metrics.canvasReferenceLineDraws++;
     context.restore();
     canvas.style.transform = "";
     cache.metrics.canvasCameraDraws++;
@@ -908,21 +1224,36 @@ function renderCanvas(
     }
     context.setTransform(baseAllocation.dpr, 0, 0, baseAllocation.dpr, 0, 0);
     context.translate(overscan, overscan);
-    for (const feature of request.scene.backdrop.features) {
-        if (
-            !request.showNoDataBackdrop
-            && !request.scene.entities.byFeatureKey.has(feature.key)
-        ) {
-            continue;
+    drawCanvasReferenceFills(
+        context,
+        request,
+        style,
+        new Set(["sphere", "land", "water"])
+    );
+    const hasCartography = Boolean(
+        request.scene.cartography && request.cartography.detail !== "none"
+    );
+    if (!hasCartography) {
+        for (const feature of request.scene.backdrop.features) {
+            if (
+                !request.showNoDataBackdrop
+                && !request.scene.entities.byFeatureKey.has(feature.key)
+            ) {
+                continue;
+            }
+            drawCanvasFeature(
+                context,
+                feature,
+                request.baseTransform,
+                request.pointSize ?? style.pointSize,
+                { fill: style.fill, stroke: style.stroke, lineWidth: 1 }
+            );
         }
-        drawCanvasFeature(
-            context,
-            feature,
-            request.baseTransform,
-            request.pointSize ?? style.pointSize,
-            { fill: style.fill, stroke: style.stroke, lineWidth: 1 }
-        );
     }
+    const interactivePath = hasCartography
+        ? createCanvasInteractivePath(request)
+        : null;
+    const referenceLines = createCanvasReferenceLines(request, style);
     const rasterDurationMs = measuredDuration(rasterStarted);
 
     const pickingStarted = performance.now();
@@ -966,6 +1297,8 @@ function renderCanvas(
     );
     return {
         baseCanvas,
+        referenceLines,
+        interactivePath,
         overscan,
         displayContext,
         displayDpr: displayAllocation.dpr,
@@ -1001,6 +1334,7 @@ function drawCanvasFeature(
             context.moveTo(point.x + pointSize, point.y);
             context.arc(point.x, point.y, pointSize, 0, Math.PI * 2);
         }
+
     } else {
         for (const polygon of feature.geometry.polygons ?? []) {
             for (const ring of polygon) {
@@ -1015,6 +1349,7 @@ function drawCanvasFeature(
                 context.closePath();
             }
         }
+
     }
     context.fillStyle = style.fill;
     context.fill("evenodd");
@@ -1023,6 +1358,77 @@ function drawCanvasFeature(
         context.lineWidth = style.lineWidth;
         context.stroke();
     }
+}
+
+function drawCanvasReferenceFills(
+    context: CanvasRenderingContext2D,
+    request: ContextRenderRequest,
+    style: ContextSurfaceStyle,
+    roles: ReadonlySet<ContextMapLayer["role"]>
+): void {
+    for (const layer of request.scene.cartography?.layers ?? []) {
+        if (!roles.has(layer.role) || !referenceLayerVisible(layer, request)) continue;
+        const layerStyle = referenceStyle(layer, style);
+        context.beginPath();
+        for (const polygon of layer.polygons ?? []) {
+            for (const ring of polygon) appendCanvasLine(context, ring, request.baseTransform, true);
+        }
+        for (const line of layer.lines ?? []) {
+            appendCanvasLine(context, line, request.baseTransform, false);
+        }
+        if (layerStyle.fill) {
+            context.fillStyle = layerStyle.fill;
+            context.fill("evenodd");
+        }
+    }
+}
+
+function createCanvasReferenceLines(
+    request: ContextRenderRequest,
+    style: ContextSurfaceStyle
+): readonly CanvasReferenceLine[] {
+    const lines: CanvasReferenceLine[] = [];
+    for (const layer of request.scene.cartography?.layers ?? []) {
+        if (!referenceLayerVisible(layer, request)) continue;
+        const layerStyle = referenceStyle(layer, style);
+        if (!layerStyle.stroke || layerStyle.lineWidth <= 0) continue;
+        lines.push({
+            role: layer.role,
+            path: new Path2D(referencePathData(layer, request.baseTransform)),
+            stroke: layerStyle.stroke,
+            lineWidth: layerStyle.lineWidth,
+            placement: layer.role === "water"
+                || layer.role === "river"
+                || layer.role === "graticule"
+                ? "underlay"
+                : "overlay"
+        });
+    }
+
+    return lines;
+}
+
+function createCanvasInteractivePath(request: ContextRenderRequest): Path2D {
+    const commands = request.scene.backdrop.features
+        .filter((feature) =>
+            request.showNoDataBackdrop || request.scene.entities.byFeatureKey.has(feature.key))
+        .map((feature) => pathData(feature, request.baseTransform))
+        .join(" ");
+    return new Path2D(commands);
+}
+
+function appendCanvasLine(
+    context: CanvasRenderingContext2D,
+    points: readonly ScenePoint[],
+    transform: SceneTransform,
+    closed: boolean
+): void {
+    points.forEach((raw, index) => {
+        const point = projectPoint(raw, transform);
+        if (index === 0) context.moveTo(point.x, point.y);
+        else context.lineTo(point.x, point.y);
+    });
+    if (closed) context.closePath();
 }
 
 function pathData(feature: ContextFeature, transform: SceneTransform): string {

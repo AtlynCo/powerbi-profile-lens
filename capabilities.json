@@ -481,6 +481,67 @@
             ]
           }
         },
+        "referenceDetail": {
+          "displayName": "Reference map detail",
+          "displayNameKey": "Format_ReferenceDetail",
+          "type": {
+            "enumeration": [
+              {
+                "value": "none",
+                "displayName": "None",
+                "displayNameKey": "Format_ReferenceDetail_None"
+              },
+              {
+                "value": "standard",
+                "displayName": "Standard",
+                "displayNameKey": "Format_ReferenceDetail_Standard"
+              },
+              {
+                "value": "full",
+                "displayName": "Full",
+                "displayNameKey": "Format_ReferenceDetail_Full"
+              }
+            ]
+          }
+        },
+        "showPhysicalLayers": {
+          "displayName": "Show land and water",
+          "displayNameKey": "Format_ShowPhysicalLayers",
+          "type": { "bool": true }
+        },
+        "showLabels": {
+          "displayName": "Show map labels",
+          "displayNameKey": "Format_ShowMapLabels",
+          "type": { "bool": true }
+        },
+        "labelDensity": {
+          "displayName": "Map label density",
+          "displayNameKey": "Format_LabelDensity",
+          "type": {
+            "enumeration": [
+              {
+                "value": "sparse",
+                "displayName": "Sparse",
+                "displayNameKey": "Format_LabelDensity_Sparse"
+              },
+              {
+                "value": "balanced",
+                "displayName": "Balanced",
+                "displayNameKey": "Format_LabelDensity_Balanced"
+              },
+              {
+                "value": "detailed",
+                "displayName": "Detailed",
+                "displayNameKey": "Format_LabelDensity_Detailed"
+              }
+            ]
+          }
+        },
+        "showGraticule": {
+          "displayName": "Show graticule",
+          "displayNameKey": "Format_ShowGraticule",
+          "type": { "bool": true }
+        },
         "packKeyMode": {
           "displayName": "Pack key mode",
           "displayNameKey": "Format_PackKeyMode",

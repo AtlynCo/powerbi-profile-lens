@@ -149,6 +149,36 @@ export class ContextCard extends Card {
         value: "110m"
     });
 
+    public referenceDetail = new formattingSettings.AutoDropdown({
+        name: "referenceDetail",
+        displayNameKey: "Format_ReferenceDetail",
+        value: "standard"
+    });
+
+    public showPhysicalLayers = new formattingSettings.ToggleSwitch({
+        name: "showPhysicalLayers",
+        displayNameKey: "Format_ShowPhysicalLayers",
+        value: true
+    });
+
+    public showLabels = new formattingSettings.ToggleSwitch({
+        name: "showLabels",
+        displayNameKey: "Format_ShowMapLabels",
+        value: true
+    });
+
+    public labelDensity = new formattingSettings.AutoDropdown({
+        name: "labelDensity",
+        displayNameKey: "Format_LabelDensity",
+        value: "balanced"
+    });
+
+    public showGraticule = new formattingSettings.ToggleSwitch({
+        name: "showGraticule",
+        displayNameKey: "Format_ShowGraticule",
+        value: true
+    });
+
     public packKeyMode = new formattingSettings.AutoDropdown({
         name: "packKeyMode",
         displayNameKey: "Format_PackKeyMode",
@@ -212,6 +242,11 @@ export class ContextCard extends Card {
         this.mode,
         this.pack,
         this.worldDetail,
+        this.referenceDetail,
+        this.showPhysicalLayers,
+        this.showLabels,
+        this.labelDensity,
+        this.showGraticule,
         this.packKeyMode,
         this.svgFeatureThreshold,
         this.svgVertexThreshold,
@@ -559,6 +594,11 @@ export interface ResolvedSettings {
     readonly contextMode: ContextMode;
     readonly contextPack: "worldCountries" | "usStates" | "usCounties";
     readonly worldDetail: "110m" | "50m";
+    readonly referenceDetail: "none" | "standard" | "full";
+    readonly showPhysicalLayers: boolean;
+    readonly showMapLabels: boolean;
+    readonly mapLabelDensity: "sparse" | "balanced" | "detailed";
+    readonly showGraticule: boolean;
     readonly packKeyMode: "auto" | "canonical" | "isoAlpha3CaseFold" | "geoid2" | "geoid5";
     readonly svgFeatureThreshold: number;
     readonly svgVertexThreshold: number;
@@ -644,6 +684,19 @@ export function resolveSettings(
             "worldCountries"
         ),
         worldDetail: enumValue(model.context.worldDetail.value, ["110m", "50m"], "110m"),
+        referenceDetail: enumValue(
+            model.context.referenceDetail.value,
+            ["none", "standard", "full"],
+            "standard"
+        ),
+        showPhysicalLayers: model.context.showPhysicalLayers.value,
+        showMapLabels: model.context.showLabels.value,
+        mapLabelDensity: enumValue(
+            model.context.labelDensity.value,
+            ["sparse", "balanced", "detailed"],
+            "balanced"
+        ),
+        showGraticule: model.context.showGraticule.value,
         packKeyMode: enumValue(
             model.context.packKeyMode.value,
             ["auto", "canonical", "isoAlpha3CaseFold", "geoid2", "geoid5"],

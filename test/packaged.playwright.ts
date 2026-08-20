@@ -1081,6 +1081,7 @@ test.describe("packaged visual in a real browser", () => {
                 series: [],
                 profiles: ["Metric A"]
             });
+
             const elapsed = Date.now() - started;
             const renderer = await page.locator(".profile-lens-context-canvas").evaluate(
                 (canvas) => (canvas as HTMLCanvasElement).width > 1 ? "canvas" : "svg"
@@ -1110,6 +1111,189 @@ test.describe("packaged visual in a real browser", () => {
         expect(canvas.names).toEqual(svg.names);
         expect(svg.elapsed).toBeLessThan(750);
         expect(canvas.elapsed).toBeLessThan(750);
+    });
+
+    test("renders the professional world hierarchy with bounded screen labels", async ({ page }, testInfo) => {
+        const config = {
+            contextMode: "builtInPack",
+            contextPack: "worldCountries",
+            worldDetail: "50m",
+            referenceDetail: "full",
+            showPhysicalLayers: true,
+            showLabels: true,
+            labelDensity: "detailed",
+            showGraticule: true,
+            contextLayout: "focusLens",
+            homeView: "fill",
+            interactionMode: "localOnly",
+            entities: WORLD_50_KEYS.filter((_key, index) => index % 4 === 0),
+            periods: ["2020", "2025"],
+            bands: ["Youth", "Working age", "Older adults"],
+            series: ["Community", "Comparison"],
+            profiles: ["Population", "Income", "Education"],
+            svgFeatureThreshold: 500
+        };
+        await mount(page, config);
+        const roles = await page.locator(
+            ".profile-lens-context-camera-layer > [data-reference-role],"
+            + ".profile-lens-context-camera-layer > [data-context-key]"
+        ).evaluateAll((nodes) => nodes.map((node) =>
+            node.getAttribute("data-reference-role")
+            ?? (node.hasAttribute("data-context-key") ? "interactive" : "")));
+        expect(roles.indexOf("sphere")).toBeLessThan(roles.indexOf("land"));
+        expect(roles.indexOf("land")).toBeLessThan(roles.indexOf("water"));
+        expect(roles.indexOf("water")).toBeLessThan(roles.indexOf("graticule"));
+        expect(roles.indexOf("graticule")).toBeLessThan(roles.indexOf("interactive"));
+        expect(roles.lastIndexOf("interactive")).toBeLessThan(roles.indexOf("coastline"));
+        expect(roles.indexOf("coastline")).toBeLessThan(roles.indexOf("admin0"));
+        const svgReferenceWidths = await page.locator(
+            "[data-reference-role='water'],"
+            + "[data-reference-role='graticule'],"
+            + "[data-reference-role='coastline'],"
+            + "[data-reference-role='admin0']"
+        ).evaluateAll((nodes) => nodes.map((node) => Number(node.getAttribute("stroke-width"))));
+        const labels = page.locator(".profile-lens-context-map-label");
+        expect(await labels.count()).toBeGreaterThan(0);
+        expect(await labels.count()).toBeLessThanOrEqual(40);
+        await expect(labels.first()).toHaveAttribute("font-size", "11");
+        const semanticCount = await page.locator(
+            ".profile-lens-context-semantic [role='option']"
+        ).count();
+        expect(semanticCount).toBeLessThanOrEqual(100);
+        expect(await page.locator("[data-reference-role][data-context-key]").count()).toBe(0);
+        await page.screenshot({
+            path: process.env.PROFILE_LENS_SCREENSHOT_PATH
+                ?? testInfo.outputPath("professional-world-hero.png"),
+            fullPage: true
+        });
+
+        const before = await page.locator(".profile-lens-context").evaluate((node) => ({
+            metrics: { ...(node as HTMLElement & {
+                __profileLensContextMetrics: {
+                    referenceGeometryBuilds: number;
+                    svgGeometryBuilds: number;
+                    canvasRasterBuilds: number;
+                    canvasPickingBuilds: number;
+                    labelLayoutUpdates: number;
+                    maxVisibleLabels: number;
+                };
+            }).__profileLensContextMetrics },
+            labelSize: node.querySelector(".profile-lens-context-map-label")
+                ?.getAttribute("font-size")
+        }));
+        await page.locator(".profile-lens-context").press("+");
+        await page.locator(".profile-lens-context").press("ArrowRight");
+        const after = await page.locator(".profile-lens-context").evaluate((node) => ({
+            metrics: { ...(node as HTMLElement & {
+                __profileLensContextMetrics: typeof before.metrics;
+            }).__profileLensContextMetrics },
+            labelSize: node.querySelector(".profile-lens-context-map-label")
+                ?.getAttribute("font-size")
+        }));
+        expect(after.metrics.referenceGeometryBuilds).toBe(before.metrics.referenceGeometryBuilds);
+        expect(after.metrics.svgGeometryBuilds).toBe(before.metrics.svgGeometryBuilds);
+        expect(after.metrics.canvasRasterBuilds).toBe(before.metrics.canvasRasterBuilds);
+        expect(after.metrics.canvasPickingBuilds).toBe(before.metrics.canvasPickingBuilds);
+        expect(after.metrics.labelLayoutUpdates).toBeGreaterThan(before.metrics.labelLayoutUpdates);
+        expect(after.metrics.maxVisibleLabels).toBeLessThanOrEqual(40);
+        expect(after.labelSize).toBe(before.labelSize);
+
+        await mount(page, { ...config, svgFeatureThreshold: 1 });
+        const canvasWidth = await page.locator(".profile-lens-context-canvas").evaluate(
+            (canvas) => (canvas as HTMLCanvasElement).width
+        );
+        expect(canvasWidth).toBeGreaterThan(1);
+        expect(await page.locator(".profile-lens-context-map-label").count())
+            .toBeLessThanOrEqual(40);
+        const canvasBefore = await page.locator(".profile-lens-context").evaluate((node) => ({
+            ...(node as HTMLElement & {
+                __profileLensContextMetrics: {
+                    referenceGeometryBuilds: number;
+                    canvasRasterBuilds: number;
+                    canvasPickingBuilds: number;
+                    canvasReferenceLineDraws: number;
+                    canvasInteractivePathDraws: number;
+                    canvasReferenceScreenLineWidths: number[];
+                    canvasReferenceCompositeOrder: string[];
+                };
+            }).__profileLensContextMetrics
+        }));
+        for (let index = 0; index < 4; index++) {
+            await page.locator(".profile-lens-context").press("+");
+        }
+        const canvasAfter = await page.locator(".profile-lens-context").evaluate((node) => ({
+            ...(node as HTMLElement & {
+                __profileLensContextMetrics: typeof canvasBefore;
+            }).__profileLensContextMetrics
+        }));
+        expect(canvasAfter.canvasReferenceScreenLineWidths).toEqual(svgReferenceWidths);
+        expect(canvasAfter.canvasReferenceScreenLineWidths)
+            .toEqual(canvasBefore.canvasReferenceScreenLineWidths);
+        expect(canvasAfter.canvasReferenceLineDraws).toBeGreaterThan(
+            canvasBefore.canvasReferenceLineDraws
+        );
+        expect(canvasAfter.canvasInteractivePathDraws).toBeGreaterThan(
+            canvasBefore.canvasInteractivePathDraws
+        );
+        expect(canvasAfter.canvasReferenceCompositeOrder).toEqual([
+            "water",
+            "graticule",
+            "interactive",
+            "coastline",
+            "admin0"
+        ]);
+        expect(canvasAfter.referenceGeometryBuilds).toBe(canvasBefore.referenceGeometryBuilds);
+        expect(canvasAfter.canvasRasterBuilds).toBe(canvasBefore.canvasRasterBuilds);
+        expect(canvasAfter.canvasPickingBuilds).toBe(canvasBefore.canvasPickingBuilds);
+    });
+
+    test("keeps lake boundaries visible in dark and light high contrast", async ({ page }) => {
+        const base = {
+            contextMode: "builtInPack",
+            contextPack: "worldCountries",
+            worldDetail: "50m",
+            referenceDetail: "full",
+            entities: ["USA", "CAN", "MEX"],
+            periods: [],
+            bands: ["Band 1"],
+            series: [],
+            profiles: ["Metric A"],
+            highContrast: true
+        };
+        for (const colors of [
+            { foreground: "#ffff00", background: "#000000", selected: "#00ffff" },
+            { foreground: "#000000", background: "#ffffff", selected: "#0000ff" }
+        ]) {
+            await mount(page, {
+                ...base,
+                svgFeatureThreshold: 500,
+                highContrastForeground: colors.foreground,
+                highContrastBackground: colors.background,
+                highContrastSelected: colors.selected
+            });
+            const lake = page.locator("[data-reference-role='water']").first();
+            await expect(lake).toHaveAttribute("fill", colors.background);
+            await expect(lake).toHaveAttribute("stroke", colors.foreground);
+
+            await mount(page, {
+                ...base,
+                svgFeatureThreshold: 1,
+                highContrastForeground: colors.foreground,
+                highContrastBackground: colors.background,
+                highContrastSelected: colors.selected
+            });
+            const metrics = await page.locator(".profile-lens-context").evaluate((node) => ({
+                ...(node as HTMLElement & {
+                    __profileLensContextMetrics: {
+                        canvasReferenceLineRoles: string[];
+                        canvasReferenceStrokeColors: string[];
+                    };
+                }).__profileLensContextMetrics
+            }));
+            const waterIndex = metrics.canvasReferenceLineRoles.indexOf("water");
+            expect(waterIndex).toBeGreaterThanOrEqual(0);
+            expect(metrics.canvasReferenceStrokeColors[waterIndex]).toBe(colors.foreground);
+        }
     });
 
     test("keeps adversarial boundaries, holes, and overlaps in SVG/Canvas parity", async ({ page }) => {

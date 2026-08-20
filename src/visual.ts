@@ -975,6 +975,13 @@ export class Visual implements IVisual {
             featureDescriptions: this.contextFeatureDescriptions(scene, sceneIdentity),
             showNoDataBackdrop: this.settings.showNoDataBackdrop,
             interactive: allowInteractions,
+            cartography: {
+                detail: this.settings.referenceDetail,
+                showPhysicalLayers: this.settings.showPhysicalLayers,
+                showLabels: this.settings.showMapLabels,
+                showGraticule: this.settings.showGraticule,
+                labelDensity: this.settings.mapLabelDensity
+            },
             navigation: {
                 enabled: navigationEnabled,
                 showProbe: this.settings.showCenterProbe,
@@ -1003,7 +1010,10 @@ export class Visual implements IVisual {
                     ? contextTheme.foregroundSelected
                     : this.settings.contextSelectedColor,
                 background: contextTheme.background,
-                pointSize: this.settings.contextPointSize
+                pointSize: this.settings.contextPointSize,
+                ...contextTheme.cartography,
+                mapLabel: contextTheme.cartography.label,
+                mapLabelHalo: contextTheme.cartography.labelHalo
             },
             window.devicePixelRatio || 1,
             this.contextMetrics

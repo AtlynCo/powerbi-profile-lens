@@ -1,6 +1,6 @@
 import type { FeatureCollection, MultiPolygon, Polygon } from "geojson";
 import type { GeometryCollection, Objects, Topology } from "topojson-specification";
-import type { ContextGeometry } from "../contract";
+import type { ContextCartography, ContextGeometry } from "../contract";
 
 export type ContextPackLevel = "country" | "state" | "county";
 export type ContextPackProjectionId = "naturalEarth1-v1" | "us-composite-v1";
@@ -12,7 +12,7 @@ export interface ContextPackKeyMode {
 }
 
 export interface ContextPackManifest {
-    readonly schemaVersion: 1;
+    readonly schemaVersion: 2;
     readonly id: string;
     readonly displayName: string;
     readonly level: ContextPackLevel;
@@ -26,9 +26,18 @@ export interface ContextPackManifest {
     readonly attribution: string;
     readonly policyId: string;
     readonly sourceArchiveSha256: string;
+    readonly sourceArchives: readonly {
+        readonly id: string;
+        readonly sha256: string;
+        readonly bytes: number;
+        readonly license: string;
+        readonly retainedFields: readonly string[];
+    }[];
     readonly artifactSha256: string;
     readonly fallbackKeys: readonly string[];
     readonly alternateIsoKeys: readonly string[];
+    readonly layerCounts: Readonly<Record<string, number>>;
+    readonly layerVertexCounts: Readonly<Record<string, number>>;
 }
 
 export interface ContextPackProperties {
@@ -43,15 +52,37 @@ export interface ContextPackProperties {
     readonly centroid: readonly [number, number];
     readonly bounds: readonly [number, number, number, number];
     readonly neighbors: readonly string[];
+    readonly labelAnchor?: readonly [number, number];
+    readonly labelRank?: number;
 }
 
 export type ContextPackObjects = Objects<ContextPackProperties> & {
     readonly features: GeometryCollection<ContextPackProperties>;
+    readonly sphere?: GeometryCollection<ContextReferenceProperties>;
+    readonly land?: GeometryCollection<ContextReferenceProperties>;
+    readonly water?: GeometryCollection<ContextReferenceProperties>;
+    readonly coastline?: GeometryCollection<ContextReferenceProperties>;
+    readonly admin0?: GeometryCollection<ContextReferenceProperties>;
+    readonly graticule?: GeometryCollection<ContextReferenceProperties>;
 };
+
+export interface ContextReferenceProperties {
+    readonly id: string;
+}
+
+export interface ContextPackLabel {
+    readonly key: string;
+    readonly text: string;
+    readonly anchor: readonly [number, number];
+    readonly rank: number;
+    readonly minZoom: number;
+    readonly maxZoom?: number;
+}
 
 export interface ContextPackArtifact {
     readonly manifest: ContextPackManifest;
     readonly topology: Topology<ContextPackObjects>;
+    readonly labels: readonly ContextPackLabel[];
 }
 
 export interface ProjectedPackFeature {
@@ -62,6 +93,7 @@ export interface ProjectedPackFeature {
 export interface ProjectedContextPack {
     readonly manifest: ContextPackManifest;
     readonly features: readonly ProjectedPackFeature[];
+    readonly cartography?: ContextCartography;
 }
 
 export type PackFeatureCollection = FeatureCollection<

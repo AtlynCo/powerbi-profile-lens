@@ -6,12 +6,23 @@ import {
 import type { GeoProjection } from "d3-geo";
 import type {
     Feature,
+    FeatureCollection,
+    LineString,
+    MultiLineString,
     MultiPolygon,
     Polygon,
     Position
 } from "geojson";
 import { feature } from "topojson-client";
-import type { ContextGeometry, MultiPolygonCoordinates, ScenePoint } from "../contract";
+import type {
+    ContextCartography,
+    ContextGeometry,
+    ContextMapLayer,
+    ContextMapLayerRole,
+    MultiPolygonCoordinates,
+    PolygonCoordinates,
+    ScenePoint
+} from "../contract";
 import type {
     ContextPackArtifact,
     ContextPackProperties,
@@ -60,7 +71,60 @@ export function projectContextPack(artifact: ContextPackArtifact): ProjectedCont
     if (projected.length !== artifact.manifest.featureCount) {
         throw new Error(`Context pack ${artifact.manifest.id} feature count is invalid.`);
     }
-    return { manifest: artifact.manifest, features: projected };
+    const worldProjection = projections.get("world");
+    const cartography = worldProjection
+        ? projectCartography(artifact, worldProjection)
+        : undefined;
+    return { manifest: artifact.manifest, features: projected, cartography };
+}
+
+const REFERENCE_ROLES = [
+    "sphere",
+    "land",
+    "water",
+    "graticule",
+    "coastline",
+    "admin0"
+] as const;
+
+function projectCartography(
+    artifact: ContextPackArtifact,
+    projection: GeoProjection
+): ContextCartography {
+    const layers: ContextMapLayer[] = [];
+    for (const role of REFERENCE_ROLES) {
+        const object = artifact.topology.objects[role];
+        if (!object) continue;
+        const decoded = feature(artifact.topology, object) as unknown as FeatureCollection<
+            Polygon | MultiPolygon | LineString | MultiLineString
+        >;
+        const polygons: PolygonCoordinates[] = [];
+        const lines: ScenePoint[][] = [];
+        for (const entry of decoded.features) {
+            if (entry.geometry.type === "Polygon") {
+                polygons.push(entry.geometry.coordinates.map((ring) => projectRing(ring, projection)));
+            } else if (entry.geometry.type === "MultiPolygon") {
+                polygons.push(...entry.geometry.coordinates.map((polygon) =>
+                    polygon.map((ring) => projectRing(ring, projection))));
+            } else if (entry.geometry.type === "LineString") {
+                lines.push(projectRing(entry.geometry.coordinates, projection) as ScenePoint[]);
+            } else {
+                lines.push(...entry.geometry.coordinates.map((line) =>
+                    projectRing(line, projection) as ScenePoint[]));
+            }
+        }
+        layers.push({
+            id: role,
+            role: role as ContextMapLayerRole,
+            polygons: polygons.length > 0 ? polygons : undefined,
+            lines: lines.length > 0 ? lines : undefined
+        });
+    }
+    const labels = artifact.labels.map((label) => ({
+        ...label,
+        anchor: projectPosition(label.anchor, projection)
+    }));
+    return { layers, labels };
 }
 
 function createUsProjections(
