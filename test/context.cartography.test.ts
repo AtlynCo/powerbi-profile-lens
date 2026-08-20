@@ -95,6 +95,7 @@ const style = {
     land: "#f1efe8",
     water: "#c7dce3",
     waterOutline: "#7fa9b8",
+    waterOutlineWidth: 0.35,
     river: "#7fa9b8",
     graticule: "#9aa",
     coastline: "#667",
@@ -134,13 +135,15 @@ describe("noninteractive reference cartography", () => {
             land: "#000000",
             water: "#000000",
             waterOutline: "#ffff00",
+            waterOutlineWidth: 1,
             coastline: "#ffff00",
             label: "#ffff00",
             labelHalo: "#000000"
         });
         expect(lightHighContrast.cartography).toMatchObject({
             water: "#ffffff",
-            waterOutline: "#000000"
+            waterOutline: "#000000",
+            waterOutlineWidth: 1
         });
         expect(highContrast.foregroundSelected).toBe("#00ffff");
     });
@@ -155,15 +158,21 @@ describe("noninteractive reference cartography", () => {
             {
                 ...style,
                 water: "#000000",
-                waterOutline: "#ffff00"
+                waterOutline: "#ffff00",
+                waterOutlineWidth: 1
             },
             1,
             createContextPerformanceMetrics()
         );
-        const lake = elements.svg.querySelector("[data-reference-role='water']");
-        expect(lake?.getAttribute("fill")).toBe("#000000");
-        expect(lake?.getAttribute("stroke")).toBe("#ffff00");
-        expect(lake?.getAttribute("vector-effect")).toBe("non-scaling-stroke");
+        const lakeFill = elements.svg.querySelector("[data-reference-role='water']");
+        const lakeBoundary = elements.svg.querySelector(
+            "[data-reference-role='water-boundary']"
+        );
+        expect(lakeFill?.getAttribute("fill")).toBe("#000000");
+        expect(lakeFill?.getAttribute("stroke")).toBe("none");
+        expect(lakeBoundary?.getAttribute("stroke")).toBe("#ffff00");
+        expect(lakeBoundary?.getAttribute("stroke-width")).toBe("1");
+        expect(lakeBoundary?.getAttribute("vector-effect")).toBe("non-scaling-stroke");
     });
 
     it("keeps strict layer order and reference geometry outside picking and semantics", () => {
@@ -187,6 +196,7 @@ describe("noninteractive reference cartography", () => {
             "water",
             "graticule",
             "feature:interactive",
+            "water-boundary",
             "coastline",
             "admin0"
         ]);
