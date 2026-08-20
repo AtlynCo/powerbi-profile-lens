@@ -1,7 +1,7 @@
 {
   "$schema": "https://developer.microsoft.com/json-schemas/fabric/item/report/definition/page/2.1.0/schema.json",
   "name": "pageBoundPoints",
-  "displayName": "4 - Bound WGS84 community points",
+  "displayName": "5 - Bound WGS84 community points",
   "displayOption": "FitToPage",
   "height": 900,
   "width": 1600

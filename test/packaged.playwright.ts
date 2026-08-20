@@ -1134,6 +1134,7 @@ test.describe("packaged visual in a real browser", () => {
         ): Promise<string[]> => {
             await mount(page, {
                 contextMode: "boundGeometry",
+                homeView: "fit",
                 svgFeatureThreshold,
                 entities: ["Base", "Adjacent", "Holed", "Overlap"],
                 geometryTexts: geometries,
@@ -1217,6 +1218,7 @@ test.describe("packaged visual in a real browser", () => {
         }> => {
             await mount(page, {
                 contextMode: "boundGeometry",
+                homeView: "fit",
                 svgFeatureThreshold: threshold,
                 entities,
                 geometryTexts: geometries,
@@ -2551,6 +2553,7 @@ test.describe("packaged visual in a real browser", () => {
     test("keeps overscanned Canvas point pixels and picking aligned after camera movement", async ({ page }) => {
         await mount(page, {
             contextMode: "boundGeometry",
+            homeView: "fit",
             navigationEnabled: true,
             svgFeatureThreshold: 1,
             pointSize: 24,
@@ -2604,6 +2607,175 @@ test.describe("packaged visual in a real browser", () => {
         }).profileLensHost.calls);
         expect(calls.select).toBe(1);
         expect(calls.lastSelectedKey).toContain("entity:0");
+    });
+
+    test("supports isolated vertical drag from Automatic Fill home for world, state, and county", async ({ page }) => {
+        const cases = [
+            {
+                name: "world",
+                contextPack: "worldCountries",
+                worldDetail: "50m",
+                packKeyMode: "canonical",
+                entities: WORLD_50_KEYS,
+                svgFeatureThreshold: 500,
+                svgVertexThreshold: 100000
+            },
+            {
+                name: "state",
+                contextPack: "usStates",
+                packKeyMode: "geoid2",
+                entities: STATE_KEYS,
+                svgFeatureThreshold: 500,
+                svgVertexThreshold: 100000
+            },
+            {
+                name: "county",
+                contextPack: "usCounties",
+                packKeyMode: "geoid5",
+                entities: COUNTY_KEYS.filter((_key, index) => index % 17 === 0),
+                svgFeatureThreshold: 1,
+                svgVertexThreshold: 100
+            }
+        ];
+        for (const value of cases) {
+            await mount(page, {
+                width: 1280,
+                height: 620,
+                contextMode: "builtInPack",
+                contextLayout: "focusLens",
+                navigationMode: "auto",
+                homeView: "automatic",
+                interactionMode: "localOnly",
+                contextPack: value.contextPack,
+                worldDetail: value.worldDetail,
+                packKeyMode: value.packKeyMode,
+                svgFeatureThreshold: value.svgFeatureThreshold,
+                svgVertexThreshold: value.svgVertexThreshold,
+                entities: value.entities,
+                periods: ["Period 1", "Period 2"],
+                bands: ["Band 1", "Band 2", "Band 3", "Band 4", "Band 5"],
+                series: ["Series X", "Series Y"],
+                profiles: ["Metric A", "Metric B", "Metric C"]
+            });
+            const surface = page.locator(".profile-lens-context");
+            await expect(surface).toHaveCSS("touch-action", "none");
+            const bounds = await surface.boundingBox();
+            expect(bounds).not.toBeNull();
+            const before = await surface.evaluate((node) => {
+                const metrics = (node as HTMLElement & {
+                    __profileLensContextMetrics: {
+                        homeZoom: number;
+                        cameraZoom: number;
+                        panX: number;
+                        panY: number;
+                        moveEnds: number;
+                        probeTransitions: number;
+                        providerBuilds: number;
+                        sceneBuilds: number;
+                        sceneIndexBuilds: number;
+                        svgGeometryBuilds: number;
+                        canvasRasterBuilds: number;
+                        canvasPickingBuilds: number;
+                    };
+                }).__profileLensContextMetrics;
+                return { ...metrics };
+            });
+            expect(before.homeZoom, value.name).toBeGreaterThan(1);
+            expect(before.cameraZoom, value.name).toBeCloseTo(before.homeZoom, 10);
+            const centerX = (bounds?.x ?? 0) + (bounds?.width ?? 0) / 2;
+            const centerY = (bounds?.y ?? 0) + (bounds?.height ?? 0) / 2;
+            await page.mouse.move(centerX, centerY);
+            await page.mouse.down();
+            await page.mouse.move(centerX, centerY + 120, { steps: 12 });
+            await page.mouse.up();
+            const after = await surface.evaluate((node) => {
+                const metrics = (node as HTMLElement & {
+                    __profileLensContextMetrics: {
+                        cameraZoom: number;
+                        panX: number;
+                        panY: number;
+                        moveEnds: number;
+                        probeTransitions: number;
+                        providerBuilds: number;
+                        sceneBuilds: number;
+                        sceneIndexBuilds: number;
+                        svgGeometryBuilds: number;
+                        canvasRasterBuilds: number;
+                        canvasPickingBuilds: number;
+                    };
+                }).__profileLensContextMetrics;
+                return { ...metrics };
+            });
+            expect(Math.abs(after.panY - before.panY), value.name).toBeGreaterThan(10);
+            expect(Math.abs(after.panX - before.panX), value.name).toBeLessThanOrEqual(0.5);
+            expect(after.probeTransitions - before.probeTransitions, value.name)
+                .toBeGreaterThan(0);
+            expect(after.moveEnds - before.moveEnds, value.name).toBe(1);
+            expect(after.providerBuilds - before.providerBuilds, value.name).toBe(0);
+            expect(after.sceneBuilds - before.sceneBuilds, value.name).toBe(0);
+            expect(after.sceneIndexBuilds - before.sceneIndexBuilds, value.name).toBe(0);
+            expect(after.svgGeometryBuilds - before.svgGeometryBuilds, value.name).toBe(0);
+            expect(after.canvasRasterBuilds - before.canvasRasterBuilds, value.name).toBe(0);
+            expect(after.canvasPickingBuilds - before.canvasPickingBuilds, value.name).toBe(0);
+            expect(await page.evaluate(() => (window as unknown as {
+                profileLensHost: { calls: { select: number } };
+            }).profileLensHost.calls.select), value.name).toBe(0);
+        }
+    });
+
+    test("keeps fitted minimum reachable and Home returns to the fill camera", async ({ page }) => {
+        await mount(page, {
+            contextMode: "builtInPack",
+            contextLayout: "focusLens",
+            contextPack: "worldCountries",
+            worldDetail: "50m",
+            packKeyMode: "canonical",
+            homeView: "fill",
+            entities: WORLD_50_KEYS,
+            periods: [],
+            bands: ["Band 1"],
+            series: [],
+            profiles: ["Metric A"]
+        });
+        const surface = page.locator(".profile-lens-context");
+        await surface.focus();
+        const initial = await surface.evaluate((node) => {
+            const metrics = (node as HTMLElement & {
+                __profileLensContextMetrics: {
+                    homeZoom: number;
+                    cameraZoom: number;
+                    panX: number;
+                    panY: number;
+                };
+            }).__profileLensContextMetrics;
+            return { ...metrics };
+        });
+        for (let index = 0; index < 20; index++) {
+            await surface.press("-");
+        }
+        const fitted = await surface.evaluate((node) => ({
+            ...(node as HTMLElement & {
+                __profileLensContextMetrics: {
+                    cameraZoom: number;
+                    panX: number;
+                    panY: number;
+                };
+            }).__profileLensContextMetrics
+        }));
+        expect(fitted.cameraZoom).toBe(1);
+        await surface.press("Home");
+        const reset = await surface.evaluate((node) => ({
+            ...(node as HTMLElement & {
+                __profileLensContextMetrics: {
+                    cameraZoom: number;
+                    panX: number;
+                    panY: number;
+                };
+            }).__profileLensContextMetrics
+        }));
+        expect(reset.cameraZoom).toBeCloseTo(initial.homeZoom, 10);
+        expect(reset.panX).toBeCloseTo(initial.panX, 10);
+        expect(reset.panY).toBeCloseTo(initial.panY, 10);
     });
 
     test("keeps world, state, and county camera frames inside the no-rebuild budget", async ({ page }) => {

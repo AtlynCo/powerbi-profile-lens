@@ -20,6 +20,7 @@ describe("offline PBIP validation sample", () => {
     it("contains the complete focused native validation page set", () => {
         const pages = readJson(path.join(pagesRoot, "pages.json")) as { pageOrder: string[] };
         expect(pages.pageOrder).toEqual([
+            "pageHero",
             "pageProfileOnly",
             "pagePeriodSeries",
             "pageGeneratedLayouts",
@@ -53,6 +54,10 @@ describe("offline PBIP validation sample", () => {
         expect(generated).toContain('interactionMode: "localOnly"');
         expect(generated).toContain('"reportSelection"');
         expect(generated).toContain('name: "pageViewportLens"');
+        expect(generated).toContain('name: "pageHero"');
+        expect(generated).toContain('homeView: "automatic"');
+        expect(generated).toContain('contextLayout: "focusLens"');
+        expect(generated).toContain("measureProfiles: true");
         expect(generated).toContain('fallbackEntityKey: "WLD"');
         expect(generated).toContain('interactionMode: "localOnly"');
         expect(generated).toContain('interactionMode: "reportSelection"');

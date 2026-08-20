@@ -72,10 +72,17 @@ semantic mode.
 Viewport navigation composes an immutable scene fit with an in-memory `{ zoom, panX, panY }` camera.
 Forward and inverse transforms support both ordinary and inverted-Y providers. Camera identity is
 derived from provider/mode and ordered geometry, excluding analytical values, focus, periods, and
-host selection. Local The geometry identity excludes Entity bindings, analytical values, detail state, focus, period, and
-selection. Binding/style paint has a separate identity. Focus, period, and selection updates therefore
-reuse the provider scene and camera. An incompatible geometry scene resets; valid resize preserves
-the scene point under the old viewport center and clamps it into the new viewport.
+host selection. The geometry identity excludes Entity bindings, analytical values, detail state,
+focus, period, and selection. Binding/style paint has a separate identity. Focus, period, and
+selection updates therefore reuse the provider scene and camera.
+
+Fit remains the configured minimum camera zoom. Home is resolved independently: Automatic chooses
+Fill for navigable built-in packs, points, and bound geometry, and Fit for grid, hex, or
+non-navigable contexts. Fill is calculated from the actual fitted base bounds and padded usable
+viewport, then clamped to the configured minimum and maximum. Initial load and Home/reset use that
+resolved zoom. An incompatible geometry scene resets; valid resize preserves the scene point under
+the old viewport center, while a camera still at Home recomputes the resized Home view. Every path
+retains the bounded clamp, so the scene cannot be lost.
 
 SVG geometry is created once under a camera `<g>`. Canvas rasterizes one bounded, overscanned neutral
 base surface and one coordinated color-picking surface/index in base-fit coordinates, then submits a

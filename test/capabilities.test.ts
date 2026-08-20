@@ -163,6 +163,7 @@ describe("capabilities contract", () => {
         expect(Object.keys(capabilities.objects.navigation.properties).sort()).toEqual([
             "enabled",
             "fallbackEntityKey",
+            "homeView",
             "maxZoom",
             "minZoom",
             "probeAnnouncementVerbosity",
@@ -177,6 +178,11 @@ describe("capabilities contract", () => {
         };
         expect(navigation.type.enumeration.map((entry) => entry.value))
             .toEqual(["auto", "on", "off"]);
+        const homeView = capabilities.objects.navigation.properties.homeView as {
+            type: { enumeration: Array<{ value: string }> };
+        };
+        expect(homeView.type.enumeration.map((entry) => entry.value))
+            .toEqual(["automatic", "fit", "fill"]);
     });
 
     it("migrates absent and legacy boolean navigation values to auto/on/off", () => {
@@ -191,5 +197,12 @@ describe("capabilities contract", () => {
         expect(resolveSettings(model, {
             navigation: { enabled: "off" }
         } as unknown as powerbi.DataViewObjects).navigationMode).toBe("off");
+        expect(resolveSettings(model).homeView).toBe("automatic");
+        model.navigation.homeView.value = "fit";
+        expect(resolveSettings(model).homeView).toBe("fit");
+        model.navigation.homeView.value = "fill";
+        expect(resolveSettings(model).homeView).toBe("fill");
+        model.navigation.homeView.value = "unsupported";
+        expect(resolveSettings(model).homeView).toBe("automatic");
     });
 });

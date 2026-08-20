@@ -229,6 +229,13 @@
                 }
               }
             },
+            "homeView": {
+              "expr": {
+                "Literal": {
+                  "Value": "'automatic'"
+                }
+              }
+            },
             "maxZoom": {
               "expr": {
                 "Literal": {

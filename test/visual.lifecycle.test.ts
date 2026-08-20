@@ -76,6 +76,10 @@ function setSurfaceBounds(
 }
 
 function contextMetrics(root: HTMLElement): {
+    homeZoom: number;
+    cameraZoom: number;
+    panX: number;
+    panY: number;
     providerBuilds: number;
     sceneBuilds: number;
     sceneIndexBuilds: number;
@@ -100,6 +104,10 @@ function contextMetrics(root: HTMLElement): {
 } {
     return (root as HTMLElement & {
         __profileLensContextMetrics: {
+            homeZoom: number;
+            cameraZoom: number;
+            panX: number;
+            panY: number;
             providerBuilds: number;
             sceneBuilds: number;
             sceneIndexBuilds: number;
@@ -1827,6 +1835,7 @@ describe("interaction", () => {
                 navigation: { enabled: true }
             }
         });
+
         visual.update(updateOptions(view, { width: 640, height: 480 }));
         let surface = mock.element.querySelector<HTMLElement>(".profile-lens-context")!;
         setSurfaceBounds(surface, 320, 300);
@@ -1850,6 +1859,47 @@ describe("interaction", () => {
         visual.update(updateOptions(view, { width: 640, height: 480 }));
         expect(mock.element.querySelector(".profile-lens-context-camera-layer")
             ?.getAttribute("transform")).toBe("matrix(1,0,0,1,0,0)");
+    });
+
+    it("applies Automatic Fill to geographic home while explicit Fit retains the full extent", () => {
+        const { mock, visual } = mount();
+        const view = (homeView: "automatic" | "fit" | "fill") => buildMatrixDataView({
+            entities: ["USA", "CAN", "MEX"],
+            bands: ["Band 1"],
+            profiles: ["Metric A"],
+            objects: {
+                context: {
+                    mode: "builtInPack",
+                    pack: "worldCountries",
+                    worldDetail: "50m",
+                    packKeyMode: "canonical"
+                },
+                layout: { contextLayout: "focusLens" },
+                navigation: { enabled: "auto", homeView }
+            }
+        });
+        visual.update(updateOptions(view("automatic"), { width: 1280, height: 620 }));
+        const surface = mock.element.querySelector<HTMLElement>(".profile-lens-context")!;
+        const automatic = { ...contextMetrics(surface) };
+        expect(automatic.homeZoom).toBeGreaterThan(1);
+        expect(automatic.cameraZoom).toBeCloseTo(automatic.homeZoom, 12);
+
+        visual.update(updateOptions(view("automatic"), { width: 900, height: 700 }));
+        const resizedHome = { ...contextMetrics(surface) };
+        expect(resizedHome.cameraZoom).toBeCloseTo(resizedHome.homeZoom, 12);
+        expect(resizedHome.homeZoom).not.toBe(automatic.homeZoom);
+
+        visual.update(updateOptions(view("fit"), { width: 900, height: 700 }));
+        expect(contextMetrics(surface).homeZoom).toBe(1);
+        expect(contextMetrics(surface).cameraZoom).toBe(1);
+
+        visual.update(updateOptions(view("fill"), { width: 1280, height: 620 }));
+        const fill = { ...contextMetrics(surface) };
+        expect(fill.homeZoom).toBeGreaterThan(1);
+        surface.dispatchEvent(key("keydown", "-"));
+        expect(contextMetrics(surface).cameraZoom).toBeLessThan(fill.homeZoom);
+        surface.dispatchEvent(key("keydown", "Home"));
+        expect(contextMetrics(surface).cameraZoom).toBeCloseTo(fill.homeZoom, 12);
     });
 
     it("zooms by wheel, keyboard, and pinch with probe-driven local focus", () => {
