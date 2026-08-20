@@ -31,7 +31,9 @@ param(
         "snapshotCleanup"
     )]
     [string]$InjectedRollbackFailure = "",
-    [Parameter(DontShow)][switch]$InjectedPriorEvidence
+    [Parameter(DontShow)][switch]$InjectedPriorEvidence,
+    [Parameter(DontShow)][switch]$InjectedCleanupRefusal,
+    [Parameter(DontShow)][switch]$InjectedBlockedRun
 )
 
 $ErrorActionPreference = "Stop"
@@ -43,6 +45,8 @@ $validationMutex = [System.Threading.Mutex]::new(
     "Global\AtlynProfileLensNativeValidation"
 )
 $mutexOwned = $false
+$terminalFailure = $null
+$terminalSecondaryFailures = [System.Collections.Generic.List[System.Exception]]::new()
 try {
     try {
         $mutexOwned = $validationMutex.WaitOne(0)
@@ -129,6 +133,7 @@ $ownedCleanupIncomplete = $false
 $record = $null
 $finalizableEvidencePath = Join-Path $evidencePath "native-run.json"
 $script:snapshotCleanupAttempted = $false
+$script:snapshotRetentionFailure = $null
 $injectedReparseTarget = $null
 $injectedLockPath = $null
 
@@ -432,7 +437,9 @@ if (-not $snapshotGuard -or -not $snapshotGuard.evidence) {
 $record.snapshot.lock = $snapshotGuard.evidence
 
 try {
-    if ($InjectedPersistenceFailure) {
+    if ($InjectedBlockedRun) {
+        throw "Injected native blocked failure"
+    } elseif ($InjectedPersistenceFailure) {
         $record.outcome = "native-run-completed"
         $record.observations = $script:observations
     } else {
@@ -617,9 +624,14 @@ function Invoke-LaunchSnapshotCleanupOnce {
         return $record.snapshotCleanup
     }
     $script:snapshotCleanupAttempted = $true
+    $cleanupGuardsRestored = if ($InjectedCleanupRefusal) {
+        $false
+    } else {
+        $guardsRestored
+    }
     $result = Invoke-BlockedSnapshotCleanup `
         -AllOwnedProcessesExited $record.cleanup.allExited `
-        -GuardsRestored $guardsRestored `
+        -GuardsRestored $cleanupGuardsRestored `
         -CleanupAction {
             if ($InjectedRollbackFailure -eq "snapshotCleanup") {
                 throw "Injected late snapshot cleanup failure"
@@ -634,6 +646,9 @@ function Invoke-LaunchSnapshotCleanupOnce {
     if (-not $result.removed -and -not $result.alreadyAbsent) {
         $result["retained"] = $true
         $result["retainedToken"] = $snapshot.token
+        $script:snapshotRetentionFailure = [System.Exception]::new(
+            "Launch snapshot retained: $($result.reason); token $($snapshot.token)"
+        )
     } else {
         $result["retained"] = $false
     }
@@ -810,26 +825,28 @@ try {
         } catch {
             $persistenceSecondaryFailures.Add($_.Exception)
         }
-        try {
-            if ($InjectedRollbackFailure -eq "lockDispose") {
-                throw "Injected PBIX lock disposal failure"
-            }
-            if ($releasePbixReadLock -and -not $ownedCleanupIncomplete) {
+    }
+    try {
+        if ($InjectedRollbackFailure -eq "lockDispose") {
+            throw "Injected PBIX lock disposal failure"
+        }
+        if ($releasePbixReadLock -and -not $ownedCleanupIncomplete) {
+            $releasePbixReadLock.Dispose()
+            $releasePbixReadLock = $null
+        }
+    } catch {
+        $persistenceSecondaryFailures.Add($_.Exception)
+    } finally {
+        if ($releasePbixReadLock -and -not $ownedCleanupIncomplete) {
+            try {
                 $releasePbixReadLock.Dispose()
                 $releasePbixReadLock = $null
-            }
-        } catch {
-            $persistenceSecondaryFailures.Add($_.Exception)
-        } finally {
-            if ($releasePbixReadLock -and -not $ownedCleanupIncomplete) {
-                try {
-                    $releasePbixReadLock.Dispose()
-                } catch {
-                    $persistenceSecondaryFailures.Add($_.Exception)
-                }
-                $releasePbixReadLock = $null
+            } catch {
+                $persistenceSecondaryFailures.Add($_.Exception)
             }
         }
+    }
+    if ($persistenceFailure) {
         $blockedSnapshotCleanup = Invoke-LaunchSnapshotCleanupOnce
         $record.persistenceRollback = [ordered]@{
             errorCount = $persistenceSecondaryFailures.Count
@@ -846,7 +863,8 @@ if ($failure) {
     $finalSecondaryFailures = [System.Collections.Generic.List[System.Exception]]::new()
     foreach ($candidate in @(
         $secondaryFailure,
-        $script:cleanupFailure
+        $script:cleanupFailure,
+        $script:snapshotRetentionFailure
     )) {
         $candidateException = if ($candidate -is [System.Exception]) {
             $candidate
@@ -868,26 +886,58 @@ if ($failure) {
             $finalSecondaryFailures.Add($candidate)
         }
     }
-    if ($finalSecondaryFailures.Count -gt 0) {
-        $allFailures = [System.Collections.Generic.List[System.Exception]]::new()
-        $allFailures.Add($primaryException)
-        foreach ($secondary in $finalSecondaryFailures) {
-            $allFailures.Add($secondary)
-        }
-        throw [System.AggregateException]::new($primaryException.Message, $allFailures)
+    $terminalFailure = $primaryException
+    foreach ($secondary in $finalSecondaryFailures) {
+        $terminalSecondaryFailures.Add($secondary)
     }
-    throw $failure
 }
 } finally {
     if ($releasePbixReadLock -and -not $ownedCleanupIncomplete) {
-        $releasePbixReadLock.Dispose()
+        try {
+            $releasePbixReadLock.Dispose()
+            $releasePbixReadLock = $null
+        } catch {
+            if ($terminalFailure) {
+                $terminalSecondaryFailures.Add($_.Exception)
+            } else {
+                $terminalFailure = $_.Exception
+            }
+        }
     }
-    if ($injectedReparseTarget -and (Test-Path $injectedReparseTarget)) {
-        Remove-Item -LiteralPath $injectedReparseTarget -Recurse -Force
+    try {
+        if ($injectedReparseTarget -and (Test-Path $injectedReparseTarget)) {
+            Remove-Item -LiteralPath $injectedReparseTarget -Recurse -Force
+        }
+    } catch {
+        if ($terminalFailure) { $terminalSecondaryFailures.Add($_.Exception) }
+        else { $terminalFailure = $_.Exception }
     }
-    if ($injectedLockPath -and (Test-Path $injectedLockPath)) {
-        Remove-Item -LiteralPath $injectedLockPath -Force
+    try {
+        if ($injectedLockPath -and (Test-Path $injectedLockPath)) {
+            Remove-Item -LiteralPath $injectedLockPath -Force
+        }
+    } catch {
+        if ($terminalFailure) { $terminalSecondaryFailures.Add($_.Exception) }
+        else { $terminalFailure = $_.Exception }
     }
-    if ($mutexOwned) { $validationMutex.ReleaseMutex() }
-    $validationMutex.Dispose()
+    try {
+        if ($mutexOwned) { $validationMutex.ReleaseMutex() }
+        $validationMutex.Dispose()
+    } catch {
+        if ($terminalFailure) { $terminalSecondaryFailures.Add($_.Exception) }
+        else { $terminalFailure = $_.Exception }
+    }
+}
+if ($terminalFailure) {
+    if ($terminalSecondaryFailures.Count -gt 0) {
+        $allFailures = [System.Collections.Generic.List[System.Exception]]::new()
+        $allFailures.Add($terminalFailure)
+        foreach ($secondary in $terminalSecondaryFailures) {
+            if (-not ($allFailures | Where-Object { $_.Message -eq $secondary.Message })) {
+                $allFailures.Add($secondary)
+            }
+        }
+        throw [System.AggregateException]::new($terminalFailure.Message, $allFailures)
+    }
+    throw $terminalFailure
 }

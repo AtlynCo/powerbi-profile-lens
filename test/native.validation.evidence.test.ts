@@ -444,6 +444,7 @@ describe("native validation evidence safety", () => {
         const snapshotPath = snapshotDirectory(token);
         const evidenceDirectory = path.join(root, "dist", "release", "native-evidence");
         const nativeRunPath = path.join(evidenceDirectory, "native-run.json");
+        const nativeFailurePath = path.join(evidenceDirectory, "native-failure.json");
         const runner = path.join(
             root,
             "scripts",
@@ -593,6 +594,71 @@ describe("native validation evidence safety", () => {
             expect(fs.existsSync(nativeRunPath)).toBe(false);
             assertNoDesktop();
             expect(removeSnapshot(root, token).removed).toBe(true);
+
+            fs.rmSync(evidenceDirectory, { recursive: true, force: true });
+            const refusalOutput = runInjected(
+                "-InjectedPersistenceFailure sanitize -InjectedCleanupRefusal"
+            );
+            expect(refusalOutput).toContain("Injected evidence sanitization failure");
+            expect(refusalOutput).toContain("Launch snapshot retained:");
+            expect(refusalOutput).toContain(token);
+            expect(refusalOutput.indexOf("Injected evidence sanitization failure"))
+                .toBeLessThan(refusalOutput.indexOf("Launch snapshot retained:"));
+            expect(refusalOutput).not.toMatch(/[A-Z]:\\Users\\|\/Users\/|\/home\//i);
+            expect(fs.existsSync(snapshotPath)).toBe(true);
+            expect(fs.existsSync(nativeRunPath)).toBe(false);
+            assertNoDesktop();
+            expect(removeSnapshot(root, token).removed).toBe(true);
+
+            fs.rmSync(evidenceDirectory, { recursive: true, force: true });
+            const durableRefusalOutput = runInjected(
+                "-InjectedBlockedRun -InjectedCleanupRefusal"
+            );
+            expect(durableRefusalOutput).toContain("Injected native blocked failure");
+            expect(durableRefusalOutput).toContain("Launch snapshot retained:");
+            const durableRefusal = JSON.parse(
+                fs.readFileSync(nativeFailurePath, "utf8")
+            ) as {
+                outcome: string;
+                snapshotCleanup: {
+                    attempted: boolean;
+                    errorCount: number;
+                    retained: boolean;
+                    retainedToken: string;
+                    reason: string;
+                };
+            };
+            expect(durableRefusal.outcome).toBe("blocked");
+            expect(durableRefusal.snapshotCleanup).toMatchObject({
+                attempted: false,
+                errorCount: 0,
+                retained: true,
+                retainedToken: token,
+                reason: "owned processes or snapshot handles remain active"
+            });
+            expect(() => assertEvidenceSafe(durableRefusal)).not.toThrow();
+            expect(fs.existsSync(snapshotPath)).toBe(true);
+            expect(fs.existsSync(nativeRunPath)).toBe(false);
+            assertNoDesktop();
+            expect(removeSnapshot(root, token).removed).toBe(true);
+
+            fs.rmSync(evidenceDirectory, { recursive: true, force: true });
+            const lateLockOutput = runInjected(
+                "-InjectedBlockedRun -InjectedRollbackFailure lockDispose"
+            );
+            expect(lateLockOutput).toContain("Injected native blocked failure");
+            expect(lateLockOutput).toContain("Injected PBIX lock disposal failure");
+            expect(lateLockOutput.indexOf("Injected native blocked failure"))
+                .toBeLessThan(lateLockOutput.indexOf("Injected PBIX lock disposal failure"));
+            expect(fs.existsSync(nativeFailurePath)).toBe(true);
+            expect(fs.existsSync(nativeRunPath)).toBe(false);
+            expect(fs.existsSync(snapshotPath)).toBe(false);
+            expect(fs.readdirSync(path.join(root, "dist", "release")).some(
+                (entry) => entry.startsWith("injected-lock-")
+            )).toBe(false);
+            assertNoDesktop();
+            const lateLockRecreated = createSnapshot(root);
+            expect(removeSnapshot(root, lateLockRecreated.token).removed).toBe(true);
         } finally {
             fs.rmSync(snapshotPath, { recursive: true, force: true });
         }
