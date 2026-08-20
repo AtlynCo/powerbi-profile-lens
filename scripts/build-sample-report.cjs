@@ -4,7 +4,8 @@
  * The sample is authored as source, not as a native .pbix: a PBIP project can be produced and
  * validated offline, while producing and reopening a genuine .pbix remains a manual Power BI
  * Desktop step. The semantic model is a DAX calculated table, so the project has no data source,
- * needs no credentials and needs no refresh. Every label is deliberately generic.
+ * needs no credentials and needs no refresh. Features a rich, realistic demographics and community
+ * indicator model across 13 showcase pages.
  *
  * Usage: node scripts/build-sample-report.cjs
  */
@@ -62,10 +63,56 @@ function writeText(filePath, value) {
 
 /** Deterministic pseudo values: the same repository state always produces the same sample. */
 function syntheticValue(entityIndex, periodIndex, bandIndex, seriesIndex, metricIndex) {
-    const seed = ((entityIndex + 1) * 31 + (periodIndex + 1) * 17 + (bandIndex + 1) * 7
-        + (seriesIndex + 1) * 3 + (metricIndex + 1)) * 2654435761 % 1000;
-    const shape = 100 - Math.abs(bandIndex - 2) * 18;
-    return Math.round((shape * (1 + seed / 2000) + metricIndex * 5) * 10) / 10;
+    // Seed for deterministic variety across entities and series
+    const seed = ((entityIndex + 1) * 31 + (periodIndex + 1) * 17 + (seriesIndex + 1) * 13) % 100;
+    const factor = 1 + (seed - 50) / 400; // 0.875 to 1.125 variation
+
+    switch (metricIndex) {
+        case 0: {
+            // Metric A: Population Distribution by Age Band (0-17, 18-34, 35-49, 50-64, 65+)
+            // Typical population pyramid/bell curve across 5 age bands: [18.5%, 24.2%, 22.1%, 19.8%, 15.4%]
+            const baseAgeShares = [18.5, 24.2, 22.1, 19.8, 15.4];
+            const val = baseAgeShares[bandIndex] * factor + (seriesIndex === 0 ? 1.2 : -1.2);
+            return Math.round(val * 10) / 10;
+        }
+        case 1: {
+            // Metric B: Household Income Brackets (<$35k, $35k-$74k, $75k-$124k, $125k-$199k, $200k+)
+            // Right-skewed household income distribution: [14.2%, 26.5%, 29.8%, 18.1%, 11.4%]
+            const baseIncomeShares = [14.2, 26.5, 29.8, 18.1, 11.4];
+            const val = baseIncomeShares[bandIndex] * factor + (periodIndex === 1 ? (bandIndex - 2) * 1.5 : 0);
+            return Math.round(val * 10) / 10;
+        }
+        case 2: {
+            // Metric C: Educational Attainment (Less than HS, HS Grad, Some College, Bachelor's, Graduate)
+            // Distribution: [8.4%, 27.1%, 28.3%, 22.8%, 13.4%]
+            const baseEduShares = [8.4, 27.1, 28.3, 22.8, 13.4];
+            const val = baseEduShares[bandIndex] * factor;
+            return Math.round(val * 10) / 10;
+        }
+        case 3: {
+            // Metric D: Community Health Indicators (Preventive Care, Physical Activity, Chronic Mgmt, Mental Wellness, Care Access)
+            // Health index scores out of 100
+            const baseHealthScores = [74.5, 68.2, 81.0, 72.4, 86.8];
+            const val = (baseHealthScores[bandIndex] + (entityIndex % 4) * 3) * factor;
+            return Math.round(val * 10) / 10;
+        }
+        case 4: {
+            // Metric E: Labor Force & Economic Participation Rate (%)
+            const baseLaborRates = [62.4, 83.5, 86.2, 71.8, 19.4];
+            const val = baseLaborRates[bandIndex] * factor;
+            return Math.round(val * 10) / 10;
+        }
+        case 5: {
+            // Metric F: Housing & Community Infrastructure Index (Affordability & Quality quintiles)
+            const baseHousingIndex = [52.1, 64.8, 78.3, 85.0, 91.2];
+            const val = baseHousingIndex[bandIndex] * factor;
+            return Math.round(val * 10) / 10;
+        }
+        default: {
+            const shape = 100 - Math.abs(bandIndex - 2) * 18;
+            return Math.round((shape * factor + metricIndex * 5) * 10) / 10;
+        }
+    }
 }
 
 function buildRows() {
@@ -95,9 +142,15 @@ function buildRows() {
 function tableTmdl() {
     const rows = buildRows().join(",\n");
     return [
-        "/// Offline synthetic sample data for Atlyn Profile Lens. Defined as a DAX",
-        "/// calculated table so the model has no data source, no credentials and no refresh.",
-        "/// The labels are deliberately generic.",
+        "/// Offline synthetic sample data for Atlyn Profile Lens: Demographics & Community Profile Demo.",
+        "/// Defined as a DAX calculated table so the model has no data source, no credentials and no refresh.",
+        "/// Features 6 realistic demographic metric dimensions across population, income, education, health, labor, and housing:",
+        "///   - Metric A: Population Distribution by Age Band (0-17, 18-34, 35-49, 50-64, 65+)",
+        "///   - Metric B: Household Income Brackets (<$35k, $35k-$74k, $75k-$124k, $125k-$199k, $200k+)",
+        "///   - Metric C: Educational Attainment (Less than HS, HS Grad, Some College, Bachelor's, Graduate)",
+        "///   - Metric D: Community Health Indicators (Preventive Care, Physical Activity, Chronic Mgmt, Mental Wellness, Care Access)",
+        "///   - Metric E: Labor Force & Economic Participation Rate (%)",
+        "///   - Metric F: Housing & Community Infrastructure Index (Affordability & Quality quintiles)",
         `table ${table}`,
         "",
         "\tcolumn Entity",
@@ -201,6 +254,18 @@ function tableTmdl() {
         `\tmeasure 'Selected longitude' = SELECTEDVALUE(${table}[Longitude])`,
         "",
         `\tmeasure 'Selected geometry' = SELECTEDVALUE(${table}[Geometry])`,
+        "",
+        `\tmeasure 'Population Distribution' = SUM(${table}[Metric A])`,
+        "",
+        `\tmeasure 'Household Income Brackets' = SUM(${table}[Metric B])`,
+        "",
+        `\tmeasure 'Educational Attainment' = SUM(${table}[Metric C])`,
+        "",
+        `\tmeasure 'Community Health Indicators' = SUM(${table}[Metric D])`,
+        "",
+        `\tmeasure 'Labor Force Participation' = SUM(${table}[Metric E])`,
+        "",
+        `\tmeasure 'Housing & Infrastructure Index' = SUM(${table}[Metric F])`,
         "",
         `\tpartition ${table} = calculated`,
         "\t\tmode: import",
@@ -390,7 +455,7 @@ function visualJson(name, hierarchyProperties, withSeries, metrics, options = {}
 const pages = [
     {
         name: "pageProfileOnly",
-        displayName: "1 - Entity and band",
+        displayName: "1 - Demographic profile: Population by Age Band",
         visuals: [{
             name: "visualEntityBand",
             hierarchy: ["Entity", "Band"],
@@ -400,7 +465,7 @@ const pages = [
     },
     {
         name: "pagePeriodSeries",
-        displayName: "2 - Entity, period, band with series",
+        displayName: "2 - Multi-period census and urban/rural series",
         visuals: [{
             name: "visualPeriodSeries",
             hierarchy: ["Entity", "Period", "Band"],
@@ -410,7 +475,7 @@ const pages = [
     },
     {
         name: "pageGeneratedLayouts",
-        displayName: "3 - Nongeographic grid and hex",
+        displayName: "3 - Nongeographic grid and hex community matrices",
         visuals: [
             {
                 name: "visualGrid",
@@ -438,7 +503,7 @@ const pages = [
     },
     {
         name: "pageBoundPoints",
-        displayName: "4 - Bound WGS84 points",
+        displayName: "4 - Bound WGS84 community points",
         visuals: [{
             name: "visualBoundPoints",
             hierarchy: ["Entity", "Band"],
@@ -454,7 +519,7 @@ const pages = [
     },
     {
         name: "pageBoundPolygons",
-        displayName: "5 - Simple bound polygons",
+        displayName: "5 - District boundary polygons (WKT)",
         visuals: [{
             name: "visualBoundPolygons",
             hierarchy: ["Entity", "Band"],
@@ -470,7 +535,7 @@ const pages = [
     },
     {
         name: "pageWorldPack",
-        displayName: "6 - World countries (synthetic)",
+        displayName: "6 - Global demographics: World countries (110m)",
         visuals: [{
             name: "visualWorldPack",
             hierarchy: ["WorldKey", "Band"],
@@ -487,7 +552,7 @@ const pages = [
     },
     {
         name: "pageStatePack",
-        displayName: "7 - US states and equivalents (synthetic)",
+        displayName: "7 - Regional demographics: US states & territories",
         visuals: [{
             name: "visualStatePack",
             hierarchy: ["StateKey", "Band"],
@@ -503,7 +568,7 @@ const pages = [
     },
     {
         name: "pageCountyPack",
-        displayName: "8 - US counties and equivalents (synthetic)",
+        displayName: "8 - Local demographics: US counties & equivalents",
         visuals: [{
             name: "visualCountyPack",
             hierarchy: ["CountyKey", "Band"],
@@ -519,7 +584,7 @@ const pages = [
     },
     {
         name: "pageViewportLens",
-        displayName: "9 - Viewport lens (synthetic world)",
+        displayName: "9 - Viewport lens navigation (World 50m probe)",
         visuals: [
             {
                 name: "visualViewportLocal",
@@ -557,7 +622,7 @@ const pages = [
     },
     {
         name: "pageSixProfiles",
-        displayName: "10 - Six profiles and interaction modes",
+        displayName: "10 - Six demographic profile indicators",
         visuals: [
             {
                 name: "visualSixProfiles",
@@ -586,7 +651,7 @@ const pages = [
     },
     {
         name: "pageNormalizations",
-        displayName: "11 - Normalization modes",
+        displayName: "11 - Demographic normalization modes",
         visuals: [
             ["Raw", "raw", "fraction"],
             ["Profile share", "shareOfProfile", "fraction"],
@@ -615,7 +680,7 @@ const pages = [
     },
     {
         name: "pageWorldDiagnostics",
-        displayName: "12 - World 50m exact-key diagnostics",
+        displayName: "12 - Boundary diagnostics: World 50m exact keys",
         visuals: [{
             name: "visualWorldDiagnostics",
             hierarchy: ["WorldKey", "Band"],
@@ -647,28 +712,27 @@ const pages = [
 
 fs.rmSync(sampleRoot, { recursive: true, force: true });
 
-writeText(path.join(sampleRoot, "README.md"), `# Atlyn Profile Lens offline PBIP sample
+writeText(path.join(sampleRoot, "README.md"), `# Atlyn Profile Lens offline PBIP sample — Demographics & Community Profile Demo
 
-Generated by \`npm run sample:pbip\`. The thirteen pages retain the two profile examples and add
-nongeographic grid and hex layouts, bound WGS84 points, strict WKT polygons, and offline world,
-US state/equivalent, and US county/equivalent pack examples. Focused pages cover six profile
-measures, both interaction modes, all normalization modes, Natural Earth 50m, ordinary FRA/NOR
-joins, documented NE fallback keys, exact-key mismatch/duplicate diagnostics, and an empty visual
-for progressive native field-well authoring. The paired viewport-lens page leaves Navigation unset so
-the 1.4 automatic mode enables drag, wheel, pinch, keyboard camera controls, and fixed-center
-probe-driven profiles for complete synthetic world backdrops. Its left visual is local-only; its
-right visual commits the final direct loaded Entity on movement settle. Exact central-African keys
-carry synthetic profiles, other countries demonstrate no-data backdrop, and the exact bound WLD row
-is visibly configured as the no-feature fallback. No fallback masks a known no-data country.
+Generated by \`npm run sample:pbip\`. The thirteen pages showcase the full range of Atlyn Profile Lens capabilities with realistic synthetic demographic data:
 
-The semantic model contains only a synthetic DAX \`DATATABLE\` with generic product, team, facility,
-seat, exact cartographic text keys, period, band, series, and metric labels. Every metric is
-synthetic. The project has no data source, credentials, refresh, file
-access, or network dependency. Latitude, longitude, geometry, and context measures are projections
-over the same synthetic rows.
+1. **Demographic Profile: Population by Age Band** — Profile-only view of population distribution across 5 age brackets (0-17, 18-34, 35-49, 50-64, 65+).
+2. **Multi-Period Census and Urban/Rural Series** — Multi-period census tracking across series with all six demographic metric dimensions.
+3. **Nongeographic Grid and Hex Community Matrices** — Auto-generated synthetic matrix layouts for demographic comparison without geographic boundary dependencies.
+4. **Bound WGS84 Community Points** — Precise latitude/longitude community points with locator inset context layout.
+5. **District Boundary Polygons (WKT)** — Bound WKT district polygon boundaries rendered with focus lens context layout.
+6. **Global Demographics: World Countries (110m)** — Natural Earth 110m country boundaries with canonical ISO Alpha-3 key matching.
+7. **Regional Demographics: US States & Territories** — High-resolution US State/territory census pack with 2-digit GEOID matching.
+8. **Local Demographics: US Counties & Equivalents** — Complete US County census pack with 5-digit GEOID matching.
+9. **Viewport Lens Navigation (World 50m Probe)** — Probe-driven camera navigation with drag, wheel, pinch, and keyboard controls. Paired local-only and report-selection visual layout over Natural Earth 50m with central African entities and fallback entity configuration.
+10. **Six Demographic Profile Indicators** — Simultaneous visualization of Population, Household Income, Education Attainment, Community Health, Labor Force, and Housing metrics.
+11. **Demographic Normalization Modes** — Side-by-side comparison of Raw counts, Share of Profile, Share within Series, Index to Maximum, and Already Percent normalizations.
+12. **Boundary Diagnostics: World 50m Exact Keys** — Exact-key match/mismatch diagnostics, duplicate detection, and case-fold resolution.
+13. **Progressive Authoring Landing** — Clean visual landing surface for field-well authoring demonstration.
 
-Open \`${sampleName}.pbip\` in Power BI Desktop. If the generator found \`dist\`, the report embeds
-that packaged visual for offline use. This repository does not produce or claim a PBIX.
+The semantic model contains only a synthetic DAX \`DATATABLE\` with demographic metric dimensions (Population Distribution, Household Income, Educational Attainment, Community Health Indicators, Labor Force Participation, Housing & Infrastructure Index). Every metric is synthetic. The project has no data source, credentials, refresh, file access, or network dependency. Latitude, longitude, geometry, and context measures are projections over the same synthetic rows.
+
+Open \`${sampleName}.pbip\` in Power BI Desktop. If the generator found \`dist\`, the report embeds that packaged visual for offline use. This repository does not produce or claim a PBIX.
 `);
 
 writeJson(path.join(sampleRoot, `${sampleName}.pbip`), {

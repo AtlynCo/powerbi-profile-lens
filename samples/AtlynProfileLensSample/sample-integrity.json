@@ -2,23 +2,23 @@
   "schemaVersion": 1,
   "projectTree": {
     "files": 47,
-    "bytes": 2433628,
-    "sha256": "1ed5774ec3ba977143901645aa8025947f7dc46e246fac4dcc4120c022570afa"
+    "bytes": 2435316,
+    "sha256": "03d1c917eead44df3b2252720b078ccc702fedee7ffc2b9e29f5b59817e3f2e4"
   },
   "reportDefinitionTree": {
     "files": 36,
-    "bytes": 132754,
-    "sha256": "f6e0756df06b3f9f86ea30c0bb0d47cdde4cf69f0cece9d5f873d29a282fc02c"
+    "bytes": 132897,
+    "sha256": "65d915669aab5831bf2cae544ad048a49817e130ebea7905f109b6d71d4ab611"
   },
   "modelDefinitionTree": {
     "files": 3,
-    "bytes": 44416,
-    "sha256": "b0eb67c62ff721cfcd45190332f7e5ba78a0265b765ef7fae237a63524b93fe0"
+    "bytes": 44774,
+    "sha256": "7e331f56eba29415c838e889934ab5651aa8e971c4549ba70e7b0ab23bd13345"
   },
   "generator": {
     "path": "scripts/build-sample-report.cjs",
-    "bytes": 31118,
-    "sha256": "a2f1f75013f6307856a84a7c1fc549c75b719578c84262c3010ea1264e0e1be7"
+    "bytes": 36179,
+    "sha256": "9cebac6599739d2388ad5faef89a42f65572e1776b2c093b522220e8ab59aac5"
   },
   "pbip": {
     "path": "AtlynProfileLensSample.pbip",
