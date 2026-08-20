@@ -269,11 +269,11 @@ function Invoke-SaveAs {
         Start-Sleep -Seconds 3
     }
     $filename = Find-OwnedDialogControl -ProcessId $ProcessId -ExpectedDialogTitle "*Save As*" `
-        -ControlType Edit -AutomationId "1001" -RequireValuePattern
+        -ControlType Pane -AutomationId "1001" -RequireValuePattern
     Set-OwnedDialogValue -ProcessId $ProcessId -ExpectedDialogTitle "*Save As*" `
         -Target $filename -Value $pbixPath
     $save = Find-OwnedDialogControl -ProcessId $ProcessId -ExpectedDialogTitle "*Save As*" `
-        -Name "Save" -ControlType Button -AutomationId "1" -RequireInvokePattern
+        -Name "Save" -ControlType Pane -AutomationId "1" -RequireInvokePattern
     Invoke-OwnedDialogControl -ProcessId $ProcessId -ExpectedDialogTitle "*Save As*" -Target $save
     $deadline = (Get-Date).AddMinutes(5)
     $lastLength = -1

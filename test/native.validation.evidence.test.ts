@@ -185,6 +185,8 @@ describe("native validation evidence safety", () => {
             /function Invoke-OwnedElement[\s\S]*?Assert-OwnedForeground[\s\S]*?function Get-AllowlistedControlProbe/
         );
         expect(combined).toContain('-AutomationId "1001"');
+        expect(combined).toContain('"FileNameControlHost"');
+        expect(combined).toContain("-ControlType Pane -AutomationId \"1\"");
         expect(combined).toContain("GetRelativePath");
         expect(combined).toContain("sample-integrity.cjs");
         expect(combined).toContain("native-source-integrity.cjs");

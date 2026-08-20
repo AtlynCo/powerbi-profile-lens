@@ -285,6 +285,21 @@ function Get-OwnedDialog {
                 ))
                 $dialog = Select-UniqueCandidate -Candidates $dialogs -LogicalName "Save As dialog"
                 if ($dialog) { return $dialog }
+                $process = Get-OwnedDesktop -ProcessId $ProcessId -ExpectedTitle "*AtlynProfileLensSample*"
+                $root = [System.Windows.Automation.AutomationElement]::FromHandle(
+                    $process.MainWindowHandle
+                )
+                $hostCondition = New-Object System.Windows.Automation.PropertyCondition(
+                    [System.Windows.Automation.AutomationElement]::AutomationIdProperty,
+                    "FileNameControlHost"
+                )
+                $hosts = @($root.FindAll(
+                    [System.Windows.Automation.TreeScope]::Descendants,
+                    $hostCondition
+                ))
+                if ($hosts.Count -eq 1 -and $hosts[0].Current.ProcessId -eq $ProcessId) {
+                    return $root
+                }
                 Start-Sleep -Milliseconds 400
             }
             throw "The verified owned Save As dialog was not exposed through UI Automation"
@@ -293,9 +308,19 @@ function Get-OwnedDialog {
 function Assert-ControlInsideDialog {
             param([int]$ProcessId, [string]$ExpectedDialogTitle, $Dialog, $Control)
             Get-Process -Id $ProcessId -ErrorAction Stop | Out-Null
+            $isTitledDialog = $Dialog.Current.Name -like $ExpectedDialogTitle -and
+                $Dialog.Current.ControlType -eq [System.Windows.Automation.ControlType]::Window
+            $hostCondition = New-Object System.Windows.Automation.PropertyCondition(
+                [System.Windows.Automation.AutomationElement]::AutomationIdProperty,
+                "FileNameControlHost"
+            )
+            $isEmbeddedDialog = $Dialog.Current.NativeWindowHandle -ne 0 -and
+                @($Dialog.FindAll(
+                    [System.Windows.Automation.TreeScope]::Descendants,
+                    $hostCondition
+                )).Count -eq 1
             if ($Dialog.Current.ProcessId -ne $ProcessId -or
-                $Dialog.Current.Name -notlike $ExpectedDialogTitle -or
-                $Dialog.Current.ControlType -ne [System.Windows.Automation.ControlType]::Window) {
+                (-not $isTitledDialog -and -not $isEmbeddedDialog)) {
                 throw "Refusing control action: the owned dialog identity changed"
             }
             if ($Control.Current.ProcessId -ne $ProcessId) {
