@@ -17,10 +17,20 @@ param(
         param($DesktopExecutable)
         (Get-Item $DesktopExecutable).VersionInfo.ProductVersion
     },
-    [Parameter(DontShow)][ValidateSet("", "sanitize", "write", "replace")]
+    [Parameter(DontShow)][ValidateSet("", "sanitize", "write", "replace", "postcommit")]
     [string]$InjectedPersistenceFailure = "",
     [Parameter(DontShow)][ValidateSet("", "mutation", "reparse")]
-    [string]$InjectedSnapshotTamper = ""
+    [string]$InjectedSnapshotTamper = "",
+    [Parameter(DontShow)][ValidateSet(
+        "",
+        "stagingDelete",
+        "restoreWrite",
+        "restoreReplace",
+        "outputRemove",
+        "lockDispose"
+    )]
+    [string]$InjectedRollbackFailure = "",
+    [Parameter(DontShow)][switch]$InjectedPriorEvidence
 )
 
 $ErrorActionPreference = "Stop"
@@ -119,6 +129,7 @@ $record = $null
 $finalizableEvidencePath = Join-Path $evidencePath "native-run.json"
 $script:snapshotCleanupAttempted = $false
 $injectedReparseTarget = $null
+$injectedLockPath = $null
 
 function Create-LaunchSnapshot {
     $snapshotScript = Join-Path $root "scripts\native-snapshot.cjs"
@@ -641,7 +652,15 @@ $outputPath = $null
 $stagingPath = $null
 $outputCommitted = $false
 $previousOutputBytes = $null
+$persistenceFailure = $null
+$restorePath = $null
+$persistenceSecondaryFailures = [System.Collections.Generic.List[System.Exception]]::new()
 try {
+    if ($InjectedRollbackFailure -eq "lockDispose") {
+        $injectedLockPath = Join-Path (Split-Path $pbixPath) "injected-lock-$runId.tmp"
+        [System.IO.File]::WriteAllText($injectedLockPath, "lock")
+        $releasePbixReadLock = Open-PbixReadLock -Path $injectedLockPath
+    }
     $preSanitizeSourceJson = & node (Join-Path $root "scripts\native-source-integrity.cjs")
     if ($LASTEXITCODE -ne 0) { throw "Automation source changed before evidence sanitization" }
     $preSanitizeSource = $preSanitizeSourceJson | ConvertFrom-Json
@@ -669,6 +688,9 @@ try {
     } else {
         $finalizableEvidencePath
     }
+    if ($InjectedPriorEvidence) {
+        [System.IO.File]::WriteAllText($outputPath, '{"sentinel":true}')
+    }
     $stagingPath = "$outputPath.staging-$runId"
     $previousOutputBytes = if (Test-Path $outputPath) {
         [System.IO.File]::ReadAllBytes($outputPath)
@@ -688,6 +710,9 @@ try {
     }
     [System.IO.File]::Move($stagingPath, $outputPath, $true)
     $outputCommitted = $true
+    if ($InjectedPersistenceFailure -eq "postcommit") {
+        throw "Injected post-commit evidence verification failure"
+    }
     $postSanitizeSourceJson = & node (Join-Path $root "scripts\native-source-integrity.cjs")
     if ($LASTEXITCODE -ne 0) {
         throw "Automation source changed after evidence sanitization"
@@ -699,36 +724,129 @@ try {
     }
 } catch {
     $persistenceFailure = $_
-    if ($stagingPath -and (Test-Path $stagingPath)) {
-        Remove-Item -LiteralPath $stagingPath -Force
-    }
-    if ($outputCommitted -and $outputPath) {
-        if ($null -ne $previousOutputBytes) {
-            $restorePath = "$outputPath.restore-$runId"
-            [System.IO.File]::WriteAllBytes($restorePath, $previousOutputBytes)
-            [System.IO.File]::Move($restorePath, $outputPath, $true)
-        } elseif (Test-Path $outputPath) {
-            Remove-Item -LiteralPath $outputPath -Force
-        }
-    }
     if (-not $failure) {
         $failure = $persistenceFailure
         $record.outcome = "blocked"
         $record.error = $persistenceFailure.Exception.Message
+    } else {
+        $persistenceSecondaryFailures.Add($persistenceFailure.Exception)
     }
-    if ($releasePbixReadLock -and -not $ownedCleanupIncomplete) {
-        $releasePbixReadLock.Dispose()
-        $releasePbixReadLock = $null
+    try {
+        if ($InjectedRollbackFailure -eq "stagingDelete") {
+            throw "Injected staging deletion rollback failure"
+        }
+        if ($stagingPath -and (Test-Path $stagingPath)) {
+            Remove-Item -LiteralPath $stagingPath -Force
+        }
+    } catch {
+        $persistenceSecondaryFailures.Add($_.Exception)
     }
-    $blockedSnapshotCleanup = Invoke-LaunchSnapshotCleanupOnce
+    if ($outputCommitted -and $outputPath) {
+        if ($null -ne $previousOutputBytes) {
+            try {
+                if ($InjectedRollbackFailure -eq "restoreWrite") {
+                    throw "Injected prior-output restore write failure"
+                }
+                $restorePath = "$outputPath.restore-$runId"
+                [System.IO.File]::WriteAllBytes($restorePath, $previousOutputBytes)
+            } catch {
+                $persistenceSecondaryFailures.Add($_.Exception)
+            }
+            try {
+                if ($InjectedRollbackFailure -eq "restoreReplace") {
+                    throw "Injected prior-output restore replace failure"
+                }
+                if ($restorePath -and (Test-Path $restorePath)) {
+                    [System.IO.File]::Move($restorePath, $outputPath, $true)
+                }
+            } catch {
+                $persistenceSecondaryFailures.Add($_.Exception)
+            }
+        } else {
+            try {
+                if ($InjectedRollbackFailure -eq "outputRemove") {
+                    throw "Injected success-output removal failure"
+                }
+                if (Test-Path $outputPath) {
+                    Remove-Item -LiteralPath $outputPath -Force
+                }
+            } catch {
+                $persistenceSecondaryFailures.Add($_.Exception)
+            }
+        }
+    }
+} finally {
+    if ($persistenceFailure) {
+        try {
+            if ($stagingPath -and (Test-Path $stagingPath)) {
+                Remove-Item -LiteralPath $stagingPath -Force
+            }
+            if ($restorePath -and (Test-Path $restorePath)) {
+                Remove-Item -LiteralPath $restorePath -Force
+            }
+        } catch {
+            $persistenceSecondaryFailures.Add($_.Exception)
+        }
+        try {
+            if ($outputCommitted -and $outputPath) {
+                if ($null -ne $previousOutputBytes) {
+                    $quarantineRestore = "$outputPath.quarantine-$runId"
+                    [System.IO.File]::WriteAllBytes($quarantineRestore, $previousOutputBytes)
+                    [System.IO.File]::Move($quarantineRestore, $outputPath, $true)
+                } elseif (Test-Path $outputPath) {
+                    Remove-Item -LiteralPath $outputPath -Force
+                }
+            }
+        } catch {
+            $persistenceSecondaryFailures.Add($_.Exception)
+        }
+        try {
+            if ($InjectedRollbackFailure -eq "lockDispose") {
+                throw "Injected PBIX lock disposal failure"
+            }
+            if ($releasePbixReadLock -and -not $ownedCleanupIncomplete) {
+                $releasePbixReadLock.Dispose()
+                $releasePbixReadLock = $null
+            }
+        } catch {
+            $persistenceSecondaryFailures.Add($_.Exception)
+        } finally {
+            if ($releasePbixReadLock -and -not $ownedCleanupIncomplete) {
+                try {
+                    $releasePbixReadLock.Dispose()
+                } catch {
+                    $persistenceSecondaryFailures.Add($_.Exception)
+                }
+                $releasePbixReadLock = $null
+            }
+        }
+        $blockedSnapshotCleanup = Invoke-LaunchSnapshotCleanupOnce
+        $record.persistenceRollback = [ordered]@{
+            errorCount = $persistenceSecondaryFailures.Count
+            errors = @($persistenceSecondaryFailures | ForEach-Object { $_.Message })
+        }
+    }
 }
-if ($failure) { throw $failure }
+if ($failure) {
+    if ($persistenceSecondaryFailures.Count -gt 0) {
+        $allFailures = [System.Collections.Generic.List[System.Exception]]::new()
+        $allFailures.Add($failure.Exception)
+        foreach ($secondary in $persistenceSecondaryFailures) {
+            $allFailures.Add($secondary)
+        }
+        throw [System.AggregateException]::new($failure.Exception.Message, $allFailures)
+    }
+    throw $failure
+}
 } finally {
     if ($releasePbixReadLock -and -not $ownedCleanupIncomplete) {
         $releasePbixReadLock.Dispose()
     }
     if ($injectedReparseTarget -and (Test-Path $injectedReparseTarget)) {
         Remove-Item -LiteralPath $injectedReparseTarget -Recurse -Force
+    }
+    if ($injectedLockPath -and (Test-Path $injectedLockPath)) {
+        Remove-Item -LiteralPath $injectedLockPath -Force
     }
     if ($mutexOwned) { $validationMutex.ReleaseMutex() }
     $validationMutex.Dispose()

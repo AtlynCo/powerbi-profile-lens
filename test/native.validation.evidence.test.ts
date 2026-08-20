@@ -307,7 +307,7 @@ describe("native validation evidence safety", () => {
                 "-NoProfile",
                 "-Command",
                 `try { & '${runner}' ${parameters} } `
-                    + "catch { $_.Exception.Message }"
+                    + "catch { $_.Exception.ToString() }"
             ],
             { cwd: root, stdio: "pipe" }
         ).toString();
@@ -429,7 +429,7 @@ describe("native validation evidence safety", () => {
         } finally {
             fs.rmSync(snapshotPath, { recursive: true, force: true });
         }
-    }, 120_000);
+    }, 240_000);
 
     it("cleans snapshots after injected evidence transaction failures", () => {
         if (process.platform !== "win32") return;
@@ -479,11 +479,69 @@ describe("native validation evidence safety", () => {
                 expect(removeSnapshot(root, recreated.token).removed).toBe(true);
             }
 
+            for (const rollback of [
+                {
+                    parameters: "-InjectedPersistenceFailure replace "
+                        + "-InjectedRollbackFailure stagingDelete",
+                    primary: "Injected evidence atomic replace failure",
+                    secondary: "Injected staging deletion rollback failure",
+                    prior: false
+                },
+                {
+                    parameters: "-InjectedPersistenceFailure postcommit "
+                        + "-InjectedRollbackFailure restoreWrite -InjectedPriorEvidence",
+                    primary: "Injected post-commit evidence verification failure",
+                    secondary: "Injected prior-output restore write failure",
+                    prior: true
+                },
+                {
+                    parameters: "-InjectedPersistenceFailure postcommit "
+                        + "-InjectedRollbackFailure restoreReplace -InjectedPriorEvidence",
+                    primary: "Injected post-commit evidence verification failure",
+                    secondary: "Injected prior-output restore replace failure",
+                    prior: true
+                },
+                {
+                    parameters: "-InjectedPersistenceFailure postcommit "
+                        + "-InjectedRollbackFailure outputRemove",
+                    primary: "Injected post-commit evidence verification failure",
+                    secondary: "Injected success-output removal failure",
+                    prior: false
+                },
+                {
+                    parameters: "-InjectedPersistenceFailure sanitize "
+                        + "-InjectedRollbackFailure lockDispose",
+                    primary: "Injected evidence sanitization failure",
+                    secondary: "Injected PBIX lock disposal failure",
+                    prior: false
+                }
+            ]) {
+                fs.rmSync(evidenceDirectory, { recursive: true, force: true });
+                const output = runInjected(rollback.parameters);
+                expect(output).toContain(rollback.primary);
+                expect(output).toContain(rollback.secondary);
+                expect(fs.existsSync(snapshotPath)).toBe(false);
+                if (rollback.prior) {
+                    expect(JSON.parse(fs.readFileSync(nativeRunPath, "utf8")))
+                        .toEqual({ sentinel: true });
+                } else {
+                    expect(fs.existsSync(nativeRunPath)).toBe(false);
+                }
+                expect(fs.readdirSync(evidenceDirectory).some(
+                    (entry) => entry.includes(".staging-") || entry.includes(".restore-")
+                )).toBe(false);
+                assertNoDesktop();
+                const recreated = createSnapshot(root);
+                expect(removeSnapshot(root, recreated.token).removed).toBe(true);
+            }
+
             fs.rmSync(evidenceDirectory, { recursive: true, force: true });
             const mutationOutput = runInjected(
-                "-InjectedPersistenceFailure sanitize -InjectedSnapshotTamper mutation"
+                "-InjectedPersistenceFailure postcommit -InjectedSnapshotTamper mutation "
+                    + "-InjectedRollbackFailure outputRemove"
             );
-            expect(mutationOutput).toContain("Injected evidence sanitization failure");
+            expect(mutationOutput).toContain("Injected post-commit evidence verification failure");
+            expect(mutationOutput).toContain("Injected success-output removal failure");
             expect(fs.existsSync(snapshotPath)).toBe(true);
             expect(fs.readFileSync(
                 path.join(snapshotPath, "AtlynProfileLensSample.pbip"),
@@ -505,7 +563,7 @@ describe("native validation evidence safety", () => {
         } finally {
             fs.rmSync(snapshotPath, { recursive: true, force: true });
         }
-    }, 120_000);
+    }, 240_000);
 
     it("marks every blocked evidence commit resolvable and release-ineligible", () => {
         const evidenceDirectory = path.join(root, "docs", "native-validation");
