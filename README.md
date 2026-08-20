@@ -23,7 +23,9 @@ ranges are rejected. A GeoJSON `crs` name, when present, must exactly match `CRS
 
 Built-in packs are optional cartographic resources only:
 
-- Natural Earth 5.1.1 Admin-0 countries at 110m by default, with a 50m detail choice;
+- Natural Earth 5.1.1 Admin-0 countries and professional offline land, lake,
+  coastline, boundary, graticule, and bounded label reference layers at 110m by
+  default, with a 50m detail choice;
 - 2025 Census 5m states/equivalents, including DC, PR, AS, GU, MP, and VI;
 - 2025 Census 5m counties/equivalents, including all island-area equivalents.
 

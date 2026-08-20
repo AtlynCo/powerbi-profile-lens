@@ -114,6 +114,7 @@ export class StaticContextPackProvider implements ContextProvider {
             ));
         return {
             ...scene(this.id, "builtInPack", features, bindings, diagnostics),
+            cartography: pack.cartography,
             metadata: {
                 displayName: pack.manifest.displayName,
                 vintage: pack.manifest.vintage,

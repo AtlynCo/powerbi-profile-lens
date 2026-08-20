@@ -11,6 +11,31 @@ export function contextSceneIdentity(scene: ContextScene): string {
     hash.string(scene.mode);
     hash.string(scene.metadata?.vintage ?? "");
     hash.string(scene.metadata?.policyId ?? "");
+    hash.number(scene.cartography?.layers.length ?? 0);
+    for (const layer of scene.cartography?.layers ?? []) {
+        hash.string(layer.id);
+        hash.string(layer.role);
+        for (const polygon of layer.polygons ?? []) {
+            hash.number(polygon.length);
+            for (const ring of polygon) {
+                hash.number(ring.length);
+                for (const point of ring) hash.point(point);
+            }
+        }
+        for (const line of layer.lines ?? []) {
+            hash.number(line.length);
+            for (const point of line) hash.point(point);
+        }
+    }
+    hash.number(scene.cartography?.labels.length ?? 0);
+    for (const label of scene.cartography?.labels ?? []) {
+        hash.string(label.key);
+        hash.string(label.text);
+        hash.point(label.anchor);
+        hash.number(label.rank);
+        hash.number(label.minZoom);
+        hash.number(label.maxZoom ?? 0);
+    }
     hash.number(scene.backdrop.features.length);
     for (const feature of scene.backdrop.features) {
         hash.number(feature.index);

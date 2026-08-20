@@ -483,6 +483,13 @@ describe("context viewport camera", () => {
             selectedFeatureKeys: new Set<string>(),
             showNoDataBackdrop: true,
             interactive: true,
+            cartography: {
+                detail: "standard" as const,
+                showPhysicalLayers: true,
+                showLabels: true,
+                showGraticule: true,
+                labelDensity: "balanced" as const
+            },
             navigation: {
                 enabled: false,
                 showProbe: true,
@@ -499,7 +506,16 @@ describe("context viewport camera", () => {
             stroke: "#333",
             selected: "#08f",
             background: "#fff",
-            pointSize: 6
+            pointSize: 6,
+            ocean: "#def",
+            land: "#eee",
+            water: "#cde",
+            river: "#79a",
+            graticule: "#abc",
+            coastline: "#555",
+            admin: "#999",
+            mapLabel: "#222",
+            mapLabelHalo: "#fff"
         };
         renderContextSurface(elements, request(10), "svg", style, 1, metrics);
         const first = elements.svg.querySelector("[data-context-key]")?.getAttribute("d");
@@ -572,6 +588,13 @@ describe("context viewport camera", () => {
             ]),
             showNoDataBackdrop: false,
             interactive: true,
+            cartography: {
+                detail: "standard" as const,
+                showPhysicalLayers: true,
+                showLabels: true,
+                showGraticule: true,
+                labelDensity: "balanced" as const
+            },
             navigation: {
                 enabled: true,
                 showProbe: true,
@@ -592,7 +615,16 @@ describe("context viewport camera", () => {
                 stroke: "#333",
                 selected: "#08f",
                 background: "#fff",
-                pointSize: 6
+                pointSize: 6,
+                ocean: "#def",
+                land: "#eee",
+                water: "#cde",
+                river: "#79a",
+                graticule: "#abc",
+                coastline: "#555",
+                admin: "#999",
+                mapLabel: "#222",
+                mapLabelHalo: "#fff"
             },
             1,
             createContextPerformanceMetrics()

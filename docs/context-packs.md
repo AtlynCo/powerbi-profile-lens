@@ -94,18 +94,23 @@ npm run packs:repro
 The build:
 
 1. verifies archive byte length and SHA-256 before extraction;
-2. parses the SHP/DBF pair;
+2. requires the exact declared SHP/DBF pair;
 3. allowlists only cartographic fields;
 4. audits `ISO_A3`, `ISO_A3_EH`, and `ADM0_A3`, then assigns exact canonical
    keys and generated collision-free fallback keys;
 5. sorts features by locale-independent UTF-16 key order;
 6. calculates bounds, centroids, shared-arc adjacency, and territory region;
-7. constructs, presimplifies, deterministically simplifies, and quantizes
-   TopoJSON at 100,000;
-8. emits fixed-order LF-only JSON with payload and source hashes;
-9. validates feature counts, key uniqueness/width, county prefixes, expected
-   state codes, finite geometry, symmetric adjacency, URLs, and size budgets;
-10. rebuilds byte-identically under `Etc/GMT+12` and `Etc/GMT-14`.
+7. derives aligned world land, coastline, internal Admin-0 meshes, and a
+   deterministic 10-degree graticule from the country topology;
+8. adds only pinned Natural Earth lakes and build-time country label names,
+   anchors, cartographic area ranks, and zoom thresholds;
+9. constructs schema-v2 TopoJSON, presimplifies, deterministically simplifies,
+   and quantizes at 100,000;
+10. emits fixed-order LF-only JSON with payload, layer, vertex, and source hashes;
+11. validates feature/layer counts, labels, key uniqueness/width, county prefixes,
+   expected state codes, finite geometry, symmetric adjacency, URLs, and explicit
+   raw/gzip/vertex budgets;
+12. rebuilds byte-identically under `Etc/GMT+12` and `Etc/GMT-14`.
 
 Committed generated files are under `src/context/packs/generated`. Packaging and
 runtime use only those committed files; they do not invoke the fetch/build
@@ -117,6 +122,8 @@ pipeline.
 |---|---|---|
 | Natural Earth 5.1.1 Admin-0 110m | `https://naturalearth.s3.amazonaws.com/5.1.1/110m_cultural/ne_110m_admin_0_countries.zip` | `0f243aeac8ac6cf26f0417285b0bd33ac47f1b5bdb719fd3e0df37d03ea37110` |
 | Natural Earth 5.1.1 Admin-0 50m | `https://naturalearth.s3.amazonaws.com/5.1.1/50m_cultural/ne_50m_admin_0_countries.zip` | `5fed433373581fa648920435f937d95f2d3c0200e067409c6478dcdf1b853139` |
+| Natural Earth 5.1.1 lakes 110m | `https://naturalearth.s3.amazonaws.com/5.1.1/110m_physical/ne_110m_lakes.zip` | `f2eed3c738a93010770acb0ba44273ea6a83b053641588bc902d9d6fd1cdafcb` |
+| Natural Earth 5.1.1 lakes 50m | `https://naturalearth.s3.amazonaws.com/5.1.1/50m_physical/ne_50m_lakes.zip` | `f28d42c286d96b57a17aac2cbeb432f8c65532c20063495711fbc64e24666df3` |
 | Census 2025 states/equivalents 5m | `https://www2.census.gov/geo/tiger/GENZ2025/shp/cb_2025_us_state_5m.zip` | `8a45692bc532dbd38938a1924f445850cef2682ea67d750d7fd2f19cfe836903` |
 | Census 2025 counties/equivalents 5m | `https://www2.census.gov/geo/tiger/GENZ2025/shp/cb_2025_us_county_5m.zip` | `faec522080681e79be5be435c981009a77891206ff8a7f1d142f3bf5da9ebd74` |
 
@@ -160,8 +167,10 @@ silently invents `WLD`.
 
 ## Known limits and proof boundary
 
-- Map labels are intentionally absent; exact source names are available through
-  semantic options and native tooltips.
+- World labels are fixed-size, collision-bounded screen-space reference marks.
+  They carry no analytical values, selection identities, tooltips, or semantic
+  options; interactive country names remain independently available through the
+  existing semantic and tooltip contract.
 - Natural Earth and Census generalized geometry is for thematic display, not
   legal or measurement use.
 - The report's data reduction and filter context determine which pack features receive report-bound

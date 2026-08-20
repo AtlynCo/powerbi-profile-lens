@@ -39,10 +39,11 @@ function parseArtifact(candidate: unknown): ContextPackArtifact {
     }
     const manifest = candidate.manifest;
     if (
-        manifest.schemaVersion !== 1
+        manifest.schemaVersion !== 2
         || typeof manifest.id !== "string"
         || typeof manifest.featureCount !== "number"
         || !Array.isArray(manifest.keyModes)
+        || !Array.isArray(candidate.labels)
     ) {
         throw new Error("Context pack manifest is incompatible.");
     }

@@ -201,6 +201,41 @@
                 }
               }
             },
+            "referenceDetail": {
+              "expr": {
+                "Literal": {
+                  "Value": "'full'"
+                }
+              }
+            },
+            "showPhysicalLayers": {
+              "expr": {
+                "Literal": {
+                  "Value": "true"
+                }
+              }
+            },
+            "showLabels": {
+              "expr": {
+                "Literal": {
+                  "Value": "true"
+                }
+              }
+            },
+            "labelDensity": {
+              "expr": {
+                "Literal": {
+                  "Value": "'detailed'"
+                }
+              }
+            },
+            "showGraticule": {
+              "expr": {
+                "Literal": {
+                  "Value": "true"
+                }
+              }
+            },
             "packKeyMode": {
               "expr": {
                 "Literal": {

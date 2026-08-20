@@ -39,6 +39,29 @@ describe("built-in context pack registry", () => {
             "us-counties-2025-5m"
         ]);
         expect(manifests.map((entry) => entry.featureCount)).toEqual([177, 242, 56, 3235]);
+        expect(manifests.every((entry) => entry.schemaVersion === 2)).toBe(true);
+        for (const manifest of manifests.slice(0, 2)) {
+            expect(Object.keys(manifest.layerCounts)).toEqual([
+                "features",
+                "sphere",
+                "land",
+                "water",
+                "coastline",
+                "admin0",
+                "graticule"
+            ]);
+            expect(manifest.layerCounts).toMatchObject({
+                sphere: 1,
+                land: 1,
+                coastline: 1,
+                admin0: 1,
+                graticule: 1
+            });
+            expect(manifest.layerCounts.water).toBeGreaterThan(0);
+            expect(manifest.sourceArchives).toHaveLength(2);
+            expect(manifest.sourceArchives.every((entry) =>
+                entry.license === "Natural Earth public domain")).toBe(true);
+        }
         const fallback = manifests[0].fallbackKeys;
         expect(fallback.length).toBeGreaterThan(0);
         expect(fallback).toEqual([...fallback].sort());
@@ -52,6 +75,39 @@ describe("built-in context pack registry", () => {
             expect(artifact).not.toBeNull();
             const projected = projectContextPack(artifact!);
             expect(projected.features).toHaveLength(manifest.featureCount);
+            if (manifest.level === "country") {
+                expect(projected.cartography?.layers.map((layer) => layer.role)).toEqual([
+                    "sphere",
+                    "land",
+                    "water",
+                    "graticule",
+                    "coastline",
+                    "admin0"
+                ]);
+                expect(projected.cartography?.labels).toHaveLength(manifest.featureCount);
+                expect(new Set(projected.cartography?.labels.map((label) => label.key)).size)
+                    .toBe(manifest.featureCount);
+                for (const label of projected.cartography?.labels ?? []) {
+                    expect(Number.isFinite(label.anchor.x)).toBe(true);
+                    expect(Number.isFinite(label.anchor.y)).toBe(true);
+                }
+                const australia = projected.cartography?.labels.find(
+                    (label) => label.key === "AUS"
+                );
+                expect(australia?.rank).toBeLessThanOrEqual(10);
+                const norway = projected.cartography?.labels.find(
+                    (label) => label.key === "NOR"
+                );
+                const norwayFeature = projected.features.find(
+                    (entry) => entry.properties.canonicalKey === "NOR"
+                );
+                expect(Math.abs(norway!.anchor.x - norwayFeature!.geometry.center.x))
+                    .toBeLessThan(100);
+                expect(Math.abs(norway!.anchor.y - norwayFeature!.geometry.center.y))
+                    .toBeLessThan(100);
+            } else {
+                expect(projected.cartography).toBeUndefined();
+            }
             for (const entry of projected.features) {
                 expect(Number.isFinite(entry.geometry.center.x)).toBe(true);
                 expect(Number.isFinite(entry.geometry.center.y)).toBe(true);
@@ -114,6 +170,15 @@ describe("built-in context pack joins", () => {
             expect(result.backdrop.featureByKey.size).toBe(value[3]);
             expect(result.entities.byFeatureKey.size).toBe(1);
             expect(result.entities.featureKeyByEntityKey.size).toBe(1);
+            if (value[0].startsWith("world-")) {
+                expect(result.cartography?.labels).toHaveLength(value[3]);
+                expect(result.cartography?.layers.every((layer) =>
+                    !("index" in layer)
+                    && !("selection" in layer)
+                    && !("tooltipValues" in layer))).toBe(true);
+            } else {
+                expect(result.cartography).toBeUndefined();
+            }
             expect(result.diagnostics).toEqual([]);
 
             const bindingFreeInput = input([], value[0], value[1]);

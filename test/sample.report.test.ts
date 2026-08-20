@@ -57,6 +57,11 @@ describe("offline PBIP validation sample", () => {
         expect(generated).toContain('name: "pageHero"');
         expect(generated).toContain('homeView: "automatic"');
         expect(generated).toContain('contextLayout: "focusLens"');
+        expect(generated).toContain('referenceDetail: "full"');
+        expect(generated).toContain('labelDensity: "detailed"');
+        expect(generated).toContain("showPhysicalLayers: true");
+        expect(generated).toContain("showLabels: true");
+        expect(generated).toContain("showGraticule: true");
         expect(generated).toContain("measureProfiles: true");
         expect(generated).toContain('fallbackEntityKey: "WLD"');
         expect(generated).toContain('interactionMode: "localOnly"');

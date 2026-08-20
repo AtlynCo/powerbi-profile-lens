@@ -13,8 +13,8 @@ import { spawnSync } from "node:child_process";
 import { gzipSync } from "node:zlib";
 import JSZip from "jszip";
 import * as shapefile from "shapefile";
-import { geoBounds, geoCentroid } from "d3-geo";
-import { feature, neighbors, quantize } from "topojson-client";
+import { geoArea, geoBounds, geoCentroid, geoGraticule10 } from "d3-geo";
+import { feature, merge, mesh, neighbors, quantize } from "topojson-client";
 import { topology } from "topojson-server";
 import { presimplify, quantile, simplify } from "topojson-simplify";
 
@@ -29,13 +29,6 @@ const expectedStateCodes = [
     "40", "41", "42", "44", "45", "46", "47", "48", "49", "50", "51", "53",
     "54", "55", "56", "60", "66", "69", "72", "78"
 ];
-const sizeBudgets = {
-    "world-countries-110m": { raw: 150 * 1024, gzip: 60 * 1024 },
-    "world-countries-50m": { raw: 850 * 1024, gzip: 300 * 1024 },
-    "us-states-2025-5m": { raw: 550 * 1024, gzip: 150 * 1024 },
-    "us-counties-2025-5m": { raw: 1800 * 1024, gzip: 500 * 1024 }
-};
-
 function sha256(bytes) {
     return createHash("sha256").update(bytes).digest("hex");
 }
@@ -46,6 +39,22 @@ function compareKeys(left, right) {
 
 async function catalog() {
     return JSON.parse(await readFile(catalogPath, "utf8"));
+}
+
+function allSources(value) {
+    return [...value.sources, ...(value.physicalSources ?? [])];
+}
+
+function requiredRetainedFields(source) {
+    if (source.kind === "world") {
+        return [
+            "ADM0_A3", "ISO_A3", "ISO_A3_EH", "LABELRANK", "LABEL_X", "LABEL_Y",
+            "NAME", "NE_ID", "TYPE"
+        ];
+    }
+    if (source.kind === "state") return ["GEOID", "NAME", "STUSPS"];
+    if (source.kind === "county") return ["GEOID", "NAME", "STATEFP", "STUSPS"];
+    return [];
 }
 
 function download(url, redirects = 0) {
@@ -91,7 +100,7 @@ function verifySource(source, bytes) {
 async function fetchSources() {
     const value = await catalog();
     await mkdir(cacheDirectory, { recursive: true });
-    for (const source of value.sources) {
+    for (const source of allSources(value)) {
         const destination = join(cacheDirectory, source.filename);
         if (existsSync(destination)) {
             const cached = await readFile(destination);
@@ -115,10 +124,15 @@ async function readShapefile(source) {
     verifySource(source, archiveBytes);
     const archive = await JSZip.loadAsync(archiveBytes);
     const names = Object.keys(archive.files);
-    const shpName = names.find((name) => name.toLowerCase().endsWith(".shp"));
-    const dbfName = names.find((name) => name.toLowerCase().endsWith(".dbf"));
-    if (!shpName || !dbfName) {
-        throw new Error(`${source.filename} does not contain one SHP/DBF pair.`);
+    const shpEntries = names.filter((name) => name.toLowerCase().endsWith(".shp"));
+    const dbfEntries = names.filter((name) => name.toLowerCase().endsWith(".dbf"));
+    const shpName = names.find((name) => name === `${source.shapefileBase}.shp`);
+    const dbfName = names.find((name) => name === `${source.shapefileBase}.dbf`);
+    if (!shpName || !dbfName || shpEntries.length !== 1 || dbfEntries.length !== 1) {
+        throw new Error(
+            `${source.filename} must contain only the exact `
+            + `${source.shapefileBase}.shp/.dbf pair.`
+        );
     }
     const shp = await archive.file(shpName).async("nodebuffer");
     const dbf = await archive.file(dbfName).async("nodebuffer");
@@ -206,7 +220,12 @@ function retainedProperties(source, properties, worldAssignment) {
             name: sourceText(properties.NAME),
             status: sourceText(properties.TYPE),
             region: "world",
-            fallback: worldAssignment.codeSource === "ADM0_A3"
+            fallback: worldAssignment.codeSource === "ADM0_A3",
+            labelAnchor: finitePoint(
+                [Number(properties.LABEL_X), Number(properties.LABEL_Y)],
+                `${source.id}:${worldAssignment.canonicalKey} label anchor`
+            ),
+            labelRank: Number(properties.LABELRANK)
         };
     }
     const key = sourceText(properties.GEOID);
@@ -259,7 +278,7 @@ function keyModesFor(source) {
     }];
 }
 
-function manifestFor(source, features, payloadHash) {
+function manifestFor(source, features, payloadHash, layerCounts, layerVertexCounts, archives) {
     const fallbackKeys = features
         .filter((entry) => entry.properties.fallback)
         .map((entry) => entry.properties.canonicalKey)
@@ -269,7 +288,7 @@ function manifestFor(source, features, payloadHash) {
         .map((entry) => entry.properties.canonicalKey)
         .sort(compareKeys);
     return {
-        schemaVersion: 1,
+        schemaVersion: 2,
         id: source.id,
         displayName: source.kind === "world"
             ? `World countries (${source.detail})`
@@ -291,13 +310,191 @@ function manifestFor(source, features, payloadHash) {
             : "U.S. Census Bureau, 2025 Cartographic Boundary Files.",
         policyId: source.kind === "world" ? "natural-earth-de-facto-v1" : "us-territory-insets-v1",
         sourceArchiveSha256: source.sha256,
+        sourceArchives: archives.map((entry) => ({
+            id: entry.id,
+            sha256: entry.sha256,
+            bytes: entry.bytes,
+            license: entry.license,
+            retainedFields: entry.retainedFields
+        })),
         artifactSha256: payloadHash,
         fallbackKeys,
-        alternateIsoKeys
+        alternateIsoKeys,
+        layerCounts,
+        layerVertexCounts
     };
 }
 
-async function buildSource(source) {
+function stableGeometryKey(entry) {
+    return JSON.stringify(entry.geometry);
+}
+
+function normalizedSphericalArea(entry) {
+    const area = geoArea(entry);
+    return Math.min(area, Math.PI * 4 - area);
+}
+
+function countCoordinateVertices(value) {
+    if (!Array.isArray(value)) return 0;
+    if (
+        value.length >= 2
+        && typeof value[0] === "number"
+        && typeof value[1] === "number"
+    ) {
+        return 1;
+    }
+    return value.reduce((sum, item) => sum + countCoordinateVertices(item), 0);
+}
+
+function countObject(topologyValue, object) {
+    const decoded = feature(topologyValue, object);
+    const features = decoded.type === "FeatureCollection" ? decoded.features : [decoded];
+    return {
+        count: features.length,
+        vertices: features.reduce(
+            (sum, entry) => sum + countCoordinateVertices(entry.geometry?.coordinates),
+            0
+        )
+    };
+}
+
+function sphereFeature() {
+    const ring = [];
+    for (let latitude = -90; latitude <= 90; latitude += 5) ring.push([-180, latitude]);
+    for (let longitude = -175; longitude <= 180; longitude += 5) ring.push([longitude, 90]);
+    for (let latitude = 85; latitude >= -90; latitude -= 5) ring.push([180, latitude]);
+    for (let longitude = 175; longitude >= -180; longitude -= 5) ring.push([longitude, -90]);
+    ring.push(ring[0]);
+    return {
+        type: "Feature",
+        properties: { id: "sphere" },
+        geometry: { type: "Polygon", coordinates: [ring] }
+    };
+}
+
+function labelZoom(rank) {
+    if (rank <= 18) return 1;
+    if (rank <= 50) return 1.5;
+    if (rank <= 100) return 2;
+    return 3;
+}
+
+async function worldReferenceInputs(source, sourceFeatures, value) {
+    let sourceTopology = topology({
+        features: { type: "FeatureCollection", features: sourceFeatures }
+    }, 100000);
+    sourceTopology = presimplify(sourceTopology);
+    sourceTopology = simplify(
+        sourceTopology,
+        quantile(sourceTopology, source.detail === "110m" ? 0.1 : 0.03)
+    );
+    if (!sourceTopology.transform) sourceTopology = quantize(sourceTopology, 100000);
+    const decoded = feature(sourceTopology, sourceTopology.objects.features);
+    const land = merge(sourceTopology, sourceTopology.objects.features.geometries);
+    const coastline = mesh(
+        sourceTopology,
+        sourceTopology.objects.features,
+        (left, right) => left === right
+    );
+    const admin0 = mesh(
+        sourceTopology,
+        sourceTopology.objects.features,
+        (left, right) => left !== right
+    );
+    const lakeSource = (value.physicalSources ?? []).find(
+        (candidate) => candidate.id === source.lakeSourceId
+    );
+    if (!lakeSource) {
+        throw new Error(`${source.id} is missing pinned lake source ${source.lakeSourceId}.`);
+    }
+    const lakes = await readShapefile(lakeSource);
+    if (lakes.features.length !== lakeSource.expectedFeatures) {
+        throw new Error(
+            `${lakeSource.id} feature count changed: `
+            + `${lakes.features.length} != ${lakeSource.expectedFeatures}`
+        );
+    }
+    const waterFeatures = lakes.features
+        .filter((entry) => entry.geometry)
+        .map((entry, index) => ({
+            type: "Feature",
+            properties: { id: `lake:${String(index + 1).padStart(4, "0")}` },
+            geometry: entry.geometry
+        }))
+        .sort((left, right) => {
+            const areaOrder = normalizedSphericalArea(right) - normalizedSphericalArea(left);
+            return areaOrder || compareKeys(stableGeometryKey(left), stableGeometryKey(right));
+        })
+        .map((entry, index) => ({
+            ...entry,
+            properties: { id: `lake:${String(index + 1).padStart(4, "0")}` }
+        }));
+    const labels = sourceFeatures
+        .map((entry) => ({
+            key: entry.properties.canonicalKey,
+            text: entry.properties.name,
+            anchor: entry.properties.labelAnchor,
+            sourceRank: Number.isFinite(entry.properties.labelRank)
+                ? entry.properties.labelRank
+                : Number.MAX_SAFE_INTEGER,
+            area: normalizedSphericalArea(entry)
+        }))
+        .sort((left, right) =>
+            left.sourceRank - right.sourceRank
+            || right.area - left.area
+            || compareKeys(left.key, right.key))
+        .map((entry, index) => ({
+            key: entry.key,
+            text: entry.text,
+            anchor: entry.anchor,
+            rank: index + 1,
+            minZoom: labelZoom(index + 1)
+        }))
+        .sort((left, right) => compareKeys(left.key, right.key));
+    return {
+        decodedFeatures: decoded.features,
+        labels,
+        archives: [source, lakeSource],
+        objects: {
+            sphere: { type: "FeatureCollection", features: [sphereFeature()] },
+            land: {
+                type: "FeatureCollection",
+                features: [{
+                    type: "Feature",
+                    properties: { id: "land" },
+                    geometry: land
+                }]
+            },
+            water: { type: "FeatureCollection", features: waterFeatures },
+            coastline: {
+                type: "FeatureCollection",
+                features: [{
+                    type: "Feature",
+                    properties: { id: "coastline" },
+                    geometry: coastline
+                }]
+            },
+            admin0: {
+                type: "FeatureCollection",
+                features: [{
+                    type: "Feature",
+                    properties: { id: "admin0" },
+                    geometry: admin0
+                }]
+            },
+            graticule: {
+                type: "FeatureCollection",
+                features: [{
+                    type: "Feature",
+                    properties: { id: "graticule-10-degree" },
+                    geometry: geoGraticule10()
+                }]
+            }
+        }
+    };
+}
+
+async function buildSource(source, value) {
     const collection = await readShapefile(source);
     if (collection.type !== "FeatureCollection") {
         throw new Error(`${source.id} did not parse as a FeatureCollection.`);
@@ -345,12 +542,21 @@ async function buildSource(source) {
         ];
     }
 
+    const references = source.kind === "world"
+        ? await worldReferenceInputs(source, sourceFeatures, value)
+        : null;
     let packedTopology = topology({
-        features: { type: "FeatureCollection", features: sourceFeatures }
+        features: {
+            type: "FeatureCollection",
+            features: references?.decodedFeatures ?? sourceFeatures
+        },
+        ...(references?.objects ?? {})
     }, 100000);
-    packedTopology = presimplify(packedTopology);
-    const threshold = quantile(packedTopology, 0.001);
-    packedTopology = simplify(packedTopology, threshold);
+    if (source.kind !== "world") {
+        packedTopology = presimplify(packedTopology);
+        const threshold = quantile(packedTopology, 0.001);
+        packedTopology = simplify(packedTopology, threshold);
+    }
     if (!packedTopology.transform) {
         packedTopology = quantize(packedTopology, 100000);
     }
@@ -362,10 +568,25 @@ async function buildSource(source) {
             .sort(compareKeys);
     });
 
-    const payload = { topology: packedTopology };
+    const layerCounts = {};
+    const layerVertexCounts = {};
+    for (const [name, object] of Object.entries(packedTopology.objects)) {
+        const measured = countObject(packedTopology, object);
+        layerCounts[name] = measured.count;
+        layerVertexCounts[name] = measured.vertices;
+    }
+    const labels = references?.labels ?? [];
+    const payload = { topology: packedTopology, labels };
     const payloadHash = sha256(Buffer.from(JSON.stringify(payload)));
     const output = {
-        manifest: manifestFor(source, sourceFeatures, payloadHash),
+        manifest: manifestFor(
+            source,
+            sourceFeatures,
+            payloadHash,
+            layerCounts,
+            layerVertexCounts,
+            references?.archives ?? [source]
+        ),
         ...payload
     };
     return `${JSON.stringify(output)}\n`;
@@ -378,7 +599,7 @@ async function buildPacks(outputDirectory = generatedDirectory) {
     for (const source of value.sources) {
         const filename = `${source.id}.pack.json`;
         expectedFiles.add(filename);
-        const contents = await buildSource(source);
+        const contents = await buildSource(source, value);
         await writeFile(join(outputDirectory, filename), contents);
         console.log(`Built ${filename} (${Buffer.byteLength(contents)} bytes)`);
     }
@@ -407,7 +628,7 @@ function visitCoordinates(value, label) {
 async function validatePack(source, filePath) {
     const bytes = await readFile(filePath);
     const parsed = JSON.parse(bytes.toString("utf8"));
-    if (parsed.manifest.schemaVersion !== 1 || parsed.manifest.id !== source.id) {
+    if (parsed.manifest.schemaVersion !== 2 || parsed.manifest.id !== source.id) {
         throw new Error(`${source.id} manifest identity is invalid.`);
     }
     if (parsed.manifest.featureCount !== source.expectedFeatures) {
@@ -419,7 +640,10 @@ async function validatePack(source, filePath) {
     if (/https?:\/\//.test(bytes.toString("utf8"))) {
         throw new Error(`${source.id} runtime asset contains a remote URL.`);
     }
-    const payloadHash = sha256(Buffer.from(JSON.stringify({ topology: parsed.topology })));
+    const payloadHash = sha256(Buffer.from(JSON.stringify({
+        topology: parsed.topology,
+        labels: parsed.labels
+    })));
     if (payloadHash !== parsed.manifest.artifactSha256) {
         throw new Error(`${source.id} payload hash is invalid.`);
     }
@@ -430,6 +654,61 @@ async function validatePack(source, filePath) {
     const keys = new Set();
     const fallbackKeys = [];
     const alternateIsoKeys = [];
+    const measuredLayerCounts = {};
+    const measuredLayerVertices = {};
+    for (const [name, object] of Object.entries(parsed.topology.objects)) {
+        const measured = countObject(parsed.topology, object);
+        measuredLayerCounts[name] = measured.count;
+        measuredLayerVertices[name] = measured.vertices;
+    }
+    if (JSON.stringify(measuredLayerCounts) !== JSON.stringify(parsed.manifest.layerCounts)) {
+        throw new Error(`${source.id} layer-count manifest is stale.`);
+    }
+    if (
+        JSON.stringify(measuredLayerVertices)
+        !== JSON.stringify(parsed.manifest.layerVertexCounts)
+    ) {
+        throw new Error(`${source.id} layer-vertex manifest is stale.`);
+    }
+    const totalVertices = Object.values(measuredLayerVertices).reduce(
+        (sum, count) => sum + count,
+        0
+    );
+    if (totalVertices > source.budgets.vertices) {
+        throw new Error(
+            `${source.id} exceeds vertex budget: ${totalVertices} > ${source.budgets.vertices}`
+        );
+    }
+    if (source.kind === "world") {
+        const expectedLayers = ["features", "sphere", "land", "water", "coastline", "admin0", "graticule"];
+        for (const name of expectedLayers) {
+            if (!parsed.topology.objects[name] || measuredLayerCounts[name] < 1) {
+                throw new Error(`${source.id} is missing required ${name} layer.`);
+            }
+        }
+        if (!Array.isArray(parsed.labels) || parsed.labels.length !== source.expectedFeatures) {
+            throw new Error(`${source.id} label coverage is invalid.`);
+        }
+        const labelKeys = parsed.labels.map((entry) => entry.key);
+        if (
+            new Set(labelKeys).size !== labelKeys.length
+            || JSON.stringify(labelKeys) !== JSON.stringify([...labelKeys].sort(compareKeys))
+        ) {
+            throw new Error(`${source.id} labels must have unique stable keys.`);
+        }
+        for (const label of parsed.labels) {
+            finitePoint(label.anchor, `${source.id}:${label.key} label anchor`);
+            if (
+                !Number.isInteger(label.rank)
+                || label.rank < 1
+                || !Number.isFinite(label.minZoom)
+            ) {
+                throw new Error(`${source.id}:${label.key} label metadata is invalid.`);
+            }
+        }
+    } else if (!Array.isArray(parsed.labels) || parsed.labels.length !== 0) {
+        throw new Error(`${source.id} must keep an explicit empty label contract.`);
+    }
     for (const entry of collection.features) {
         const properties = entry.properties;
         const key = properties.canonicalKey;
@@ -487,7 +766,7 @@ async function validatePack(source, filePath) {
             }
         }
     }
-    const budget = sizeBudgets[source.id];
+    const budget = source.budgets;
     const gzipBytes = gzipSync(bytes, { level: 9 }).length;
     if (bytes.length > budget.raw || gzipBytes > budget.gzip) {
         throw new Error(
@@ -501,10 +780,31 @@ async function validatePack(source, filePath) {
 async function validatePacks(directory = generatedDirectory) {
     const value = await catalog();
     const packageJson = JSON.parse(await readFile(join(root, "package.json"), "utf8"));
+    if (value.schemaVersion !== 2) {
+        throw new Error(`Context source catalog schema ${value.schemaVersion} is unsupported.`);
+    }
     for (const [name, version] of Object.entries(value.toolchain)) {
         const actual = packageJson.dependencies?.[name] ?? packageJson.devDependencies?.[name];
         if (actual !== version) {
             throw new Error(`Context pack tool ${name} must be pinned to ${version}; received ${actual}.`);
+        }
+        for (const source of allSources(value)) {
+            const cached = await readFile(join(cacheDirectory, source.filename));
+            verifySource(source, cached);
+            if (
+                !source.shapefileBase
+                || !Array.isArray(source.retainedFields)
+                || typeof source.license !== "string"
+                || !source.budgets
+            ) {
+                throw new Error(`${source.id} source policy is incomplete.`);
+            }
+            if (
+                JSON.stringify(source.retainedFields)
+                !== JSON.stringify(requiredRetainedFields(source))
+            ) {
+                throw new Error(`${source.id} retained-field allowlist is not exact.`);
+            }
         }
     }
     const results = [];

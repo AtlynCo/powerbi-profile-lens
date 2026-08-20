@@ -1081,6 +1081,7 @@ test.describe("packaged visual in a real browser", () => {
                 series: [],
                 profiles: ["Metric A"]
             });
+
             const elapsed = Date.now() - started;
             const renderer = await page.locator(".profile-lens-context-canvas").evaluate(
                 (canvas) => (canvas as HTMLCanvasElement).width > 1 ? "canvas" : "svg"
@@ -1110,6 +1111,94 @@ test.describe("packaged visual in a real browser", () => {
         expect(canvas.names).toEqual(svg.names);
         expect(svg.elapsed).toBeLessThan(750);
         expect(canvas.elapsed).toBeLessThan(750);
+    });
+
+    test("renders the professional world hierarchy with bounded screen labels", async ({ page }, testInfo) => {
+        const config = {
+            contextMode: "builtInPack",
+            contextPack: "worldCountries",
+            worldDetail: "50m",
+            referenceDetail: "full",
+            showPhysicalLayers: true,
+            showLabels: true,
+            labelDensity: "detailed",
+            showGraticule: true,
+            contextLayout: "focusLens",
+            homeView: "fill",
+            interactionMode: "localOnly",
+            entities: WORLD_50_KEYS.filter((_key, index) => index % 4 === 0),
+            periods: ["2020", "2025"],
+            bands: ["Youth", "Working age", "Older adults"],
+            series: ["Community", "Comparison"],
+            profiles: ["Population", "Income", "Education"],
+            svgFeatureThreshold: 500
+        };
+        await mount(page, config);
+        const roles = await page.locator(
+            ".profile-lens-context-camera-layer > [data-reference-role],"
+            + ".profile-lens-context-camera-layer > [data-context-key]"
+        ).evaluateAll((nodes) => nodes.map((node) =>
+            node.getAttribute("data-reference-role")
+            ?? (node.hasAttribute("data-context-key") ? "interactive" : "")));
+        expect(roles.indexOf("sphere")).toBeLessThan(roles.indexOf("land"));
+        expect(roles.indexOf("land")).toBeLessThan(roles.indexOf("water"));
+        expect(roles.indexOf("water")).toBeLessThan(roles.indexOf("graticule"));
+        expect(roles.indexOf("graticule")).toBeLessThan(roles.indexOf("interactive"));
+        expect(roles.lastIndexOf("interactive")).toBeLessThan(roles.indexOf("coastline"));
+        expect(roles.indexOf("coastline")).toBeLessThan(roles.indexOf("admin0"));
+        const labels = page.locator(".profile-lens-context-map-label");
+        expect(await labels.count()).toBeGreaterThan(0);
+        expect(await labels.count()).toBeLessThanOrEqual(40);
+        await expect(labels.first()).toHaveAttribute("font-size", "11");
+        const semanticCount = await page.locator(
+            ".profile-lens-context-semantic [role='option']"
+        ).count();
+        expect(semanticCount).toBeLessThanOrEqual(100);
+        expect(await page.locator("[data-reference-role][data-context-key]").count()).toBe(0);
+        await page.screenshot({
+            path: process.env.PROFILE_LENS_SCREENSHOT_PATH
+                ?? testInfo.outputPath("professional-world-hero.png"),
+            fullPage: true
+        });
+
+        const before = await page.locator(".profile-lens-context").evaluate((node) => ({
+            metrics: { ...(node as HTMLElement & {
+                __profileLensContextMetrics: {
+                    referenceGeometryBuilds: number;
+                    svgGeometryBuilds: number;
+                    canvasRasterBuilds: number;
+                    canvasPickingBuilds: number;
+                    labelLayoutUpdates: number;
+                    maxVisibleLabels: number;
+                };
+            }).__profileLensContextMetrics },
+            labelSize: node.querySelector(".profile-lens-context-map-label")
+                ?.getAttribute("font-size")
+        }));
+        await page.locator(".profile-lens-context").press("+");
+        await page.locator(".profile-lens-context").press("ArrowRight");
+        const after = await page.locator(".profile-lens-context").evaluate((node) => ({
+            metrics: { ...(node as HTMLElement & {
+                __profileLensContextMetrics: typeof before.metrics;
+            }).__profileLensContextMetrics },
+            labelSize: node.querySelector(".profile-lens-context-map-label")
+                ?.getAttribute("font-size")
+        }));
+        expect(after.metrics.referenceGeometryBuilds).toBe(before.metrics.referenceGeometryBuilds);
+        expect(after.metrics.svgGeometryBuilds).toBe(before.metrics.svgGeometryBuilds);
+        expect(after.metrics.canvasRasterBuilds).toBe(before.metrics.canvasRasterBuilds);
+        expect(after.metrics.canvasPickingBuilds).toBe(before.metrics.canvasPickingBuilds);
+        expect(after.metrics.labelLayoutUpdates).toBeGreaterThan(before.metrics.labelLayoutUpdates);
+        expect(after.metrics.maxVisibleLabels).toBeLessThanOrEqual(40);
+        expect(after.labelSize).toBe(before.labelSize);
+
+        await mount(page, { ...config, svgFeatureThreshold: 1 });
+        const canvasWidth = await page.locator(".profile-lens-context-canvas").evaluate(
+            (canvas) => (canvas as HTMLCanvasElement).width
+        );
+        expect(canvasWidth).toBeGreaterThan(1);
+        expect(await page.locator(".profile-lens-context-map-label").count())
+            .toBeLessThanOrEqual(40);
     });
 
     test("keeps adversarial boundaries, holes, and overlaps in SVG/Canvas parity", async ({ page }) => {

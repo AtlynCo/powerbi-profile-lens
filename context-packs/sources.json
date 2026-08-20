@@ -1,5 +1,5 @@
 {
-  "schemaVersion": 1,
+  "schemaVersion": 2,
   "toolchain": {
     "d3-geo": "3.1.1",
     "jszip": "3.10.1",
@@ -18,7 +18,12 @@
       "vintage": "Natural Earth 5.1.1",
       "detail": "110m",
       "expectedFeatures": 177,
-      "kind": "world"
+      "kind": "world",
+      "shapefileBase": "ne_110m_admin_0_countries",
+      "retainedFields": ["ADM0_A3", "ISO_A3", "ISO_A3_EH", "LABELRANK", "LABEL_X", "LABEL_Y", "NAME", "NE_ID", "TYPE"],
+      "lakeSourceId": "natural-earth-lakes-110m",
+      "license": "Natural Earth public domain",
+      "budgets": { "raw": 360000, "gzip": 130000, "vertices": 18000 }
     },
     {
       "id": "world-countries-50m",
@@ -29,7 +34,12 @@
       "vintage": "Natural Earth 5.1.1",
       "detail": "50m",
       "expectedFeatures": 242,
-      "kind": "world"
+      "kind": "world",
+      "shapefileBase": "ne_50m_admin_0_countries",
+      "retainedFields": ["ADM0_A3", "ISO_A3", "ISO_A3_EH", "LABELRANK", "LABEL_X", "LABEL_Y", "NAME", "NE_ID", "TYPE"],
+      "lakeSourceId": "natural-earth-lakes-50m",
+      "license": "Natural Earth public domain",
+      "budgets": { "raw": 1500000, "gzip": 480000, "vertices": 90000 }
     },
     {
       "id": "us-states-2025-5m",
@@ -40,7 +50,11 @@
       "vintage": "2025",
       "detail": "5m",
       "expectedFeatures": 56,
-      "kind": "state"
+      "kind": "state",
+      "shapefileBase": "cb_2025_us_state_5m",
+      "retainedFields": ["GEOID", "NAME", "STUSPS"],
+      "license": "U.S. Census Bureau public domain",
+      "budgets": { "raw": 550000, "gzip": 150000, "vertices": 30000 }
     },
     {
       "id": "us-counties-2025-5m",
@@ -51,7 +65,43 @@
       "vintage": "2025",
       "detail": "5m",
       "expectedFeatures": 3235,
-      "kind": "county"
+      "kind": "county",
+      "shapefileBase": "cb_2025_us_county_5m",
+      "retainedFields": ["GEOID", "NAME", "STATEFP", "STUSPS"],
+      "license": "U.S. Census Bureau public domain",
+      "budgets": { "raw": 1800000, "gzip": 500000, "vertices": 180000 }
+    }
+  ],
+  "physicalSources": [
+    {
+      "id": "natural-earth-lakes-110m",
+      "filename": "ne_110m_lakes.zip",
+      "url": "https://naturalearth.s3.amazonaws.com/5.1.1/110m_physical/ne_110m_lakes.zip",
+      "bytes": 23622,
+      "sha256": "f2eed3c738a93010770acb0ba44273ea6a83b053641588bc902d9d6fd1cdafcb",
+      "vintage": "Natural Earth 5.1.1",
+      "detail": "110m",
+      "expectedFeatures": 24,
+      "kind": "lake",
+      "shapefileBase": "ne_110m_lakes",
+      "retainedFields": [],
+      "license": "Natural Earth public domain",
+      "budgets": { "archive": 23622, "vertices": 2000 }
+    },
+    {
+      "id": "natural-earth-lakes-50m",
+      "filename": "ne_50m_lakes.zip",
+      "url": "https://naturalearth.s3.amazonaws.com/5.1.1/50m_physical/ne_50m_lakes.zip",
+      "bytes": 252615,
+      "sha256": "f28d42c286d96b57a17aac2cbeb432f8c65532c20063495711fbc64e24666df3",
+      "vintage": "Natural Earth 5.1.1",
+      "detail": "50m",
+      "expectedFeatures": 412,
+      "kind": "lake",
+      "shapefileBase": "ne_50m_lakes",
+      "retainedFields": [],
+      "license": "Natural Earth public domain",
+      "budgets": { "archive": 252615, "vertices": 18000 }
     }
   ]
 }
