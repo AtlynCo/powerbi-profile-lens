@@ -190,6 +190,155 @@ async function mount(
     });
 }
 
+async function renderedForegroundAt(
+    page: Page,
+    screenshot: Buffer,
+    point: { readonly x: number; readonly y: number },
+    foreground: string,
+    background: string
+): Promise<{ foregroundDominant: number; minimumForegroundDistance: number }> {
+    return page.evaluate(async ({ encoded, sample, foregroundHex, backgroundHex }) => {
+        const image = new Image();
+        image.src = `data:image/png;base64,${encoded}`;
+        await image.decode();
+        const canvas = document.createElement("canvas");
+        canvas.width = image.naturalWidth;
+        canvas.height = image.naturalHeight;
+        const context = canvas.getContext("2d");
+        if (!context) throw new Error("Pixel evidence requires a 2D context.");
+        context.drawImage(image, 0, 0);
+        const imageData = context.getImageData(0, 0, canvas.width, canvas.height);
+        const parseHex = (value: string): readonly [number, number, number] => [
+            Number.parseInt(value.slice(1, 3), 16),
+            Number.parseInt(value.slice(3, 5), 16),
+            Number.parseInt(value.slice(5, 7), 16)
+        ];
+        const foregroundRgb = parseHex(foregroundHex);
+        const backgroundRgb = parseHex(backgroundHex);
+        let foregroundDominant = 0;
+        let minimumForegroundDistance = Number.POSITIVE_INFINITY;
+        const centerX = Math.round(sample.x);
+        const centerY = Math.round(sample.y);
+        for (let y = centerY - 2; y <= centerY + 2; y++) {
+            for (let x = centerX - 2; x <= centerX + 2; x++) {
+                if (x < 0 || y < 0 || x >= imageData.width || y >= imageData.height) continue;
+                const index = (y * imageData.width + x) * 4;
+                const foregroundDistance = Math.abs(imageData.data[index] - foregroundRgb[0])
+                    + Math.abs(imageData.data[index + 1] - foregroundRgb[1])
+                    + Math.abs(imageData.data[index + 2] - foregroundRgb[2]);
+                const backgroundDistance = Math.abs(imageData.data[index] - backgroundRgb[0])
+                    + Math.abs(imageData.data[index + 1] - backgroundRgb[1])
+                    + Math.abs(imageData.data[index + 2] - backgroundRgb[2]);
+                minimumForegroundDistance = Math.min(
+                    minimumForegroundDistance,
+                    foregroundDistance
+                );
+                if (foregroundDistance < backgroundDistance) foregroundDominant++;
+            }
+        }
+        return { foregroundDominant, minimumForegroundDistance };
+    }, {
+        encoded: screenshot.toString("base64"),
+        sample: point,
+        foregroundHex: foreground,
+        backgroundHex: background
+    });
+}
+
+async function isolatedLakePixel(
+    page: Page,
+    full: Buffer,
+    standard: Buffer,
+    candidates: readonly { readonly x: number; readonly y: number }[],
+    foreground: string,
+    background: string
+): Promise<{
+    point: { readonly x: number; readonly y: number };
+    fullForegroundDominant: number;
+    standardForegroundDominant: number;
+}> {
+    return page.evaluate(async ({
+        fullPng,
+        standardPng,
+        points,
+        foregroundHex,
+        backgroundHex
+    }) => {
+        const decode = async (encoded: string): Promise<ImageData> => {
+            const image = new Image();
+            image.src = `data:image/png;base64,${encoded}`;
+            await image.decode();
+            const canvas = document.createElement("canvas");
+            canvas.width = image.naturalWidth;
+            canvas.height = image.naturalHeight;
+            const context = canvas.getContext("2d");
+            if (!context) throw new Error("Lake pixel evidence requires a 2D context.");
+            context.drawImage(image, 0, 0);
+            return context.getImageData(0, 0, canvas.width, canvas.height);
+        };
+        const parseHex = (value: string): readonly [number, number, number] => [
+            Number.parseInt(value.slice(1, 3), 16),
+            Number.parseInt(value.slice(3, 5), 16),
+            Number.parseInt(value.slice(5, 7), 16)
+        ];
+        const [fullImage, standardImage] = await Promise.all([
+            decode(fullPng),
+            decode(standardPng)
+        ]);
+        const foregroundRgb = parseHex(foregroundHex);
+        const backgroundRgb = parseHex(backgroundHex);
+        const evidenceAt = (
+            image: ImageData,
+            point: { readonly x: number; readonly y: number }
+        ): { foregroundDominant: number; minimumForegroundDistance: number } => {
+            let foregroundDominant = 0;
+            let minimumForegroundDistance = Number.POSITIVE_INFINITY;
+            const centerX = Math.round(point.x);
+            const centerY = Math.round(point.y);
+            for (let y = centerY - 2; y <= centerY + 2; y++) {
+                for (let x = centerX - 2; x <= centerX + 2; x++) {
+                    if (x < 0 || y < 0 || x >= image.width || y >= image.height) continue;
+                    const index = (y * image.width + x) * 4;
+                    const foregroundDistance = Math.abs(image.data[index] - foregroundRgb[0])
+                        + Math.abs(image.data[index + 1] - foregroundRgb[1])
+                        + Math.abs(image.data[index + 2] - foregroundRgb[2]);
+                    const backgroundDistance = Math.abs(image.data[index] - backgroundRgb[0])
+                        + Math.abs(image.data[index + 1] - backgroundRgb[1])
+                        + Math.abs(image.data[index + 2] - backgroundRgb[2]);
+                    minimumForegroundDistance = Math.min(
+                        minimumForegroundDistance,
+                        foregroundDistance
+                    );
+                    if (foregroundDistance < backgroundDistance) foregroundDominant++;
+                }
+            }
+            return { foregroundDominant, minimumForegroundDistance };
+        };
+        for (const point of points) {
+            const fullEvidence = evidenceAt(fullImage, point);
+            const standardEvidence = evidenceAt(standardImage, point);
+            if (
+                fullEvidence.foregroundDominant > 0
+                && fullEvidence.minimumForegroundDistance < 200
+                && standardEvidence.foregroundDominant === 0
+            ) {
+                return {
+                    point,
+                    fullForegroundDominant: fullEvidence.foregroundDominant,
+                    standardForegroundDominant: standardEvidence.foregroundDominant
+                };
+            }
+        }
+        throw new Error("No isolated rendered lake-boundary pixel was found.");
+    }, {
+        fullPng: full.toString("base64"),
+        standardPng: standard.toString("base64"),
+        points: candidates,
+        foregroundHex: foreground,
+        backgroundHex: background
+    });
+}
+
 test.describe("packaged visual in a real browser", () => {
     test("mounts the packaged bundle and completes the rendering lifecycle", async ({ page }) => {
         await mount(page);
@@ -1144,10 +1293,12 @@ test.describe("packaged visual in a real browser", () => {
         expect(roles.indexOf("land")).toBeLessThan(roles.indexOf("water"));
         expect(roles.indexOf("water")).toBeLessThan(roles.indexOf("graticule"));
         expect(roles.indexOf("graticule")).toBeLessThan(roles.indexOf("interactive"));
+        expect(roles.lastIndexOf("interactive")).toBeLessThan(roles.indexOf("water-boundary"));
+        expect(roles.indexOf("water-boundary")).toBeLessThan(roles.indexOf("coastline"));
         expect(roles.lastIndexOf("interactive")).toBeLessThan(roles.indexOf("coastline"));
         expect(roles.indexOf("coastline")).toBeLessThan(roles.indexOf("admin0"));
         const svgReferenceWidths = await page.locator(
-            "[data-reference-role='water'],"
+            "[data-reference-role='water-boundary'],"
             + "[data-reference-role='graticule'],"
             + "[data-reference-role='coastline'],"
             + "[data-reference-role='admin0']"
@@ -1236,9 +1387,9 @@ test.describe("packaged visual in a real browser", () => {
             canvasBefore.canvasInteractivePathDraws
         );
         expect(canvasAfter.canvasReferenceCompositeOrder).toEqual([
-            "water",
             "graticule",
             "interactive",
+            "water",
             "coastline",
             "admin0"
         ]);
@@ -1258,8 +1409,13 @@ test.describe("packaged visual in a real browser", () => {
             bands: ["Band 1"],
             series: [],
             profiles: ["Metric A"],
-            highContrast: true
+            highContrast: true,
+            showLabels: false,
+            showCenterProbe: false,
+            showResetControl: false,
+            showGestureHelp: false
         };
+        expect(await page.evaluate(() => window.devicePixelRatio)).toBe(1);
         for (const colors of [
             { foreground: "#ffff00", background: "#000000", selected: "#00ffff" },
             { foreground: "#000000", background: "#ffffff", selected: "#0000ff" }
@@ -1271,9 +1427,54 @@ test.describe("packaged visual in a real browser", () => {
                 highContrastBackground: colors.background,
                 highContrastSelected: colors.selected
             });
-            const lake = page.locator("[data-reference-role='water']").first();
-            await expect(lake).toHaveAttribute("fill", colors.background);
-            await expect(lake).toHaveAttribute("stroke", colors.foreground);
+            const lakeFill = page.locator("[data-reference-role='water']").first();
+            const lakeBoundary = page.locator("[data-reference-role='water-boundary']").first();
+            await expect(lakeFill).toHaveAttribute("fill", colors.background);
+            await expect(lakeFill).toHaveAttribute("stroke", "none");
+            await expect(lakeBoundary).toHaveAttribute("stroke", colors.foreground);
+            await expect(lakeBoundary).toHaveAttribute("stroke-width", "1");
+            await expect(page.locator("[data-reference-role='river']")).toHaveCount(0);
+            const lakeCandidates = await lakeBoundary.evaluate((node) => {
+                const path = node as SVGPathElement;
+                const matrix = path.getScreenCTM();
+                const root = path.closest(".profile-lens-context")?.getBoundingClientRect();
+                if (!matrix || !root) throw new Error("Lake boundary requires a screen transform.");
+                const length = path.getTotalLength();
+                const candidates: { x: number; y: number }[] = [];
+                for (let index = 0; index <= 400; index++) {
+                    const point = path.getPointAtLength(length * index / 400);
+                    const screen = new DOMPoint(point.x, point.y).matrixTransform(matrix);
+                    const x = screen.x - root.left;
+                    const y = screen.y - root.top;
+                    if (x >= 4 && x <= root.width - 4 && y >= 4 && y <= root.height - 4) {
+                        candidates.push({ x, y });
+                    }
+                }
+                return candidates;
+            });
+            expect(lakeCandidates.length).toBeGreaterThan(0);
+            const svgFull = await page.locator(".profile-lens-context").screenshot();
+            await mount(page, {
+                ...base,
+                referenceDetail: "standard",
+                svgFeatureThreshold: 500,
+                highContrastForeground: colors.foreground,
+                highContrastBackground: colors.background,
+                highContrastSelected: colors.selected
+            });
+            await expect(page.locator("[data-reference-role='water']")).toHaveCount(0);
+            await expect(page.locator("[data-reference-role='river']")).toHaveCount(0);
+            const svgStandard = await page.locator(".profile-lens-context").screenshot();
+            const isolated = await isolatedLakePixel(
+                page,
+                svgFull,
+                svgStandard,
+                lakeCandidates,
+                colors.foreground,
+                colors.background
+            );
+            expect(isolated.fullForegroundDominant).toBeGreaterThan(0);
+            expect(isolated.standardForegroundDominant).toBe(0);
 
             await mount(page, {
                 ...base,
@@ -1292,7 +1493,35 @@ test.describe("packaged visual in a real browser", () => {
             }));
             const waterIndex = metrics.canvasReferenceLineRoles.indexOf("water");
             expect(waterIndex).toBeGreaterThanOrEqual(0);
+            expect(metrics.canvasReferenceLineRoles).not.toContain("river");
             expect(metrics.canvasReferenceStrokeColors[waterIndex]).toBe(colors.foreground);
+            const canvasFull = await page.locator(".profile-lens-context").screenshot();
+            const canvasPixels = await renderedForegroundAt(
+                page,
+                canvasFull,
+                isolated.point,
+                colors.foreground,
+                colors.background
+            );
+            expect(canvasPixels.foregroundDominant).toBeGreaterThan(0);
+            expect(canvasPixels.minimumForegroundDistance).toBeLessThan(200);
+            await mount(page, {
+                ...base,
+                referenceDetail: "standard",
+                svgFeatureThreshold: 1,
+                highContrastForeground: colors.foreground,
+                highContrastBackground: colors.background,
+                highContrastSelected: colors.selected
+            });
+            const canvasStandard = await page.locator(".profile-lens-context").screenshot();
+            const canvasStandardPixels = await renderedForegroundAt(
+                page,
+                canvasStandard,
+                isolated.point,
+                colors.foreground,
+                colors.background
+            );
+            expect(canvasStandardPixels.foregroundDominant).toBe(0);
         }
     });
 

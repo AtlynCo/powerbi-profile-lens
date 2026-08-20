@@ -47,6 +47,7 @@ export interface ContextSurfaceStyle {
     readonly land: string;
     readonly water: string;
     readonly waterOutline: string;
+    readonly waterOutlineWidth: number;
     readonly river: string;
     readonly graticule: string;
     readonly coastline: string;
@@ -378,6 +379,7 @@ function surfaceBuildKey(
         , style.land
         , style.water
         , style.waterOutline
+        , style.waterOutlineWidth
         , style.graticule
         , style.coastline
         , style.admin
@@ -447,6 +449,7 @@ function buildSurface(
             }
             geometryGroup.appendChild(node);
         }
+        appendSvgWaterBoundaries(geometryGroup, request, style);
         appendSvgReferenceLayers(
             geometryGroup,
             request,
@@ -940,7 +943,11 @@ function referenceStyle(
         case "land":
             return { fill: style.land, stroke: null, lineWidth: 0 };
         case "water":
-            return { fill: style.water, stroke: style.waterOutline, lineWidth: 0.35 };
+            return {
+                fill: style.water,
+                stroke: style.waterOutline,
+                lineWidth: style.waterOutlineWidth
+            };
         case "river":
             return { fill: null, stroke: style.river, lineWidth: 0.45 };
         case "graticule":
@@ -967,6 +974,31 @@ function appendSvgReferenceLayers(
         path.setAttribute("d", referencePathData(layer, request.baseTransform));
         path.setAttribute("fill-rule", "evenodd");
         path.setAttribute("fill", layerStyle.fill ?? "none");
+        path.setAttribute(
+            "stroke",
+            layer.role === "water" ? "none" : layerStyle.stroke ?? "none"
+        );
+        path.setAttribute("stroke-width", String(layerStyle.lineWidth));
+        path.setAttribute("vector-effect", "non-scaling-stroke");
+        path.setAttribute("pointer-events", "none");
+        path.setAttribute("aria-hidden", "true");
+        parent.appendChild(path);
+    }
+}
+
+function appendSvgWaterBoundaries(
+    parent: SVGGElement,
+    request: ContextRenderRequest,
+    style: ContextSurfaceStyle
+): void {
+    for (const layer of request.scene.cartography?.layers ?? []) {
+        if (layer.role !== "water" || !referenceLayerVisible(layer, request)) continue;
+        const layerStyle = referenceStyle(layer, style);
+        const path = document.createElementNS(SVG_NS, "path");
+        path.classList.add("profile-lens-context-reference");
+        path.setAttribute("data-reference-role", "water-boundary");
+        path.setAttribute("d", referencePathData(layer, request.baseTransform));
+        path.setAttribute("fill", "none");
         path.setAttribute("stroke", layerStyle.stroke ?? "none");
         path.setAttribute("stroke-width", String(layerStyle.lineWidth));
         path.setAttribute("vector-effect", "non-scaling-stroke");
@@ -1397,8 +1429,7 @@ function createCanvasReferenceLines(
             path: new Path2D(referencePathData(layer, request.baseTransform)),
             stroke: layerStyle.stroke,
             lineWidth: layerStyle.lineWidth,
-            placement: layer.role === "water"
-                || layer.role === "river"
+            placement: layer.role === "river"
                 || layer.role === "graticule"
                 ? "underlay"
                 : "overlay"
