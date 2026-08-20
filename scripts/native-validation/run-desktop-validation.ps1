@@ -88,7 +88,7 @@ if ($LASTEXITCODE -ne 0) {
     throw "Verified native snapshot creation failed"
 }
 $snapshot = $snapshotJson | ConvertFrom-Json
-$snapshotRoot = Join-Path $root $snapshot.logicalPath.Replace("/", "\")
+$snapshotRoot = $snapshot.absolutePath
 $snapshotPbipPath = Join-Path $snapshotRoot $snapshot.pbip
 if ($snapshot.fixtureProjectTreeSha256 -ne $computedSampleIntegrity.projectTree.sha256) {
     throw "Native snapshot fixture differs from the pre-copy verified PBIP project"
@@ -314,6 +314,7 @@ $record = [ordered]@{
         token = $snapshot.token
         logicalPath = $snapshot.logicalPath
         manifest = $snapshot.manifest
+        pathPreflight = $snapshot.pathPreflight
         lock = $snapshotLockEvidence
     }
     sample = [ordered]@{

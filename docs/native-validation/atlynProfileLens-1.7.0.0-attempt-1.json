@@ -1,0 +1,20 @@
+{
+  "schemaVersion": 1,
+  "outcome": "blocked",
+  "sourceCommit": "9a8d6be87941e68b283c54d746e16ae55006d88e",
+  "desktopVersion": "2.157.879.0 (26.08)+da30fe74eb0b8a8786ab7326b69c400a0e951831",
+  "startedAt": "2026-08-20T19:20:35.3806342Z",
+  "completedAt": "2026-08-20T19:25:38.4971396Z",
+  "outcomeBoundary": "No native scenario is claimed as passed and no PBIX was produced.",
+  "blocker": {
+    "stage": "pbip-launch",
+    "kind": "desktop-legacy-path-limit",
+    "message": "The controlled-run PBIP snapshot was materialized below the worktree. A Desktop-created SemanticModel .pbi editor settings path exceeded the legacy 248-character directory and 260-character filename limits, so Desktop crashed before an owned report window appeared."
+  },
+  "cleanup": {
+    "ownedProcessCount": 1,
+    "allExited": true,
+    "guardsRestored": true
+  },
+  "remediation": "Move only the immutable launch snapshot to a deterministic content-addressed short LOCALAPPDATA root, preflight all fixture and Desktop-created paths, and retain the release PBIX at its deterministic repository path."
+}
