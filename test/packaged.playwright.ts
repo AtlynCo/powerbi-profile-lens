@@ -190,14 +190,80 @@ async function mount(
     });
 }
 
-async function renderedPixelDifference(
+async function renderedForegroundAt(
+    page: Page,
+    screenshot: Buffer,
+    point: { readonly x: number; readonly y: number },
+    foreground: string,
+    background: string
+): Promise<{ foregroundDominant: number; minimumForegroundDistance: number }> {
+    return page.evaluate(async ({ encoded, sample, foregroundHex, backgroundHex }) => {
+        const image = new Image();
+        image.src = `data:image/png;base64,${encoded}`;
+        await image.decode();
+        const canvas = document.createElement("canvas");
+        canvas.width = image.naturalWidth;
+        canvas.height = image.naturalHeight;
+        const context = canvas.getContext("2d");
+        if (!context) throw new Error("Pixel evidence requires a 2D context.");
+        context.drawImage(image, 0, 0);
+        const imageData = context.getImageData(0, 0, canvas.width, canvas.height);
+        const parseHex = (value: string): readonly [number, number, number] => [
+            Number.parseInt(value.slice(1, 3), 16),
+            Number.parseInt(value.slice(3, 5), 16),
+            Number.parseInt(value.slice(5, 7), 16)
+        ];
+        const foregroundRgb = parseHex(foregroundHex);
+        const backgroundRgb = parseHex(backgroundHex);
+        let foregroundDominant = 0;
+        let minimumForegroundDistance = Number.POSITIVE_INFINITY;
+        const centerX = Math.round(sample.x);
+        const centerY = Math.round(sample.y);
+        for (let y = centerY - 2; y <= centerY + 2; y++) {
+            for (let x = centerX - 2; x <= centerX + 2; x++) {
+                if (x < 0 || y < 0 || x >= imageData.width || y >= imageData.height) continue;
+                const index = (y * imageData.width + x) * 4;
+                const foregroundDistance = Math.abs(imageData.data[index] - foregroundRgb[0])
+                    + Math.abs(imageData.data[index + 1] - foregroundRgb[1])
+                    + Math.abs(imageData.data[index + 2] - foregroundRgb[2]);
+                const backgroundDistance = Math.abs(imageData.data[index] - backgroundRgb[0])
+                    + Math.abs(imageData.data[index + 1] - backgroundRgb[1])
+                    + Math.abs(imageData.data[index + 2] - backgroundRgb[2]);
+                minimumForegroundDistance = Math.min(
+                    minimumForegroundDistance,
+                    foregroundDistance
+                );
+                if (foregroundDistance < backgroundDistance) foregroundDominant++;
+            }
+        }
+        return { foregroundDominant, minimumForegroundDistance };
+    }, {
+        encoded: screenshot.toString("base64"),
+        sample: point,
+        foregroundHex: foreground,
+        backgroundHex: background
+    });
+}
+
+async function isolatedLakePixel(
     page: Page,
     full: Buffer,
     standard: Buffer,
+    candidates: readonly { readonly x: number; readonly y: number }[],
     foreground: string,
     background: string
-): Promise<{ changed: number; foregroundDominant: number }> {
-    return page.evaluate(async ({ fullPng, standardPng, foregroundHex, backgroundHex }) => {
+): Promise<{
+    point: { readonly x: number; readonly y: number };
+    fullForegroundDominant: number;
+    standardForegroundDominant: number;
+}> {
+    return page.evaluate(async ({
+        fullPng,
+        standardPng,
+        points,
+        foregroundHex,
+        backgroundHex
+    }) => {
         const decode = async (encoded: string): Promise<ImageData> => {
             const image = new Image();
             image.src = `data:image/png;base64,${encoded}`;
@@ -206,7 +272,7 @@ async function renderedPixelDifference(
             canvas.width = image.naturalWidth;
             canvas.height = image.naturalHeight;
             const context = canvas.getContext("2d");
-            if (!context) throw new Error("Pixel evidence requires a 2D context.");
+            if (!context) throw new Error("Lake pixel evidence requires a 2D context.");
             context.drawImage(image, 0, 0);
             return context.getImageData(0, 0, canvas.width, canvas.height);
         };
@@ -219,34 +285,55 @@ async function renderedPixelDifference(
             decode(fullPng),
             decode(standardPng)
         ]);
-        if (
-            fullImage.width !== standardImage.width
-            || fullImage.height !== standardImage.height
-        ) {
-            throw new Error("Pixel evidence screenshots must have identical dimensions.");
-        }
         const foregroundRgb = parseHex(foregroundHex);
         const backgroundRgb = parseHex(backgroundHex);
-        let changed = 0;
-        let foregroundDominant = 0;
-        for (let index = 0; index < fullImage.data.length; index += 4) {
-            const delta = Math.abs(fullImage.data[index] - standardImage.data[index])
-                + Math.abs(fullImage.data[index + 1] - standardImage.data[index + 1])
-                + Math.abs(fullImage.data[index + 2] - standardImage.data[index + 2]);
-            if (delta < 24) continue;
-            changed++;
-            const foregroundDistance = Math.abs(fullImage.data[index] - foregroundRgb[0])
-                + Math.abs(fullImage.data[index + 1] - foregroundRgb[1])
-                + Math.abs(fullImage.data[index + 2] - foregroundRgb[2]);
-            const backgroundDistance = Math.abs(fullImage.data[index] - backgroundRgb[0])
-                + Math.abs(fullImage.data[index + 1] - backgroundRgb[1])
-                + Math.abs(fullImage.data[index + 2] - backgroundRgb[2]);
-            if (foregroundDistance < backgroundDistance) foregroundDominant++;
+        const evidenceAt = (
+            image: ImageData,
+            point: { readonly x: number; readonly y: number }
+        ): { foregroundDominant: number; minimumForegroundDistance: number } => {
+            let foregroundDominant = 0;
+            let minimumForegroundDistance = Number.POSITIVE_INFINITY;
+            const centerX = Math.round(point.x);
+            const centerY = Math.round(point.y);
+            for (let y = centerY - 2; y <= centerY + 2; y++) {
+                for (let x = centerX - 2; x <= centerX + 2; x++) {
+                    if (x < 0 || y < 0 || x >= image.width || y >= image.height) continue;
+                    const index = (y * image.width + x) * 4;
+                    const foregroundDistance = Math.abs(image.data[index] - foregroundRgb[0])
+                        + Math.abs(image.data[index + 1] - foregroundRgb[1])
+                        + Math.abs(image.data[index + 2] - foregroundRgb[2]);
+                    const backgroundDistance = Math.abs(image.data[index] - backgroundRgb[0])
+                        + Math.abs(image.data[index + 1] - backgroundRgb[1])
+                        + Math.abs(image.data[index + 2] - backgroundRgb[2]);
+                    minimumForegroundDistance = Math.min(
+                        minimumForegroundDistance,
+                        foregroundDistance
+                    );
+                    if (foregroundDistance < backgroundDistance) foregroundDominant++;
+                }
+            }
+            return { foregroundDominant, minimumForegroundDistance };
+        };
+        for (const point of points) {
+            const fullEvidence = evidenceAt(fullImage, point);
+            const standardEvidence = evidenceAt(standardImage, point);
+            if (
+                fullEvidence.foregroundDominant > 0
+                && fullEvidence.minimumForegroundDistance < 200
+                && standardEvidence.foregroundDominant === 0
+            ) {
+                return {
+                    point,
+                    fullForegroundDominant: fullEvidence.foregroundDominant,
+                    standardForegroundDominant: standardEvidence.foregroundDominant
+                };
+            }
         }
-        return { changed, foregroundDominant };
+        throw new Error("No isolated rendered lake-boundary pixel was found.");
     }, {
         fullPng: full.toString("base64"),
         standardPng: standard.toString("base64"),
+        points: candidates,
         foregroundHex: foreground,
         backgroundHex: background
     });
@@ -1346,6 +1433,26 @@ test.describe("packaged visual in a real browser", () => {
             await expect(lakeFill).toHaveAttribute("stroke", "none");
             await expect(lakeBoundary).toHaveAttribute("stroke", colors.foreground);
             await expect(lakeBoundary).toHaveAttribute("stroke-width", "1");
+            await expect(page.locator("[data-reference-role='river']")).toHaveCount(0);
+            const lakeCandidates = await lakeBoundary.evaluate((node) => {
+                const path = node as SVGPathElement;
+                const matrix = path.getScreenCTM();
+                const root = path.closest(".profile-lens-context")?.getBoundingClientRect();
+                if (!matrix || !root) throw new Error("Lake boundary requires a screen transform.");
+                const length = path.getTotalLength();
+                const candidates: { x: number; y: number }[] = [];
+                for (let index = 0; index <= 400; index++) {
+                    const point = path.getPointAtLength(length * index / 400);
+                    const screen = new DOMPoint(point.x, point.y).matrixTransform(matrix);
+                    const x = screen.x - root.left;
+                    const y = screen.y - root.top;
+                    if (x >= 4 && x <= root.width - 4 && y >= 4 && y <= root.height - 4) {
+                        candidates.push({ x, y });
+                    }
+                }
+                return candidates;
+            });
+            expect(lakeCandidates.length).toBeGreaterThan(0);
             const svgFull = await page.locator(".profile-lens-context").screenshot();
             await mount(page, {
                 ...base,
@@ -1356,18 +1463,18 @@ test.describe("packaged visual in a real browser", () => {
                 highContrastSelected: colors.selected
             });
             await expect(page.locator("[data-reference-role='water']")).toHaveCount(0);
+            await expect(page.locator("[data-reference-role='river']")).toHaveCount(0);
             const svgStandard = await page.locator(".profile-lens-context").screenshot();
-            expect(createHash("sha256").update(svgFull).digest("hex"))
-                .not.toBe(createHash("sha256").update(svgStandard).digest("hex"));
-            const svgPixels = await renderedPixelDifference(
+            const isolated = await isolatedLakePixel(
                 page,
                 svgFull,
                 svgStandard,
+                lakeCandidates,
                 colors.foreground,
                 colors.background
             );
-            expect(svgPixels.changed).toBeGreaterThan(20);
-            expect(svgPixels.foregroundDominant).toBeGreaterThan(5);
+            expect(isolated.fullForegroundDominant).toBeGreaterThan(0);
+            expect(isolated.standardForegroundDominant).toBe(0);
 
             await mount(page, {
                 ...base,
@@ -1386,8 +1493,18 @@ test.describe("packaged visual in a real browser", () => {
             }));
             const waterIndex = metrics.canvasReferenceLineRoles.indexOf("water");
             expect(waterIndex).toBeGreaterThanOrEqual(0);
+            expect(metrics.canvasReferenceLineRoles).not.toContain("river");
             expect(metrics.canvasReferenceStrokeColors[waterIndex]).toBe(colors.foreground);
             const canvasFull = await page.locator(".profile-lens-context").screenshot();
+            const canvasPixels = await renderedForegroundAt(
+                page,
+                canvasFull,
+                isolated.point,
+                colors.foreground,
+                colors.background
+            );
+            expect(canvasPixels.foregroundDominant).toBeGreaterThan(0);
+            expect(canvasPixels.minimumForegroundDistance).toBeLessThan(200);
             await mount(page, {
                 ...base,
                 referenceDetail: "standard",
@@ -1397,15 +1514,14 @@ test.describe("packaged visual in a real browser", () => {
                 highContrastSelected: colors.selected
             });
             const canvasStandard = await page.locator(".profile-lens-context").screenshot();
-            const canvasPixels = await renderedPixelDifference(
+            const canvasStandardPixels = await renderedForegroundAt(
                 page,
-                canvasFull,
                 canvasStandard,
+                isolated.point,
                 colors.foreground,
                 colors.background
             );
-            expect(canvasPixels.changed).toBeGreaterThan(20);
-            expect(canvasPixels.foregroundDominant).toBeGreaterThan(5);
+            expect(canvasStandardPixels.foregroundDominant).toBe(0);
         }
     });
 
