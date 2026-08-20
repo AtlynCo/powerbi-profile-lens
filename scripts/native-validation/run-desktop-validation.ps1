@@ -33,7 +33,9 @@ param(
     [string]$InjectedRollbackFailure = "",
     [Parameter(DontShow)][switch]$InjectedPriorEvidence,
     [Parameter(DontShow)][switch]$InjectedCleanupRefusal,
-    [Parameter(DontShow)][switch]$InjectedBlockedRun
+    [Parameter(DontShow)][switch]$InjectedBlockedRun,
+    [Parameter(DontShow)][ValidateSet("", "mutation", "reparse")]
+    [string]$InjectedFinalSnapshotTamper = ""
 )
 
 $ErrorActionPreference = "Stop"
@@ -439,7 +441,7 @@ $record.snapshot.lock = $snapshotGuard.evidence
 try {
     if ($InjectedBlockedRun) {
         throw "Injected native blocked failure"
-    } elseif ($InjectedPersistenceFailure) {
+    } elseif ($InjectedPersistenceFailure -or $InjectedFinalSnapshotTamper) {
         $record.outcome = "native-run-completed"
         $record.observations = $script:observations
     } else {
@@ -547,6 +549,16 @@ try {
     }
     $record.completedAt = (Get-Date).ToUniversalTime().ToString("o")
     $record.observations = $script:observations
+    if ($InjectedFinalSnapshotTamper -eq "mutation") {
+        Set-Content -LiteralPath (Join-Path $snapshotRoot "injected-final-mutation.txt") `
+            -Value "mutation"
+    } elseif ($InjectedFinalSnapshotTamper -eq "reparse") {
+        $injectedReparseTarget = Join-Path ([System.IO.Path]::GetTempPath()) `
+            "AtlynPBI-final-reparse-$runId"
+        New-Item -ItemType Directory -Force -Path $injectedReparseTarget | Out-Null
+        New-Item -ItemType Junction -Path (Join-Path $snapshotRoot "final-linked") `
+            -Target $injectedReparseTarget | Out-Null
+    }
     $finalSnapshotJson = & node (Join-Path $root "scripts\native-snapshot.cjs") `
         --verify $snapshot.token $snapshot.manifest.sha256
     if ($LASTEXITCODE -ne 0) {
@@ -668,10 +680,18 @@ if ($requiresBlockedSnapshotCleanup) {
 }
 
 $failure = Select-RunFailure -PrimaryFailure $primaryFailure `
-    -CleanupFailure (Select-RunFailure -PrimaryFailure $cleanupFailure -CleanupFailure $secondaryFailure)
+    -CleanupFailure (Select-RunFailure -PrimaryFailure $secondaryFailure `
+        -CleanupFailure $cleanupFailure)
 $record.guardsRestored = $guardsRestored
 if ($failure -or -not $guardsRestored -or -not $record.cleanup.allExited) {
     $record.outcome = "blocked"
+    if (-not $record.error -and $failure) {
+        $record.error = if ($failure -is [System.Exception]) {
+            $failure.Message
+        } else {
+            $failure.Exception.Message
+        }
+    }
 }
 $outputPath = $null
 $stagingPath = $null

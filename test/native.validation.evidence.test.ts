@@ -659,6 +659,49 @@ describe("native validation evidence safety", () => {
             assertNoDesktop();
             const lateLockRecreated = createSnapshot(root);
             expect(removeSnapshot(root, lateLockRecreated.token).removed).toBe(true);
+
+            for (const tamper of ["mutation", "reparse"]) {
+                fs.rmSync(evidenceDirectory, { recursive: true, force: true });
+                const output = runInjected(`-InjectedFinalSnapshotTamper ${tamper}`);
+                expect(output).toContain("Native snapshot changed before evidence persistence");
+                expect(output).toContain("Integrity-gated native snapshot cleanup failed");
+                expect(output).toContain("Launch snapshot retained:");
+                expect(output.indexOf("Native snapshot changed before evidence persistence"))
+                    .toBeLessThan(
+                        output.indexOf("Integrity-gated native snapshot cleanup failed")
+                    );
+                const blocked = JSON.parse(
+                    fs.readFileSync(nativeFailurePath, "utf8")
+                ) as {
+                    outcome: string;
+                    error: string;
+                    snapshotCleanup: {
+                        retained: boolean;
+                        retainedToken: string;
+                        reason: string;
+                    };
+                };
+                expect(blocked.outcome).toBe("blocked");
+                expect(blocked.error).toBe("Native snapshot changed before evidence persistence");
+                expect(blocked.snapshotCleanup).toMatchObject({
+                    retained: true,
+                    retainedToken: token,
+                    reason: "integrity-gated snapshot cleanup failed"
+                });
+                expect(fs.existsSync(nativeRunPath)).toBe(false);
+                expect(fs.existsSync(snapshotPath)).toBe(true);
+                if (tamper === "mutation") {
+                    expect(fs.existsSync(
+                        path.join(snapshotPath, "injected-final-mutation.txt")
+                    )).toBe(true);
+                } else {
+                    expect(fs.lstatSync(
+                        path.join(snapshotPath, "final-linked")
+                    ).isSymbolicLink()).toBe(true);
+                }
+                assertNoDesktop();
+                fs.rmSync(snapshotPath, { recursive: true, force: true });
+            }
         } finally {
             fs.rmSync(snapshotPath, { recursive: true, force: true });
         }
