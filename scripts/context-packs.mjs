@@ -29,8 +29,126 @@ const expectedStateCodes = [
     "40", "41", "42", "44", "45", "46", "47", "48", "49", "50", "51", "53",
     "54", "55", "56", "60", "66", "69", "72", "78"
 ];
+const usInsets = [
+    { id: "alaska", text: "Alaska", bounds: [0, 480, 220, 160] },
+    { id: "hawaii", text: "Hawaii", bounds: [230, 480, 110, 75] },
+    { id: "puertoRico", text: "Puerto Rico", bounds: [350, 480, 180, 75] },
+    { id: "usVirginIslands", text: "USVI", bounds: [540, 480, 80, 75] },
+    { id: "americanSamoa", text: "American Samoa", bounds: [630, 480, 100, 75] },
+    { id: "guam", text: "Guam", bounds: [740, 480, 90, 75] },
+    { id: "northernMarianaIslands", text: "Northern Mariana Islands", bounds: [840, 480, 120, 75] }
+];
 function sha256(bytes) {
     return createHash("sha256").update(bytes).digest("hex");
+}
+
+function geometryCollection(geometries) {
+    return { type: "GeometryCollection", geometries };
+}
+
+function referenceFeature(id, region, geometry, extra = {}) {
+    return {
+        type: "Feature",
+        properties: { id, region, ...extra },
+        geometry
+    };
+}
+
+function usReferenceInputs(source, sourceFeatures) {
+    let sourceTopology = topology({
+        features: { type: "FeatureCollection", features: sourceFeatures }
+    }, 100000);
+    sourceTopology = presimplify(sourceTopology);
+    sourceTopology = simplify(sourceTopology, quantile(sourceTopology, 0.001));
+    if (!sourceTopology.transform) sourceTopology = quantize(sourceTopology, 100000);
+    const decoded = feature(sourceTopology, sourceTopology.objects.features);
+    const geometries = sourceTopology.objects.features.geometries;
+    const land = [];
+    const coastline = [];
+    const admin1 = [];
+    const admin2 = [];
+    const stateLabels = [];
+
+    for (const region of [...new Set(sourceFeatures.map((entry) => entry.properties.region))].sort(compareKeys)) {
+        const regionGeometries = geometries.filter((entry) => entry.properties.region === region);
+        const regionObject = geometryCollection(regionGeometries);
+        land.push(referenceFeature(`land:${region}`, region, merge(sourceTopology, regionGeometries)));
+        coastline.push(referenceFeature(
+            `coastline:${region}`,
+            region,
+            mesh(sourceTopology, regionObject, (left, right) => left === right)
+        ));
+        if (source.kind === "state") {
+            admin1.push(referenceFeature(
+                `admin1:${region}`,
+                region,
+                mesh(sourceTopology, regionObject, (left, right) => left !== right)
+            ));
+        } else {
+            admin1.push(referenceFeature(
+                `admin1:${region}`,
+                region,
+                mesh(sourceTopology, regionObject, (left, right) =>
+                    left !== right && left.properties.stateCode !== right.properties.stateCode)
+            ));
+            admin2.push(referenceFeature(
+                `admin2:${region}`,
+                region,
+                mesh(sourceTopology, regionObject, (left, right) =>
+                    left !== right && left.properties.stateCode === right.properties.stateCode),
+                { minZoom: 2.5 }
+            ));
+        }
+    }
+
+    if (source.kind === "county") {
+        for (const stateCode of expectedStateCodes) {
+            const stateGeometries = geometries.filter(
+                (entry) => entry.properties.stateCode === stateCode
+            );
+            const merged = merge(sourceTopology, stateGeometries);
+            const abbreviation = sourceFeatures.find(
+                (entry) => entry.properties.stateCode === stateCode
+            )?.properties.status;
+            stateLabels.push({
+                key: `reference:state:${stateCode}`,
+                text: abbreviation,
+                anchor: finitePoint(
+                    geoCentroid({ type: "Feature", properties: {}, geometry: merged }),
+                    `${source.id}:${stateCode} state label anchor`
+                ),
+                rank: Number(stateCode),
+                minZoom: 1,
+                maxZoom: 3.25,
+                region: regionForState(stateCode),
+                role: "state"
+            });
+        }
+    }
+
+    const featureLabels = sourceFeatures.map((entry, index) => ({
+        key: entry.properties.canonicalKey,
+        text: source.kind === "state" ? entry.properties.status : entry.properties.name,
+        anchor: entry.properties.centroid,
+        rank: index + 1,
+        minZoom: source.kind === "state" ? 1 : 3.5,
+        region: entry.properties.region,
+        role: "feature"
+    }));
+    return {
+        decodedFeatures: decoded.features,
+        labels: [...stateLabels, ...featureLabels].sort((left, right) =>
+            compareKeys(left.key, right.key)),
+        insets: usInsets,
+        objects: {
+            land: { type: "FeatureCollection", features: land },
+            coastline: { type: "FeatureCollection", features: coastline },
+            admin1: { type: "FeatureCollection", features: admin1 },
+            ...(admin2.length > 0
+                ? { admin2: { type: "FeatureCollection", features: admin2 } }
+                : {})
+        }
+    };
 }
 
 function compareKeys(left, right) {
@@ -307,7 +425,9 @@ function manifestFor(source, features, payloadHash, layerCounts, layerVertexCoun
         sourceLicense: "Public domain",
         attribution: source.kind === "world"
             ? "Made with Natural Earth."
-            : "U.S. Census Bureau, 2025 Cartographic Boundary Files.",
+            : "U.S. Census Bureau, 2025 Cartographic Boundary Files. Insets reposition "
+                + "and rescale Alaska, Hawaii, Puerto Rico, USVI, American Samoa, Guam, "
+                + "and Northern Mariana Islands; inset distance and area are not comparable.",
         policyId: source.kind === "world" ? "natural-earth-de-facto-v1" : "us-territory-insets-v1",
         sourceArchiveSha256: source.sha256,
         sourceArchives: archives.map((entry) => ({
@@ -544,19 +664,14 @@ async function buildSource(source, value) {
 
     const references = source.kind === "world"
         ? await worldReferenceInputs(source, sourceFeatures, value)
-        : null;
+        : usReferenceInputs(source, sourceFeatures);
     let packedTopology = topology({
         features: {
             type: "FeatureCollection",
             features: references?.decodedFeatures ?? sourceFeatures
         },
-        ...(references?.objects ?? {})
+        ...references.objects
     }, 100000);
-    if (source.kind !== "world") {
-        packedTopology = presimplify(packedTopology);
-        const threshold = quantile(packedTopology, 0.001);
-        packedTopology = simplify(packedTopology, threshold);
-    }
     if (!packedTopology.transform) {
         packedTopology = quantize(packedTopology, 100000);
     }
@@ -575,8 +690,12 @@ async function buildSource(source, value) {
         layerCounts[name] = measured.count;
         layerVertexCounts[name] = measured.vertices;
     }
-    const labels = references?.labels ?? [];
-    const payload = { topology: packedTopology, labels };
+    const labels = references.labels;
+    const payload = {
+        topology: packedTopology,
+        labels,
+        ...(references.insets ? { insets: references.insets } : {})
+    };
     const payloadHash = sha256(Buffer.from(JSON.stringify(payload)));
     const output = {
         manifest: manifestFor(
@@ -585,7 +704,7 @@ async function buildSource(source, value) {
             payloadHash,
             layerCounts,
             layerVertexCounts,
-            references?.archives ?? [source]
+            references.archives ?? [source]
         ),
         ...payload
     };
@@ -642,7 +761,8 @@ async function validatePack(source, filePath) {
     }
     const payloadHash = sha256(Buffer.from(JSON.stringify({
         topology: parsed.topology,
-        labels: parsed.labels
+        labels: parsed.labels,
+        ...(parsed.insets ? { insets: parsed.insets } : {})
     })));
     if (payloadHash !== parsed.manifest.artifactSha256) {
         throw new Error(`${source.id} payload hash is invalid.`);
@@ -706,8 +826,47 @@ async function validatePack(source, filePath) {
                 throw new Error(`${source.id}:${label.key} label metadata is invalid.`);
             }
         }
-    } else if (!Array.isArray(parsed.labels) || parsed.labels.length !== 0) {
-        throw new Error(`${source.id} must keep an explicit empty label contract.`);
+    } else {
+        const expectedLayers = source.kind === "county"
+            ? ["features", "land", "coastline", "admin1", "admin2"]
+            : ["features", "land", "coastline", "admin1"];
+        for (const name of expectedLayers) {
+            if (!parsed.topology.objects[name] || measuredLayerCounts[name] < 1) {
+                throw new Error(`${source.id} is missing required ${name} layer.`);
+            }
+        }
+        const expectedLabels = source.kind === "county"
+            ? source.expectedFeatures + expectedStateCodes.length
+            : source.expectedFeatures;
+        if (!Array.isArray(parsed.labels) || parsed.labels.length !== expectedLabels) {
+            throw new Error(`${source.id} label coverage is invalid.`);
+        }
+        if (!Array.isArray(parsed.insets) || parsed.insets.length !== usInsets.length) {
+            throw new Error(`${source.id} inset-frame coverage is invalid.`);
+        }
+        for (const inset of parsed.insets) {
+            if (
+                !usInsets.some((expected) => expected.id === inset.id)
+                || !Array.isArray(inset.bounds)
+                || inset.bounds.length !== 4
+                || inset.bounds.some((value) => !Number.isFinite(value))
+            ) {
+                throw new Error(`${source.id} inset metadata is invalid.`);
+            }
+        }
+        const labelKeys = parsed.labels.map((entry) => entry.key);
+        if (
+            new Set(labelKeys).size !== labelKeys.length
+            || JSON.stringify(labelKeys) !== JSON.stringify([...labelKeys].sort(compareKeys))
+        ) {
+            throw new Error(`${source.id} labels must have unique stable keys.`);
+        }
+        for (const label of parsed.labels) {
+            finitePoint(label.anchor, `${source.id}:${label.key} label anchor`);
+            if (!label.region || !Number.isFinite(label.minZoom)) {
+                throw new Error(`${source.id}:${label.key} label metadata is invalid.`);
+            }
+        }
     }
     for (const entry of collection.features) {
         const properties = entry.properties;

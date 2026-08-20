@@ -63,11 +63,16 @@ export type ContextPackObjects = Objects<ContextPackProperties> & {
     readonly water?: GeometryCollection<ContextReferenceProperties>;
     readonly coastline?: GeometryCollection<ContextReferenceProperties>;
     readonly admin0?: GeometryCollection<ContextReferenceProperties>;
+    readonly admin1?: GeometryCollection<ContextReferenceProperties>;
+    readonly admin2?: GeometryCollection<ContextReferenceProperties>;
     readonly graticule?: GeometryCollection<ContextReferenceProperties>;
 };
 
 export interface ContextReferenceProperties {
     readonly id: string;
+    readonly region?: string;
+    readonly minZoom?: number;
+    readonly maxZoom?: number;
 }
 
 export interface ContextPackLabel {
@@ -77,12 +82,21 @@ export interface ContextPackLabel {
     readonly rank: number;
     readonly minZoom: number;
     readonly maxZoom?: number;
+    readonly region?: string;
+    readonly role?: "feature" | "state" | "inset";
+}
+
+export interface ContextPackInset {
+    readonly id: string;
+    readonly text: string;
+    readonly bounds: readonly [number, number, number, number];
 }
 
 export interface ContextPackArtifact {
     readonly manifest: ContextPackManifest;
     readonly topology: Topology<ContextPackObjects>;
     readonly labels: readonly ContextPackLabel[];
+    readonly insets?: readonly ContextPackInset[];
 }
 
 export interface ProjectedPackFeature {

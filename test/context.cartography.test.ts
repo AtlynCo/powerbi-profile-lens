@@ -223,6 +223,23 @@ describe("noninteractive reference cartography", () => {
             ?.getAttribute("visibility")).not.toBe("hidden");
     });
 
+    it("restores analytical SVG boundaries when reference cartography is disabled", () => {
+        const parent = document.createElement("div");
+        const elements = createContextSurface(parent);
+        const value = request(contextScene());
+        renderContextSurface(
+            elements,
+            { ...value, cartography: { ...value.cartography, detail: "none" } },
+            "svg",
+            style,
+            1,
+            createContextPerformanceMetrics()
+        );
+        expect(elements.svg.querySelector("[data-context-key='interactive']")
+            ?.getAttribute("stroke")).toBe(style.stroke);
+        expect(elements.svg.querySelector("[data-reference-role]")).toBeNull();
+    });
+
     it("bounds stable fixed-size labels and keeps the focused label eligible", () => {
         const parent = document.createElement("div");
         const elements = createContextSurface(parent);
@@ -268,5 +285,51 @@ describe("noninteractive reference cartography", () => {
         expect(elements.svg.querySelector("[data-label-key='interactive']")).toBeNull();
         rendered.updateDynamic({ ...initial, focusedFeatureKey: "interactive" });
         expect(elements.svg.querySelector("[data-label-key='interactive']")).not.toBeNull();
+    });
+
+    it("keeps selected labels eligible and reveals fixed-width county hierarchy by zoom", () => {
+        const parent = document.createElement("div");
+        const elements = createContextSurface(parent);
+        const value = contextScene(4);
+        const countyScene: ContextScene = {
+            ...value,
+            cartography: {
+                layers: [
+                    ...(value.cartography?.layers ?? []),
+                    {
+                        id: "county-lines",
+                        role: "admin2",
+                        lines: [[{ x: 20, y: 30 }, { x: 80, y: 30 }]],
+                        minZoom: 2.5
+                    },
+                    {
+                        id: "state-lines",
+                        role: "admin1",
+                        lines: [[{ x: 20, y: 40 }, { x: 80, y: 40 }]]
+                    }
+                ],
+                labels: (value.cartography?.labels ?? []).map((label) =>
+                    label.key === "interactive" ? { ...label, minZoom: 99 } : label)
+            }
+        };
+        const initial = {
+            ...request(countyScene),
+            focusedFeatureKey: null,
+            selectedFeatureKeys: new Set(["interactive"])
+        };
+        const metrics = createContextPerformanceMetrics();
+        const rendered = renderContextSurface(elements, initial, "svg", style, 1, metrics);
+        expect(elements.svg.querySelector("[data-label-key='interactive']")).not.toBeNull();
+        const counties = elements.svg.querySelector("[data-reference-role='admin2']");
+        const states = elements.svg.querySelector("[data-reference-role='admin1']");
+        expect(counties?.getAttribute("visibility")).toBe("hidden");
+        expect(counties?.getAttribute("stroke-width")).toBe("0.35");
+        expect(states?.getAttribute("stroke-width")).toBe("1.1");
+        expect(states?.getAttribute("vector-effect")).toBe("non-scaling-stroke");
+        const before = metrics.referenceGeometryBuilds;
+        rendered.setCamera({ zoom: 4, panX: 0, panY: 0 });
+        expect(counties?.getAttribute("visibility")).toBe("visible");
+        expect(counties?.getAttribute("stroke-width")).toBe("0.35");
+        expect(metrics.referenceGeometryBuilds).toBe(before);
     });
 });

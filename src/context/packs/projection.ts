@@ -71,10 +71,7 @@ export function projectContextPack(artifact: ContextPackArtifact): ProjectedCont
     if (projected.length !== artifact.manifest.featureCount) {
         throw new Error(`Context pack ${artifact.manifest.id} feature count is invalid.`);
     }
-    const worldProjection = projections.get("world");
-    const cartography = worldProjection
-        ? projectCartography(artifact, worldProjection)
-        : undefined;
+    const cartography = projectCartography(artifact, projections);
     return { manifest: artifact.manifest, features: projected, cartography };
 }
 
@@ -84,12 +81,14 @@ const REFERENCE_ROLES = [
     "water",
     "graticule",
     "coastline",
-    "admin0"
+    "admin0",
+    "admin1",
+    "admin2"
 ] as const;
 
 function projectCartography(
     artifact: ContextPackArtifact,
-    projection: GeoProjection
+    projections: ReadonlyMap<string, GeoProjection>
 ): ContextCartography {
     const layers: ContextMapLayer[] = [];
     for (const role of REFERENCE_ROLES) {
@@ -98,9 +97,23 @@ function projectCartography(
         const decoded = feature(artifact.topology, object) as unknown as FeatureCollection<
             Polygon | MultiPolygon | LineString | MultiLineString
         >;
-        const polygons: PolygonCoordinates[] = [];
-        const lines: ScenePoint[][] = [];
         for (const entry of decoded.features) {
+            const properties = entry.properties as {
+                readonly id?: string;
+                readonly region?: string;
+                readonly minZoom?: number;
+                readonly maxZoom?: number;
+            };
+            const region = properties.region ?? "world";
+            const projection = projections.get(region);
+            if (!projection) {
+                throw new Error(
+                    `Context pack ${artifact.manifest.id} reference layer ${role} `
+                    + `has unknown region "${region}".`
+                );
+            }
+            const polygons: PolygonCoordinates[] = [];
+            const lines: ScenePoint[][] = [];
             if (entry.geometry.type === "Polygon") {
                 polygons.push(entry.geometry.coordinates.map((ring) => projectRing(ring, projection)));
             } else if (entry.geometry.type === "MultiPolygon") {
@@ -112,19 +125,77 @@ function projectCartography(
                 lines.push(...entry.geometry.coordinates.map((line) =>
                     projectRing(line, projection) as ScenePoint[]));
             }
+            layers.push({
+                id: properties.id ?? `${role}:${region}`,
+                role: role as ContextMapLayerRole,
+                polygons: polygons.length > 0 ? polygons : undefined,
+                lines: lines.length > 0 ? lines : undefined,
+                minZoom: properties.minZoom,
+                maxZoom: properties.maxZoom
+            });
         }
-        layers.push({
-            id: role,
-            role: role as ContextMapLayerRole,
-            polygons: polygons.length > 0 ? polygons : undefined,
-            lines: lines.length > 0 ? lines : undefined
-        });
     }
     const labels = artifact.labels.map((label) => ({
         ...label,
-        anchor: projectPosition(label.anchor, projection)
+        anchor: projectPosition(
+            label.anchor,
+            projections.get(label.region ?? "world") ?? unknownRegion(artifact, label.region)
+        )
     }));
-    return { layers, labels };
+    for (const inset of artifact.insets ?? []) {
+        const [x, y, width, height] = inset.bounds;
+        layers.push({
+            id: `inset:${inset.id}`,
+            role: "insetFrame",
+            lines: [[
+                { x, y },
+                { x: x + width, y },
+                { x: x + width, y: y + height },
+                { x, y: y + height },
+                { x, y }
+            ]]
+        });
+        labels.push({
+            key: `inset:${inset.id}`,
+            text: inset.text,
+            anchor: { x: x + width / 2, y: y + 10 },
+            rank: 0,
+            minZoom: 1,
+            role: "inset"
+        });
+    }
+    return { layers: coalesceLayers(layers, artifact.manifest.level), labels };
+}
+
+function coalesceLayers(
+    layers: readonly ContextMapLayer[],
+    level: ContextPackArtifact["manifest"]["level"]
+): readonly ContextMapLayer[] {
+    const grouped = new Map<string, ContextMapLayer>();
+    for (const layer of layers) {
+        const key = `${layer.role}|${layer.minZoom ?? ""}|${layer.maxZoom ?? ""}`;
+        const current = grouped.get(key);
+        grouped.set(key, {
+            id: current?.id ?? layer.role,
+            role: layer.role,
+            polygons: [...(current?.polygons ?? []), ...(layer.polygons ?? [])],
+            lines: [...(current?.lines ?? []), ...(layer.lines ?? [])],
+            minZoom: layer.minZoom,
+            maxZoom: layer.maxZoom
+        });
+    }
+    const order = level === "country"
+        ? ["sphere", "land", "water", "graticule", "coastline", "admin0"]
+        : ["land", "admin2", "admin1", "coastline", "insetFrame"];
+    return [...grouped.values()].sort(
+        (left, right) => order.indexOf(left.role) - order.indexOf(right.role)
+    );
+}
+
+function unknownRegion(artifact: ContextPackArtifact, region: string | undefined): never {
+    throw new Error(
+        `Context pack ${artifact.manifest.id} label has unknown region "${region ?? "world"}".`
+    );
 }
 
 function createUsProjections(

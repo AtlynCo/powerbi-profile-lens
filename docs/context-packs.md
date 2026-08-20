@@ -102,15 +102,18 @@ The build:
 6. calculates bounds, centroids, shared-arc adjacency, and territory region;
 7. derives aligned world land, coastline, internal Admin-0 meshes, and a
    deterministic 10-degree graticule from the country topology;
-8. adds only pinned Natural Earth lakes and build-time country label names,
+8. derives US land/coastline by inset region, state boundaries, county boundaries,
+   and county-pack state outlines from the same quantized Census topology; emits
+   all seven declared inset frames in composite scene coordinates;
+9. adds only pinned Natural Earth lakes and build-time country/state/county label names,
    anchors, cartographic area ranks, and zoom thresholds;
-9. constructs schema-v2 TopoJSON, presimplifies, deterministically simplifies,
+10. constructs schema-v2 TopoJSON, presimplifies, deterministically simplifies,
    and quantizes at 100,000;
-10. emits fixed-order LF-only JSON with payload, layer, vertex, and source hashes;
-11. validates feature/layer counts, labels, key uniqueness/width, county prefixes,
+11. emits fixed-order LF-only JSON with payload, layer, vertex, and source hashes;
+12. validates feature/layer counts, labels, key uniqueness/width, county prefixes,
    expected state codes, finite geometry, symmetric adjacency, URLs, and explicit
    raw/gzip/vertex budgets;
-12. rebuilds byte-identically under `Etc/GMT+12` and `Etc/GMT-14`.
+13. rebuilds byte-identically under `Etc/GMT+12` and `Etc/GMT-14`.
 
 Committed generated files are under `src/context/packs/generated`. Packaging and
 runtime use only those committed files; they do not invoke the fetch/build
@@ -167,10 +170,16 @@ silently invents `WLD`.
 
 ## Known limits and proof boundary
 
-- World labels are fixed-size, collision-bounded screen-space reference marks.
+- World, state, and county labels are fixed-size, collision-bounded screen-space
+  reference marks. State abbreviations are eligible at national zoom, county
+  names begin at zoom 3.5, and focused/selected feature labels remain eligible.
+  Label density caps visible work at 16, 28, or 40 candidates.
   They carry no analytical values, selection identities, tooltips, or semantic
   options; interactive country names remain independently available through the
   existing semantic and tooltip contract.
+- County state outlines are derived by `STATEFP` grouping from the county
+  topology itself. County lines appear at zoom 2.5, while state/coast/inset
+  linework remains screen-fixed. Reference geometry is never drawn into picking.
 - Natural Earth and Census generalized geometry is for thematic display, not
   legal or measurement use.
 - The report's data reduction and filter context determine which pack features receive report-bound

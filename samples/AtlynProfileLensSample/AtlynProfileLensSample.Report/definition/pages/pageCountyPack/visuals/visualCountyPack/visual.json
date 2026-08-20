@@ -134,7 +134,7 @@
             "contextLayout": {
               "expr": {
                 "Literal": {
-                  "Value": "'split'"
+                  "Value": "'focusLens'"
                 }
               }
             }
@@ -168,7 +168,7 @@
             "referenceDetail": {
               "expr": {
                 "Literal": {
-                  "Value": "'standard'"
+                  "Value": "'full'"
                 }
               }
             },
@@ -189,7 +189,7 @@
             "labelDensity": {
               "expr": {
                 "Literal": {
-                  "Value": "'balanced'"
+                  "Value": "'detailed'"
                 }
               }
             },
@@ -249,7 +249,7 @@
             "homeView": {
               "expr": {
                 "Literal": {
-                  "Value": "'automatic'"
+                  "Value": "'fit'"
                 }
               }
             },

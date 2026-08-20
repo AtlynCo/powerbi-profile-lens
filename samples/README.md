@@ -11,6 +11,9 @@
 - `AtlynProfileLensSample.Report/CustomVisuals/atlynProfileLens` embeds the exact packaged visual
   resource so the report renders without importing the visual first. `npm run audit:certification`
   fails if that copy no longer matches the current package.
+- The state and county pages use the full offline reference hierarchy. County
+  lines appear with zoom, fixed-width state/coast outlines remain above fills,
+  and all seven non-CONUS insets are framed and labeled. Insets are repositioned
+  and rescaled, so distance and area are not comparable.
 - No `.pbix` is committed or claimed. Open the `.pbip` in Power BI Desktop and use *Save As* if a
   `.pbix` is needed.
-

@@ -32,6 +32,12 @@ Cartographic Boundary Files are generalized for small-scale thematic mapping.
 They are not suitable for legal boundary determination, geocoding, surveying,
 or precise geographic measurement.
 
+Land silhouettes, coast/exterior lines, state and county hierarchy lines, and
+label anchors are deterministic derivatives of those same source topologies.
+Alaska, Hawaii, Puerto Rico, USVI, American Samoa, Guam, and Northern Mariana
+Islands are repositioned and rescaled in labeled cartographic frames; inset
+distance and area are not comparable.
+
 ## Bundled runtime software
 
 The PBIVIZ embeds these notices in its runtime JavaScript resource as
