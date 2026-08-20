@@ -210,7 +210,8 @@ function Start-OwnedReport {
                 throw "Expected Desktop window is not a member of the owned process job"
             }
             $candidate | Add-Member -NotePropertyName OwnedJob -NotePropertyValue $job
-            Assert-OwnedForeground -ProcessId $candidate.Id -ExpectedTitle $launchExpectedTitle | Out-Null
+            Assert-OwnedWindowBounds -ProcessId $candidate.Id `
+                -ExpectedTitle $launchExpectedTitle | Out-Null
             $script:expectedTitle = $launchExpectedTitle
             return $candidate
         }

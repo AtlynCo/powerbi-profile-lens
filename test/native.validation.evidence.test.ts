@@ -175,6 +175,11 @@ describe("native validation evidence safety", () => {
         expect(combined).toContain("ValuePattern");
         expect(combined).toContain("InvokePattern");
         expect(combined).toContain("Assert-ControlInsideDialog");
+        expect(combined).toContain("Assert-OwnedWindowBounds");
+        expect(combined).toContain("$Element.Current.ProcessId -ne $ProcessId");
+        expect(combined).not.toMatch(
+            /function Invoke-OwnedElement[\s\S]*?Assert-OwnedForeground[\s\S]*?function Get-AllowlistedControlProbe/
+        );
         expect(combined).toContain('-AutomationId "1001"');
         expect(combined).toContain("GetRelativePath");
         expect(combined).toContain("sample-integrity.cjs");
@@ -218,6 +223,16 @@ describe("native validation evidence safety", () => {
             stdio: "pipe"
         }).toString();
         expect(output).toMatch(/Ambiguous owned UIA target/);
+    });
+
+    it("exports the process-bound window guard at script scope", () => {
+        const command = ". 'scripts\\native-validation\\desktop-guard.ps1'; "
+            + "(Get-Command Assert-OwnedWindowBounds -ErrorAction Stop).CommandType";
+        const output = execFileSync("pwsh", ["-NoProfile", "-Command", command], {
+            cwd: root,
+            stdio: "pipe"
+        }).toString();
+        expect(output).toContain("Function");
     });
 
     it("redacts adversarial generated output before the actual evidence path", () => {

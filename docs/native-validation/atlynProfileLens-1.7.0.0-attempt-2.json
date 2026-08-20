@@ -1,0 +1,25 @@
+{
+  "schemaVersion": 1,
+  "outcome": "blocked",
+  "sourceCommit": "ec9e98b3a842af3b882d3500310fc31420267a0d",
+  "desktopVersion": "2.157.879.0 (26.08)+da30fe74eb0b8a8786ab7326b69c400a0e951831",
+  "outcomeBoundary": "No native scenario is claimed as passed and no PBIX was produced.",
+  "resolvedBlocker": {
+    "kind": "desktop-legacy-path-limit",
+    "shortSnapshotLogicalPath": "localappdata/AtlynPBI/85c317ebb20af54a5ea8",
+    "longestProjectedFilePath": 171,
+    "fileLimitExclusive": 260,
+    "directoryLimitExclusive": 248
+  },
+  "blocker": {
+    "stage": "owned-window-action-boundary",
+    "kind": "foreground-handle-unavailable",
+    "message": "Desktop reached the exact title-bound, process-job-owned report window, but the execution context did not expose a global foreground handle. The guard refused the first page invocation."
+  },
+  "cleanup": {
+    "ownedProcessCount": 1,
+    "allExited": true,
+    "guardsRestored": true
+  },
+  "remediation": "Retain process-job, executable, title, UI Automation process identity, native window rectangle, and control-bounds checks for every control-bound ValuePattern, InvokePattern, and SelectionItemPattern action without depending on unrelated global foreground state."
+}

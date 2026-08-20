@@ -216,6 +216,31 @@ function Assert-OwnedForeground {
     throw "Refusing input: the owned '$ExpectedTitle' window could not be proven foreground"
 }
 
+function Assert-OwnedWindowBounds {
+    param(
+        [Parameter(Mandatory)][int]$ProcessId,
+        [Parameter(Mandatory)][string]$ExpectedTitle
+    )
+    $process = Get-OwnedDesktop -ProcessId $ProcessId -ExpectedTitle $ExpectedTitle
+    $window = New-Object NativeDesktopGuard+Rect
+    if (-not [NativeDesktopGuard]::GetWindowRect($process.MainWindowHandle, [ref]$window) -or
+        $window.Right -le $window.Left -or $window.Bottom -le $window.Top) {
+        throw "Owned Desktop window has no safe visible rectangle"
+    }
+    $root = [System.Windows.Automation.AutomationElement]::FromHandle($process.MainWindowHandle)
+    if (-not $root -or $root.Current.ProcessId -ne $ProcessId) {
+        throw "Owned Desktop UI Automation root does not match the expected process"
+    }
+    $rootRectangle = $root.Current.BoundingRectangle
+    if ($rootRectangle.Width -le 0 -or $rootRectangle.Height -le 0 -or
+        $rootRectangle.X -lt $window.Left -or $rootRectangle.Y -lt $window.Top -or
+        ($rootRectangle.X + $rootRectangle.Width) -gt $window.Right -or
+        ($rootRectangle.Y + $rootRectangle.Height) -gt $window.Bottom) {
+        throw "Owned Desktop UI Automation root is not bounded by its native window"
+    }
+    return [ordered]@{ process = $process; root = $root; rectangle = $window }
+}
+
 function Assert-OwnedDialogForeground {
     param([int]$ProcessId, [string]$ExpectedDialogTitle, [int]$Attempts = 8)
     for ($attempt = 0; $attempt -lt $Attempts; $attempt++) {
@@ -236,7 +261,7 @@ function Get-OwnedDialog {
             param([int]$ProcessId, [string]$ExpectedDialogTitle, [int]$TimeoutSeconds = 10)
             $deadline = (Get-Date).AddSeconds($TimeoutSeconds)
             while ((Get-Date) -lt $deadline) {
-                Assert-OwnedDialogForeground -ProcessId $ProcessId -ExpectedDialogTitle $ExpectedDialogTitle
+                Get-Process -Id $ProcessId -ErrorAction Stop | Out-Null
                 $titleCondition = New-Object System.Windows.Automation.PropertyCondition(
                     [System.Windows.Automation.AutomationElement]::NameProperty,
                     ($ExpectedDialogTitle -replace "^\*|\*$", "")
@@ -267,7 +292,12 @@ function Get-OwnedDialog {
 
 function Assert-ControlInsideDialog {
             param([int]$ProcessId, [string]$ExpectedDialogTitle, $Dialog, $Control)
-            Assert-OwnedDialogForeground -ProcessId $ProcessId -ExpectedDialogTitle $ExpectedDialogTitle
+            Get-Process -Id $ProcessId -ErrorAction Stop | Out-Null
+            if ($Dialog.Current.ProcessId -ne $ProcessId -or
+                $Dialog.Current.Name -notlike $ExpectedDialogTitle -or
+                $Dialog.Current.ControlType -ne [System.Windows.Automation.ControlType]::Window) {
+                throw "Refusing control action: the owned dialog identity changed"
+            }
             if ($Control.Current.ProcessId -ne $ProcessId) {
                 throw "Refusing control action: the target process changed"
             }
@@ -423,11 +453,12 @@ function Find-OwnedElement {
 
 function Invoke-OwnedElement {
     param([int]$ProcessId, [string]$ExpectedTitle, $Element)
-    Assert-OwnedForeground -ProcessId $ProcessId -ExpectedTitle $ExpectedTitle | Out-Null
+    $owned = Assert-OwnedWindowBounds -ProcessId $ProcessId -ExpectedTitle $ExpectedTitle
     $rectangle = $Element.Current.BoundingRectangle
-    $process = Get-OwnedDesktop -ProcessId $ProcessId -ExpectedTitle $ExpectedTitle
-    $window = New-Object NativeDesktopGuard+Rect
-    [NativeDesktopGuard]::GetWindowRect($process.MainWindowHandle, [ref]$window) | Out-Null
+    if ($Element.Current.ProcessId -ne $ProcessId) {
+        throw "Refusing input: UIA target process identity changed"
+    }
+    $window = $owned.rectangle
     if ($rectangle.Width -le 0 -or $rectangle.Height -le 0 -or
         $rectangle.X -lt $window.Left -or $rectangle.Y -lt $window.Top -or
         ($rectangle.X + $rectangle.Width) -gt $window.Right -or
