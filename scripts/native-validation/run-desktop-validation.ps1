@@ -254,7 +254,7 @@ function Invoke-SaveAs {
         -OwnedJob $OwnedJob
     Start-Sleep -Seconds 3
     $saveAs = Find-OwnedElement -ProcessId $ProcessId -ExpectedTitle $expectedTitle `
-        -Name "Save as" -ControlTypes @("ListItem", "Button") -AutomationId "" `
+        -Name "Save as" -ControlTypes @("TabItem", "ListItem", "Button") -AutomationId "" `
         -OwnedJob $OwnedJob -TimeoutSeconds 15
     if (-not $saveAs) { throw "Save as command was not exposed by the owned Desktop window" }
     Invoke-OwnedElement -ProcessId $ProcessId -ExpectedTitle $expectedTitle -Element $saveAs `
