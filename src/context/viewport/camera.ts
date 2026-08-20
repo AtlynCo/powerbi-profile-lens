@@ -1,9 +1,11 @@
-import type { ScenePoint, SceneTransform, Viewport } from "../contract";
-import { clampCameraToBounds } from "./bounds";
+import type { ContextMode, ScenePoint, SceneTransform, Viewport } from "../contract";
+import { clampCameraToBounds, FIT_PADDING } from "./bounds";
 import type {
+    CameraHomeView,
     CameraLimits,
     ContextCamera,
     ContextPinchSnapshot,
+    ResolvedCameraHomeView,
     SceneBounds
 } from "./contract";
 
@@ -59,17 +61,59 @@ export function cameraToBasePoint(point: ScenePoint, camera: ContextCamera): Sce
 }
 
 export function resetCamera(
+    homeZoom: number,
     limits: CameraLimits,
     baseBounds: SceneBounds,
     viewport: Viewport
 ): ContextCamera {
+    assertFinite(homeZoom, "Home zoom");
     assertLimits(limits);
-    const zoom = limits.minZoom;
+    const zoom = Math.min(Math.max(homeZoom, limits.minZoom), limits.maxZoom);
     return clampCameraToBounds({
         zoom,
         panX: viewport.width / 2 - ((baseBounds.minX + baseBounds.maxX) / 2) * zoom,
         panY: viewport.height / 2 - ((baseBounds.minY + baseBounds.maxY) / 2) * zoom
     }, baseBounds, viewport, limits.overscroll);
+}
+
+export function resolveCameraHomeView(
+    requested: CameraHomeView,
+    mode: ContextMode,
+    navigationEnabled: boolean
+): ResolvedCameraHomeView {
+    return requested === "automatic"
+        ? (
+            navigationEnabled
+            && (mode === "builtInPack" || mode === "points" || mode === "boundGeometry")
+                ? "fill"
+                : "fit"
+        )
+        : requested;
+}
+
+export function homeZoomForBounds(
+    homeView: ResolvedCameraHomeView,
+    limits: CameraLimits,
+    baseBounds: SceneBounds,
+    viewport: Viewport
+): number {
+    assertLimits(limits);
+    if (!validBounds(baseBounds) || !validViewport(viewport)) {
+        throw new Error("Home zoom requires valid bounds and viewport.");
+    }
+    if (homeView === "fit") {
+        return limits.minZoom;
+    }
+    const usableWidth = Math.max(viewport.width - FIT_PADDING * 2, 1);
+    const usableHeight = Math.max(viewport.height - FIT_PADDING * 2, 1);
+    const spanX = baseBounds.maxX - baseBounds.minX;
+    const spanY = baseBounds.maxY - baseBounds.minY;
+    const fillRatios = [
+        spanX > Number.EPSILON ? usableWidth / spanX : null,
+        spanY > Number.EPSILON ? usableHeight / spanY : null
+    ].filter((ratio): ratio is number => ratio !== null);
+    const fillZoom = fillRatios.length > 0 ? Math.max(...fillRatios) : limits.minZoom;
+    return Math.min(Math.max(fillZoom, limits.minZoom), limits.maxZoom);
 }
 
 export function panCamera(

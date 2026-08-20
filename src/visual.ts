@@ -90,12 +90,15 @@ import {
     viewportOverscroll
 } from "./context/viewport/bounds";
 import {
+    cameraEquals,
     cameraFromPinchSnapshot,
     composeSceneTransform,
     createPinchSnapshot,
+    homeZoomForBounds,
     panCamera,
     preserveCameraOnResize,
     resetCamera,
+    resolveCameraHomeView,
     zoomCameraAt
 } from "./context/viewport/camera";
 import { contextSceneIdentity } from "./context/viewport/identity";
@@ -946,11 +949,14 @@ export class Visual implements IVisual {
         const baseTransform = fitScene(scene, viewport);
         const baseBounds = projectBounds(rawBounds, baseTransform);
         const session = this.resolveViewportSession(
+            scene,
+            navigationEnabled,
             sceneIdentity,
             baseTransform,
             baseBounds,
             viewport
         );
+        this.contextMetrics.homeZoom = session.homeZoom;
         const focusedFeatureKey = this.activeContextFocus?.featureKey
             ?? (
                 this.focusedEntityKey === null
@@ -1084,12 +1090,20 @@ export class Visual implements IVisual {
     }
 
     private resolveViewportSession(
+        scene: ContextScene,
+        navigationEnabled: boolean,
         sceneIdentity: string,
         baseTransform: ReturnType<typeof fitScene>,
         baseBounds: ReturnType<typeof projectBounds>,
         viewport: { readonly width: number; readonly height: number }
     ): ContextViewportSession {
         const limits = this.cameraLimits(viewport);
+        const homeView = resolveCameraHomeView(
+            this.settings.homeView,
+            scene.mode,
+            navigationEnabled
+        );
+        const homeZoom = homeZoomForBounds(homeView, limits, baseBounds, viewport);
         const existing = this.viewportSession;
         let camera: ContextCamera;
         if (
@@ -1097,7 +1111,7 @@ export class Visual implements IVisual {
             || existing.sceneIdentity !== sceneIdentity
             || existing.invalidResize
         ) {
-            camera = resetCamera(limits, baseBounds, viewport);
+            camera = resetCamera(homeZoom, limits, baseBounds, viewport);
         } else if (
             existing.viewport.width !== viewport.width
             || existing.viewport.height !== viewport.height
@@ -1106,15 +1120,35 @@ export class Visual implements IVisual {
             || existing.baseTransform.translateY !== baseTransform.translateY
             || existing.baseTransform.invertY !== baseTransform.invertY
         ) {
-            camera = preserveCameraOnResize(
+            const wasAtHome = cameraEquals(
                 existing.camera,
-                existing.baseTransform,
-                baseTransform,
-                existing.viewport,
-                viewport,
-                baseBounds,
-                limits
-            ) ?? resetCamera(limits, baseBounds, viewport);
+                resetCamera(
+                    existing.homeZoom,
+                    {
+                        minZoom: existing.homeZoom,
+                        maxZoom: existing.homeZoom,
+                        overscroll: viewportOverscroll(existing.viewport)
+                    },
+                    existing.baseBounds,
+                    existing.viewport
+                )
+            );
+            camera = wasAtHome
+                ? resetCamera(homeZoom, limits, baseBounds, viewport)
+                : preserveCameraOnResize(
+                    existing.camera,
+                    existing.baseTransform,
+                    baseTransform,
+                    existing.viewport,
+                    viewport,
+                    baseBounds,
+                    limits
+                ) ?? resetCamera(homeZoom, limits, baseBounds, viewport);
+        } else if (
+            existing.homeView !== homeView
+            || existing.homeZoom !== homeZoom
+        ) {
+            camera = resetCamera(homeZoom, limits, baseBounds, viewport);
         } else {
             const zoom = Math.min(
                 Math.max(existing.camera.zoom, limits.minZoom),
@@ -1139,6 +1173,8 @@ export class Visual implements IVisual {
         const session = {
             sceneIdentity,
             camera,
+            homeZoom,
+            homeView,
             baseTransform,
             baseBounds,
             viewport,
@@ -1194,6 +1230,7 @@ export class Visual implements IVisual {
             return false;
         }
         return this.applyContextCamera(resetCamera(
+            session.homeZoom,
             this.cameraLimits(session.viewport),
             session.baseBounds,
             session.viewport

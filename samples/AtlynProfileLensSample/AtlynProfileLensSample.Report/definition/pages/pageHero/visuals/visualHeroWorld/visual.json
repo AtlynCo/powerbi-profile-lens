@@ -1,12 +1,12 @@
 {
   "$schema": "https://developer.microsoft.com/json-schemas/fabric/item/report/definition/visualContainer/2.7.0/schema.json",
-  "name": "visualWorldDiagnostics",
+  "name": "visualHeroWorld",
   "position": {
-    "x": 40,
-    "y": 40,
+    "x": 24,
+    "y": 24,
     "z": 0,
-    "height": 800,
-    "width": 1520,
+    "height": 852,
+    "width": 1552,
     "tabOrder": 0
   },
   "visual": {
@@ -23,11 +23,25 @@
                       "Entity": "ProfileFacts"
                     }
                   },
-                  "Property": "WorldKey"
+                  "Property": "ViewportWorldKey"
                 }
               },
-              "queryRef": "ProfileFacts.WorldKey",
-              "nativeQueryRef": "WorldKey"
+              "queryRef": "ProfileFacts.ViewportWorldKey",
+              "nativeQueryRef": "ViewportWorldKey"
+            },
+            {
+              "field": {
+                "Column": {
+                  "Expression": {
+                    "SourceRef": {
+                      "Entity": "ProfileFacts"
+                    }
+                  },
+                  "Property": "Period"
+                }
+              },
+              "queryRef": "ProfileFacts.Period",
+              "nativeQueryRef": "Period"
             },
             {
               "field": {
@@ -49,41 +63,63 @@
           "projections": [
             {
               "field": {
-                "Aggregation": {
+                "Measure": {
                   "Expression": {
-                    "Column": {
-                      "Expression": {
-                        "SourceRef": {
-                          "Entity": "ProfileFacts"
-                        }
-                      },
-                      "Property": "Metric A"
+                    "SourceRef": {
+                      "Entity": "ProfileFacts"
                     }
                   },
-                  "Function": 0
+                  "Property": "Population Distribution"
                 }
               },
-              "queryRef": "Sum(ProfileFacts.Metric A)",
-              "nativeQueryRef": "Sum of Metric A"
+              "queryRef": "ProfileFacts.Population Distribution",
+              "nativeQueryRef": "Population Distribution"
             },
             {
               "field": {
-                "Aggregation": {
+                "Measure": {
                   "Expression": {
-                    "Column": {
-                      "Expression": {
-                        "SourceRef": {
-                          "Entity": "ProfileFacts"
-                        }
-                      },
-                      "Property": "Metric B"
+                    "SourceRef": {
+                      "Entity": "ProfileFacts"
                     }
                   },
-                  "Function": 0
+                  "Property": "Household Income Brackets"
                 }
               },
-              "queryRef": "Sum(ProfileFacts.Metric B)",
-              "nativeQueryRef": "Sum of Metric B"
+              "queryRef": "ProfileFacts.Household Income Brackets",
+              "nativeQueryRef": "Household Income Brackets"
+            },
+            {
+              "field": {
+                "Measure": {
+                  "Expression": {
+                    "SourceRef": {
+                      "Entity": "ProfileFacts"
+                    }
+                  },
+                  "Property": "Educational Attainment"
+                }
+              },
+              "queryRef": "ProfileFacts.Educational Attainment",
+              "nativeQueryRef": "Educational Attainment"
+            }
+          ]
+        },
+        "Series": {
+          "projections": [
+            {
+              "field": {
+                "Column": {
+                  "Expression": {
+                    "SourceRef": {
+                      "Entity": "ProfileFacts"
+                    }
+                  },
+                  "Property": "Series"
+                }
+              },
+              "queryRef": "ProfileFacts.Series",
+              "nativeQueryRef": "Series"
             }
           ]
         },
@@ -134,7 +170,7 @@
             "contextLayout": {
               "expr": {
                 "Literal": {
-                  "Value": "'split'"
+                  "Value": "'focusLens'"
                 }
               }
             }
@@ -168,7 +204,7 @@
             "packKeyMode": {
               "expr": {
                 "Literal": {
-                  "Value": "'isoAlpha3CaseFold'"
+                  "Value": "'canonical'"
                 }
               }
             }
@@ -194,7 +230,7 @@
             "mode": {
               "expr": {
                 "Literal": {
-                  "Value": "'reportSelection'"
+                  "Value": "'localOnly'"
                 }
               }
             }
@@ -257,6 +293,13 @@
               "expr": {
                 "Literal": {
                   "Value": "true"
+                }
+              }
+            },
+            "fallbackEntityKey": {
+              "expr": {
+                "Literal": {
+                  "Value": "'WLD'"
                 }
               }
             }

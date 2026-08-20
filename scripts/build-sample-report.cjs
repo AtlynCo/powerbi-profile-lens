@@ -5,7 +5,7 @@
  * validated offline, while producing and reopening a genuine .pbix remains a manual Power BI
  * Desktop step. The semantic model is a DAX calculated table, so the project has no data source,
  * needs no credentials and needs no refresh. Features a rich, realistic demographics and community
- * indicator model across 13 showcase pages.
+ * indicator model across 14 showcase pages.
  *
  * Usage: node scripts/build-sample-report.cjs
  */
@@ -338,7 +338,10 @@ function measureProjection(property) {
 function visualJson(name, hierarchyProperties, withSeries, metrics, options = {}) {
     const queryState = {
         Hierarchy: { projections: hierarchyProperties.map((property) => projection(property, false)) },
-        Profiles: { projections: metrics.map((metric) => projection(metric, true)) }
+        Profiles: {
+            projections: metrics.map((metric) =>
+                options.measureProfiles ? measureProjection(metric) : projection(metric, true))
+        }
     };
     if (withSeries) {
         queryState.Series = { projections: [projection("Series", false)] };
@@ -356,6 +359,9 @@ function visualJson(name, hierarchyProperties, withSeries, metrics, options = {}
     const navigationProperties = {
         minZoom: { expr: {
             Literal: { Value: `${options.minZoom ?? 1}D` }
+        } },
+        homeView: { expr: {
+            Literal: { Value: `'${options.homeView ?? "automatic"}'` }
         } },
         maxZoom: { expr: {
             Literal: { Value: `${options.maxZoom ?? 8}D` }
@@ -454,8 +460,35 @@ function visualJson(name, hierarchyProperties, withSeries, metrics, options = {}
 
 const pages = [
     {
+        name: "pageHero",
+        displayName: "1 - Explore World Community Profiles",
+        visuals: [{
+            name: "visualHeroWorld",
+            hierarchy: ["ViewportWorldKey", "Period", "Band"],
+            series: true,
+            metrics: [
+                "Population Distribution",
+                "Household Income Brackets",
+                "Educational Attainment"
+            ],
+            options: {
+                measureProfiles: true,
+                contextMode: "builtInPack",
+                contextPack: "worldCountries",
+                worldDetail: "50m",
+                packKeyMode: "canonical",
+                contextValue: true,
+                contextLayout: "focusLens",
+                homeView: "automatic",
+                fallbackEntityKey: "WLD",
+                interactionMode: "localOnly",
+                position: { x: 24, y: 24, z: 0, height: 852, width: 1552, tabOrder: 0 }
+            }
+        }]
+    },
+    {
         name: "pageProfileOnly",
-        displayName: "1 - Demographic profile: Population by Age Band",
+        displayName: "2 - Demographic profile: Population by Age Band",
         visuals: [{
             name: "visualEntityBand",
             hierarchy: ["Entity", "Band"],
@@ -465,7 +498,7 @@ const pages = [
     },
     {
         name: "pagePeriodSeries",
-        displayName: "2 - Multi-period census and urban/rural series",
+        displayName: "3 - Multi-period census and urban/rural series",
         visuals: [{
             name: "visualPeriodSeries",
             hierarchy: ["Entity", "Period", "Band"],
@@ -475,7 +508,7 @@ const pages = [
     },
     {
         name: "pageGeneratedLayouts",
-        displayName: "3 - Nongeographic grid and hex community matrices",
+        displayName: "4 - Nongeographic grid and hex community matrices",
         visuals: [
             {
                 name: "visualGrid",
@@ -503,7 +536,7 @@ const pages = [
     },
     {
         name: "pageBoundPoints",
-        displayName: "4 - Bound WGS84 community points",
+        displayName: "5 - Bound WGS84 community points",
         visuals: [{
             name: "visualBoundPoints",
             hierarchy: ["Entity", "Band"],
@@ -519,7 +552,7 @@ const pages = [
     },
     {
         name: "pageBoundPolygons",
-        displayName: "5 - District boundary polygons (WKT)",
+        displayName: "6 - District boundary polygons (WKT)",
         visuals: [{
             name: "visualBoundPolygons",
             hierarchy: ["Entity", "Band"],
@@ -535,7 +568,7 @@ const pages = [
     },
     {
         name: "pageWorldPack",
-        displayName: "6 - Global demographics: World countries (110m)",
+        displayName: "7 - Global demographics: World countries (110m)",
         visuals: [{
             name: "visualWorldPack",
             hierarchy: ["WorldKey", "Band"],
@@ -552,7 +585,7 @@ const pages = [
     },
     {
         name: "pageStatePack",
-        displayName: "7 - Regional demographics: US states & territories",
+        displayName: "8 - Regional demographics: US states & territories",
         visuals: [{
             name: "visualStatePack",
             hierarchy: ["StateKey", "Band"],
@@ -568,7 +601,7 @@ const pages = [
     },
     {
         name: "pageCountyPack",
-        displayName: "8 - Local demographics: US counties & equivalents",
+        displayName: "9 - Local demographics: US counties & equivalents",
         visuals: [{
             name: "visualCountyPack",
             hierarchy: ["CountyKey", "Band"],
@@ -584,7 +617,7 @@ const pages = [
     },
     {
         name: "pageViewportLens",
-        displayName: "9 - Viewport lens navigation (World 50m probe)",
+        displayName: "10 - Viewport lens navigation (World 50m probe)",
         visuals: [
             {
                 name: "visualViewportLocal",
@@ -622,7 +655,7 @@ const pages = [
     },
     {
         name: "pageSixProfiles",
-        displayName: "10 - Six demographic profile indicators",
+        displayName: "11 - Six demographic profile indicators",
         visuals: [
             {
                 name: "visualSixProfiles",
@@ -651,7 +684,7 @@ const pages = [
     },
     {
         name: "pageNormalizations",
-        displayName: "11 - Demographic normalization modes",
+        displayName: "12 - Demographic normalization modes",
         visuals: [
             ["Raw", "raw", "fraction"],
             ["Profile share", "shareOfProfile", "fraction"],
@@ -680,7 +713,7 @@ const pages = [
     },
     {
         name: "pageWorldDiagnostics",
-        displayName: "12 - Boundary diagnostics: World 50m exact keys",
+        displayName: "13 - Boundary diagnostics: World 50m exact keys",
         visuals: [{
             name: "visualWorldDiagnostics",
             hierarchy: ["WorldKey", "Band"],
@@ -697,7 +730,7 @@ const pages = [
     },
     {
         name: "pageAuthoring",
-        displayName: "13 - Progressive authoring landing",
+        displayName: "14 - Progressive authoring landing",
         visuals: [{
             name: "visualProgressiveAuthoring",
             hierarchy: [],
@@ -714,21 +747,22 @@ fs.rmSync(sampleRoot, { recursive: true, force: true });
 
 writeText(path.join(sampleRoot, "README.md"), `# Atlyn Profile Lens offline PBIP sample — Demographics & Community Profile Demo
 
-Generated by \`npm run sample:pbip\`. The thirteen pages showcase the full range of Atlyn Profile Lens capabilities with realistic synthetic demographic data:
+Generated by \`npm run sample:pbip\`. The fourteen pages open with a polished exploration experience and retain the full engineering coverage of Atlyn Profile Lens with realistic synthetic demographic data:
 
-1. **Demographic Profile: Population by Age Band** — Profile-only view of population distribution across 5 age brackets (0-17, 18-34, 35-49, 50-64, 65+).
-2. **Multi-Period Census and Urban/Rural Series** — Multi-period census tracking across series with all six demographic metric dimensions.
-3. **Nongeographic Grid and Hex Community Matrices** — Auto-generated synthetic matrix layouts for demographic comparison without geographic boundary dependencies.
-4. **Bound WGS84 Community Points** — Precise latitude/longitude community points with locator inset context layout.
-5. **District Boundary Polygons (WKT)** — Bound WKT district polygon boundaries rendered with focus lens context layout.
-6. **Global Demographics: World Countries (110m)** — Natural Earth 110m country boundaries with canonical ISO Alpha-3 key matching.
-7. **Regional Demographics: US States & Territories** — High-resolution US State/territory census pack with 2-digit GEOID matching.
-8. **Local Demographics: US Counties & Equivalents** — Complete US County census pack with 5-digit GEOID matching.
-9. **Viewport Lens Navigation (World 50m Probe)** — Probe-driven camera navigation with drag, wheel, pinch, and keyboard controls. Paired local-only and report-selection visual layout over Natural Earth 50m with central African entities and fallback entity configuration.
-10. **Six Demographic Profile Indicators** — Simultaneous visualization of Population, Household Income, Education Attainment, Community Health, Labor Force, and Housing metrics.
-11. **Demographic Normalization Modes** — Side-by-side comparison of Raw counts, Share of Profile, Share within Series, Index to Maximum, and Already Percent normalizations.
-12. **Boundary Diagnostics: World 50m Exact Keys** — Exact-key match/mismatch diagnostics, duplicate detection, and case-fold resolution.
-13. **Progressive Authoring Landing** — Clean visual landing surface for field-well authoring demonstration.
+1. **Explore World Community Profiles** — Large 16:9 focus lens over the offline World 50m pack. Automatic Home view resolves to Fill, the center probe is fixed, the period slider and three synthetic demographic profiles remain visible, and local-only interaction keeps exploration fluid. Drag in any direction, scroll or pinch to zoom, and press Home or use Reset view to return to the filled home camera. Zoom out to Minimum zoom to see the full fitted world.
+2. **Demographic Profile: Population by Age Band** — Profile-only view of population distribution across 5 age brackets (0-17, 18-34, 35-49, 50-64, 65+).
+3. **Multi-Period Census and Urban/Rural Series** — Multi-period census tracking across series with all six demographic metric dimensions.
+4. **Nongeographic Grid and Hex Community Matrices** — Auto-generated synthetic matrix layouts for demographic comparison without geographic boundary dependencies.
+5. **Bound WGS84 Community Points** — Precise latitude/longitude community points with locator inset context layout.
+6. **District Boundary Polygons (WKT)** — Bound WKT district polygon boundaries rendered with focus lens context layout.
+7. **Global Demographics: World Countries (110m)** — Natural Earth 110m country boundaries with canonical ISO Alpha-3 key matching.
+8. **Regional Demographics: US States & Territories** — High-resolution US State/territory census pack with 2-digit GEOID matching.
+9. **Local Demographics: US Counties & Equivalents** — Complete US County census pack with 5-digit GEOID matching.
+10. **Viewport Lens Navigation (World 50m Probe)** — Probe-driven camera navigation with drag, wheel, pinch, and keyboard controls. Paired local-only and report-selection visual layout over Natural Earth 50m with central African entities and fallback entity configuration.
+11. **Six Demographic Profile Indicators** — Simultaneous visualization of Population, Household Income, Education Attainment, Community Health, Labor Force, and Housing metrics.
+12. **Demographic Normalization Modes** — Side-by-side comparison of Raw counts, Share of Profile, Share within Series, Index to Maximum, and Already Percent normalizations.
+13. **Boundary Diagnostics: World 50m Exact Keys** — Exact-key match/mismatch diagnostics, duplicate detection, and case-fold resolution.
+14. **Progressive Authoring Landing** — Clean visual landing surface for field-well authoring demonstration.
 
 The semantic model contains only a synthetic DAX \`DATATABLE\` with demographic metric dimensions (Population Distribution, Household Income, Educational Attainment, Community Health Indicators, Labor Force Participation, Housing & Infrastructure Index). Every metric is synthetic. The project has no data source, credentials, refresh, file access, or network dependency. Latitude, longitude, geometry, and context measures are projections over the same synthetic rows.
 

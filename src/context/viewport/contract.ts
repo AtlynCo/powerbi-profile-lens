@@ -6,6 +6,9 @@ export interface ContextCamera {
     readonly panY: number;
 }
 
+export type CameraHomeView = "automatic" | "fit" | "fill";
+export type ResolvedCameraHomeView = Exclude<CameraHomeView, "automatic">;
+
 export interface ContextPinchSnapshot {
     readonly baseAnchor: ScenePoint;
     readonly zoom: number;
@@ -32,6 +35,8 @@ export interface ViewportProbe {
 export interface ContextViewportSession {
     readonly sceneIdentity: string;
     readonly camera: ContextCamera;
+    readonly homeZoom: number;
+    readonly homeView: ResolvedCameraHomeView;
     readonly baseTransform: SceneTransform;
     readonly baseBounds: SceneBounds;
     readonly viewport: Viewport;

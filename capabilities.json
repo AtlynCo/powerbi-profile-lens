@@ -620,6 +620,31 @@
             "numeric": true
           }
         },
+        "homeView": {
+          "displayName": "Home view",
+          "displayNameKey": "Format_HomeView",
+          "description": "Automatic fills geographic contexts and fits generated or non-navigable contexts. Fit shows the full extent; Fill starts closer while keeping Minimum zoom reachable.",
+          "descriptionKey": "Format_HomeView_Description",
+          "type": {
+            "enumeration": [
+              {
+                "value": "automatic",
+                "displayName": "Automatic",
+                "displayNameKey": "Format_HomeView_Automatic"
+              },
+              {
+                "value": "fit",
+                "displayName": "Fit",
+                "displayNameKey": "Format_HomeView_Fit"
+              },
+              {
+                "value": "fill",
+                "displayName": "Fill",
+                "displayNameKey": "Format_HomeView_Fill"
+              }
+            ]
+          }
+        },
         "maxZoom": {
           "displayName": "Maximum zoom",
           "displayNameKey": "Format_MaxZoom",

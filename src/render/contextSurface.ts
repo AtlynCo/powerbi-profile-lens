@@ -52,6 +52,10 @@ export interface RenderedContextSurface {
 }
 
 export interface ContextPerformanceMetrics {
+    homeZoom: number;
+    cameraZoom: number;
+    panX: number;
+    panY: number;
     providerBuilds: number;
     sceneBuilds: number;
     sceneIndexBuilds: number;
@@ -118,6 +122,10 @@ const surfaceCaches = new WeakMap<HTMLElement, SurfaceCache>();
 
 export function createContextPerformanceMetrics(): ContextPerformanceMetrics {
     return {
+        homeZoom: 1,
+        cameraZoom: 1,
+        panX: 0,
+        panY: 0,
         providerBuilds: 0,
         sceneBuilds: 0,
         sceneIndexBuilds: 0,
@@ -223,6 +231,9 @@ export function renderContextSurface(
         surfaceCaches.set(elements.root, cache);
     }
     cache.camera = request.camera;
+    performanceMetrics.cameraZoom = request.camera.zoom;
+    performanceMetrics.panX = request.camera.panX;
+    performanceMetrics.panY = request.camera.panY;
     renderDynamicOverlay(cache, request);
     applyCamera(elements, cache);
     setContextPerformanceMetrics(elements.root, performanceMetrics);
@@ -616,6 +627,9 @@ function setSurfaceCamera(elements: ContextSurfaceElements, camera: ContextCamer
     }
     const started = performance.now();
     cache.camera = camera;
+    cache.metrics.cameraZoom = camera.zoom;
+    cache.metrics.panX = camera.panX;
+    cache.metrics.panY = camera.panY;
     applyCamera(elements, cache);
     const duration = measuredDuration(started);
     cache.metrics.cameraFrames++;

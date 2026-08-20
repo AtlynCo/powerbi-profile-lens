@@ -107,6 +107,7 @@
 
         var navigationSettings = {
             minZoom: config.minZoom || 1,
+            homeView: config.homeView || "automatic",
             maxZoom: config.maxZoom || 8,
             wheelSensitivity: config.wheelSensitivity || 1,
             showCenterProbe: config.showCenterProbe !== false,

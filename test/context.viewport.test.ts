@@ -11,12 +11,14 @@ import {
     cameraFromPinchSnapshot,
     cameraToBasePoint,
     composeSceneTransform,
+    homeZoomForBounds,
     inverseProjectPoint,
     panCamera,
     preserveCameraOnResize,
     projectPoint,
     createPinchSnapshot,
     resetCamera,
+    resolveCameraHomeView,
     zoomCameraAt
 } from "../src/context/viewport/camera";
 import { contextSceneIdentity } from "../src/context/viewport/identity";
@@ -87,7 +89,7 @@ describe("context viewport camera", () => {
             maxZoom: 8,
             overscroll: viewportOverscroll(viewport)
         };
-        const camera = resetCamera(limits, baseBounds, viewport);
+        const camera = resetCamera(limits.minZoom, limits, baseBounds, viewport);
         const anchor = { x: 120, y: 90 };
         const beforeBase = cameraToBasePoint(anchor, camera);
         const beforeScene = inverseProjectPoint(anchor, composeSceneTransform(base, camera));
@@ -200,7 +202,7 @@ describe("context viewport camera", () => {
         const viewport = { width: 200, height: 120 };
         const baseBounds = { minX: 8, maxX: 192, minY: 8, maxY: 112 };
         const limits = { minZoom: 1, maxZoom: 4, overscroll: 12 };
-        const reset = resetCamera(limits, baseBounds, viewport);
+        const reset = resetCamera(limits.minZoom, limits, baseBounds, viewport);
         const zoomed = zoomCameraAt(
             reset,
             100,
@@ -282,7 +284,7 @@ describe("context viewport camera", () => {
         };
         const oldCamera = panCamera(
             zoomCameraAt(
-                resetCamera(oldLimits, oldBounds, oldViewport),
+                resetCamera(oldLimits.minZoom, oldLimits, oldBounds, oldViewport),
                 3,
                 { x: 200, y: 130 },
                 oldLimits,
@@ -332,6 +334,92 @@ describe("context viewport camera", () => {
             { minX: 0, maxX: 100, minY: 0, maxY: 100 },
             { minZoom: 1, maxZoom: 8, overscroll: 10 }
         )).toBeNull();
+    });
+
+    it("resolves Automatic home view to Fill only for eligible geographic navigation", () => {
+        for (const mode of ["builtInPack", "points", "boundGeometry"] as const) {
+            expect(resolveCameraHomeView("automatic", mode, true)).toBe("fill");
+        }
+        for (const mode of ["none", "grid", "hex"] as const) {
+            expect(resolveCameraHomeView("automatic", mode, true)).toBe("fit");
+        }
+        expect(resolveCameraHomeView("automatic", "builtInPack", false)).toBe("fit");
+        expect(resolveCameraHomeView("fit", "builtInPack", true)).toBe("fit");
+        expect(resolveCameraHomeView("fill", "none", false)).toBe("fill");
+    });
+
+    it("separates fitted minimum zoom from fill home zoom for wide and tall scenes", () => {
+        const limits = { minZoom: 1, maxZoom: 8, overscroll: 24 };
+        const cases = [
+            {
+                viewport: { width: 1600, height: 900 },
+                baseBounds: { minX: 8, maxX: 1592, minY: 54, maxY: 846 },
+                panAxis: "panY" as const
+            },
+            {
+                viewport: { width: 520, height: 900 },
+                baseBounds: { minX: 98, maxX: 422, minY: 8, maxY: 892 },
+                panAxis: "panX" as const
+            }
+        ];
+        for (const value of cases) {
+            const fitZoom = homeZoomForBounds(
+                "fit",
+                limits,
+                value.baseBounds,
+                value.viewport
+            );
+            const fillZoom = homeZoomForBounds(
+                "fill",
+                limits,
+                value.baseBounds,
+                value.viewport
+            );
+            expect(fitZoom).toBe(1);
+            expect(fillZoom).toBeGreaterThan(fitZoom);
+            const home = resetCamera(fillZoom, limits, value.baseBounds, value.viewport);
+            const moved = panCamera(
+                home,
+                value.panAxis === "panX" ? 120 : 0,
+                value.panAxis === "panY" ? 120 : 0,
+                limits,
+                value.baseBounds,
+                value.viewport
+            );
+            expect(Math.abs(moved[value.panAxis] - home[value.panAxis])).toBeGreaterThan(10);
+            const fit = resetCamera(fitZoom, limits, value.baseBounds, value.viewport);
+            expect(fit.zoom).toBe(limits.minZoom);
+        }
+    });
+
+    it("clamps fill home zoom and resets exactly to the configured home", () => {
+        const viewport = { width: 1200, height: 400 };
+        const baseBounds = { minX: 8, maxX: 1192, minY: 180, maxY: 220 };
+        const limits = { minZoom: 1.25, maxZoom: 3, overscroll: 24 };
+        const homeZoom = homeZoomForBounds("fill", limits, baseBounds, viewport);
+        expect(homeZoom).toBe(3);
+        const home = resetCamera(homeZoom, limits, baseBounds, viewport);
+        const moved = panCamera(home, -200, 100, limits, baseBounds, viewport);
+        expect(moved).not.toEqual(home);
+        expect(resetCamera(homeZoom, limits, baseBounds, viewport)).toEqual(home);
+        expect(home.zoom).toBe(3);
+    });
+
+    it("ignores degenerate axes when resolving fill zoom", () => {
+        const viewport = { width: 800, height: 500 };
+        const limits = { minZoom: 1, maxZoom: 8, overscroll: 24 };
+        expect(homeZoomForBounds(
+            "fill",
+            limits,
+            { minX: 8, maxX: 792, minY: 250, maxY: 250 },
+            viewport
+        )).toBe(1);
+        expect(homeZoomForBounds(
+            "fill",
+            limits,
+            { minX: 400, maxX: 400, minY: 8, maxY: 492 },
+            viewport
+        )).toBe(1);
     });
 
     it("keeps the fixed probe at center while deriving its scene point", () => {

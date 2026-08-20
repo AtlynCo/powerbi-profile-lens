@@ -53,17 +53,24 @@ candidate; record the package name and SHA-256 from `dist/release-manifest.json`
 5. Confirm new/unset multi-feature scenes use Automatic navigation. Verify persisted legacy false and
    true values migrate to Off and On, respectively. Automatic must remain inert for one feature,
    profile-only layout, no context, and disabled host interactions.
-6. Drag with the primary mouse button, use wheel/trackpad zoom, one-pointer touch pan where available,
+6. Verify Home view Automatic resolves to Fill for world/state/county, points, and useful bound
+   geometry, and to Fit for grid/hex and non-navigable contexts. Compare explicit Fit and Fill,
+   confirm Minimum zoom still exposes the full extent, and confirm Home/reset returns to the
+   configured home after pan, zoom, and resize.
+7. From the unmodified hero Home view, perform a pure vertical primary-button drag with zero X
+   movement on world, state, and county pages. Confirm material `panY`, stable `panX`, a north/south
+   probe boundary transition, zero selection during movement, and exactly one settle on release.
+8. Drag with the primary mouse button, use wheel/trackpad zoom, one-pointer touch pan where available,
    synthetic and physical two-pointer pinch, Shift+Arrow, `+`/`-`, Home, and the reset control.
-7. Confirm cursor/midpoint zoom anchoring, bounded pan, fixed center probe, and viewed-center
+9. Confirm cursor/midpoint zoom anchoring, bounded pan, fixed center probe, and viewed-center
    preservation on resize. Crossing a boundary must update title/profile/table/status/outline without
    click; remaining inside one effective state must not rerender the profile. At both zoom limits and
    scene edges, confirm pinch remains continuous after one pointer lifts and wheel input stays
    contained.
-9. Start wheel input, then transfer ownership to drag, click, plain Arrow, pinch, Home, rebind,
+10. Start wheel input, then transfer ownership to drag, click, plain Arrow, pinch, Home, rebind,
    disabled interaction, cancel, and destroy. Confirm the stale wheel generation never adds another
    move-end or selection.
-8. During multi-step world/state/county pan/zoom, confirm provider, scene/index, SVG geometry or
+11. During multi-step world/state/county pan/zoom, confirm provider, scene/index, SVG geometry or
    Canvas base raster, picking-surface, and spatial-index build counts remain unchanged across probe
    transitions. Record camera, probe-resolution, partial-profile p95/max, and next-frame metrics.
 
@@ -127,8 +134,8 @@ candidate; record the package name and SHA-256 from `dist/release-manifest.json`
 
 ## Persistence and service boundary
 
-1. Open the generated PBIP sample and verify all thirteen pages offline, especially the paired
-   automatic local-only/report-selection viewport-lens page.
+1. Open the generated PBIP sample and verify all fourteen pages offline, starting with the large
+   Automatic/Fill local-only World 50m hero and then the report-selection and engineering pages.
 2. Use Power BI Desktop to create a native offline PBIX that embeds the exact release-candidate
    PBIVIZ hash. Close and reopen it, repeat the checklist, and add that PBIX to the submission
    materials. This repository produces, fabricates, and claims no PBIX.

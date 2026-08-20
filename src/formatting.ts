@@ -10,6 +10,7 @@ import {
     TextDirection
 } from "./model/contract";
 import type { ContextMode } from "./context/contract";
+import type { CameraHomeView } from "./context/viewport/contract";
 import type { ContextLayoutMode } from "./layout/contextLayout";
 import type { DetailStrategyId } from "./detail/contract";
 
@@ -241,6 +242,13 @@ export class NavigationCard extends Card {
         options: numberOptions(1, 8)
     });
 
+    public homeView = new formattingSettings.AutoDropdown({
+        name: "homeView",
+        displayNameKey: "Format_HomeView",
+        descriptionKey: "Format_HomeView_Description",
+        value: "automatic"
+    });
+
     public maxZoom = new formattingSettings.NumUpDown({
         name: "maxZoom",
         displayNameKey: "Format_MaxZoom",
@@ -298,6 +306,7 @@ export class NavigationCard extends Card {
     public override slices = [
         this.enabled,
         this.minZoom,
+        this.homeView,
         this.maxZoom,
         this.wheelSensitivity,
         this.showCenterProbe,
@@ -561,6 +570,7 @@ export interface ResolvedSettings {
     readonly maxSceneVertices: number;
     readonly navigationMode: "auto" | "on" | "off";
     readonly minZoom: number;
+    readonly homeView: CameraHomeView;
     readonly maxZoom: number;
     readonly wheelSensitivity: number;
     readonly showCenterProbe: boolean;
@@ -665,6 +675,11 @@ export function resolveSettings(
         ),
         navigationMode: resolveNavigationMode(model.navigation.enabled.value, objects),
         minZoom,
+        homeView: enumValue(
+            model.navigation.homeView.value,
+            ["automatic", "fit", "fill"],
+            "automatic"
+        ),
         maxZoom,
         wheelSensitivity: clamp(model.navigation.wheelSensitivity.value, 0.25, 4),
         showCenterProbe: model.navigation.showCenterProbe.value,
