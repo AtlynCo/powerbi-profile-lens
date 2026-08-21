@@ -211,7 +211,8 @@
                             pointSize: config.pointSize || 6
                         },
                         layout: {
-                            contextLayout: config.contextLayout || "split"
+                            contextLayout: config.contextLayout || "split",
+                            direction: config.direction || "auto"
                         },
                         interaction: {
                             mode: config.interactionMode || "reportSelection"

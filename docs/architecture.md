@@ -70,10 +70,17 @@ circular aperture on the fixed center probe, a rim, and every arm anchored outsi
 scrim, mask, and rim live in the chart SVG, carry no identity, are `aria-hidden`, and are excluded
 from pointer events, so picking, selection, tooltips, the semantic option list, and the accessible
 table are unchanged, and probe transitions rebuild no provider, scene, reference geometry, base
-raster, or picking index. The treatment is inert for `split`, `locatorInset`, and `profileOnly`, is
-inert in high contrast where the host owns both colors, and can be turned off per report. It stays
-drawn through the designed empty state, so the map never flashes between dimmed and live when the
-probe crosses empty geography.
+raster, or picking index. The treatment is inert for `split`, `locatorInset`, and `profileOnly`, and
+can be turned off per report. It stays drawn through the designed empty state, so the map never
+flashes between dimmed and live when the probe crosses empty geography.
+
+High contrast resolves the lens away entirely, before layout runs. The aperture is load bearing —
+it pushes `bandStart` outward — so suppressing only the paint would still move every arm; the
+composition therefore reports no containment at all and arm geometry is byte-identical to the
+lens-off composition. The renderer refuses to paint a lens under high contrast as a second,
+independent guarantee. This is deliberate: the host supplies exactly two colors, a veil would wash
+one of them out, and a rim drawn in the foreground is one more ring competing with map geometry
+already drawn in that same single color.
 
 Chart proportions come from a fixed design box scaled uniformly into the chart rectangle, so bar
 thickness, gaps, label type, and the aperture keep their relative weights as the tile shrinks rather
@@ -91,6 +98,13 @@ and a stable tiebreak, each tries a bounded list of stagger slots against the oc
 anything that still collides is skipped rather than drawn on top, and an explicit per-tier cap bounds
 the visible count. There is no force simulation and no work after the first settle. Band labels are
 anchored from `bandStart`, `bandThickness`, and `bandGap`, so they sit beside the bars they describe.
+
+The placement box model is direction aware. SVG resolves `text-anchor` `start` and `end` against the
+writing direction, not against the left and right edges, so the resolved direction that writes `dir`
+on the visual root is passed into placement and the edge-anchored labels — arm captions and scale
+annotations — reserve the rectangle the browser will actually paint. Predicting the left-to-right box
+under `dir="rtl"` would reserve the mirror image of the painted text, which silently voids both the
+no-overlap and the no-escape guarantee for exactly those labels.
 
 Series differentiation never depends on hue alone. The two series fills carry a guaranteed relative
 luminance separation, the two series occupy opposite sides of a mirrored axis, and texture is retained

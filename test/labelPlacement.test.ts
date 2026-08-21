@@ -148,6 +148,111 @@ describe("label placement", () => {
     });
 });
 
+describe("right to left placement", () => {
+    it("mirrors the edge anchors, because SVG resolves them against direction", () => {
+        // Under dir="rtl" a start-anchored label grows leftward from its anchor. Predicting the
+        // LTR box would be the mirror image of what is painted.
+        expect(labelBoxFor({ x: 100, y: 50 }, 40, 12, "start", true))
+            .toEqual({ x1: 60, y1: 44, x2: 100, y2: 56 });
+        expect(labelBoxFor({ x: 100, y: 50 }, 40, 12, "end", true))
+            .toEqual({ x1: 100, y1: 44, x2: 140, y2: 56 });
+        // A centred label is direction independent, so it must not move.
+        expect(labelBoxFor({ x: 100, y: 50 }, 40, 12, "middle", true))
+            .toEqual(labelBoxFor({ x: 100, y: 50 }, 40, 12, "middle", false));
+    });
+
+    it("round-trips the anchor so the placed x repaints the reserved box", () => {
+        for (const rtl of [false, true]) {
+            for (const align of ["start", "middle", "end"] as const) {
+                const result = placeLabels(
+                    [candidate({ align, slots: [{ x: 200, y: 150 }] })],
+                    { bounds, cap: 10, padding: 1, rtl }
+                );
+                const label = result.placed[0];
+                // Repainting from the reported anchor must reproduce the reserved rectangle, or
+                // the overlap ledger describes a box the browser never draws.
+                expect(
+                    labelBoxFor({ x: label.x, y: label.y }, 40, 12, align, rtl),
+                    `${align} rtl=${rtl}`
+                ).toEqual(label.box);
+            }
+        }
+    });
+
+    it("keeps edge-anchored labels inside the bounds in RTL", () => {
+        // An arm caption on the right edge: LTR box model would clamp it as if it grew rightward
+        // and leave the painted text hanging outside the chart.
+        const result = placeLabels(
+            [candidate({ align: "start", slots: [{ x: bounds.width - 2, y: 150 }] })],
+            { bounds, cap: 10, padding: 1, rtl: true }
+        );
+        expect(result.placed).toHaveLength(1);
+        const box = result.placed[0].box;
+        expect(box.x1).toBeGreaterThanOrEqual(bounds.x);
+        expect(box.x2).toBeLessThanOrEqual(bounds.x + bounds.width);
+        expect(labelBoxFor({ x: result.placed[0].x, y: result.placed[0].y }, 40, 12, "start", true))
+            .toEqual(box);
+    });
+
+    it("detects RTL collisions the LTR model would miss", () => {
+        // Two end-anchored labels sharing an anchor. In RTL both grow rightward and genuinely
+        // overlap; the LTR model would predict them growing leftward from different points.
+        const first = candidate({ key: "a", align: "end", order: 0, slots: [{ x: 200, y: 150 }] });
+        const second = candidate({
+            key: "b",
+            align: "end",
+            order: 1,
+            slots: [{ x: 210, y: 150 }]
+        });
+        const result = placeLabels([first, second], { bounds, cap: 10, padding: 1, rtl: true });
+        expect(result.placed).toHaveLength(1);
+        expect(result.skipped).toBe(1);
+    });
+
+    it("still guarantees no overlap across a mixed-anchor RTL frame", () => {
+        const candidates = [
+            candidate({ key: "cap:0", align: "start", order: 0, slots: [{ x: 60, y: 40 }] }),
+            candidate({ key: "cap:1", align: "end", order: 1, slots: [{ x: 340, y: 40 }] }),
+            candidate({ key: "scale:0", align: "start", order: 2, slots: [{ x: 62, y: 52 }] }),
+            candidate({ key: "scale:1", align: "end", order: 3, slots: [{ x: 338, y: 52 }] }),
+            candidate({ key: "band:0", align: "middle", order: 4, slots: [{ x: 200, y: 150 }] })
+        ];
+        const result = placeLabels(candidates, { bounds, cap: 10, padding: 1, rtl: true });
+        for (let left = 0; left < result.placed.length; left++) {
+            for (let right = left + 1; right < result.placed.length; right++) {
+                expect(
+                    boxesOverlap(result.placed[left].box, result.placed[right].box, 0),
+                    `${result.placed[left].key} over ${result.placed[right].key}`
+                ).toBe(false);
+            }
+            const placed = result.placed[left];
+            expect(placed.box.x1).toBeGreaterThanOrEqual(bounds.x);
+            expect(placed.box.x2).toBeLessThanOrEqual(bounds.x + bounds.width);
+        }
+    });
+
+    it("keeps determinism and caps in RTL", () => {
+        const candidates = [3, 1, 4, 2, 0].map((index) => candidate({
+            key: `band:${index}`,
+            align: index % 2 === 0 ? "start" : "end",
+            order: index,
+            slots: [{ x: 40 + index * 70, y: 150 }]
+        }));
+        const forward = placeLabels(candidates, { bounds, cap: 3, padding: 1, rtl: true });
+        const reversed = placeLabels([...candidates].reverse(), {
+            bounds,
+            cap: 3,
+            padding: 1,
+            rtl: true
+        });
+        expect(forward.placed.map((label) => label.key))
+            .toEqual(reversed.placed.map((label) => label.key));
+        expect(forward.placed.map((label) => label.x))
+            .toEqual(reversed.placed.map((label) => label.x));
+        expect(forward.placed).toHaveLength(3);
+    });
+});
+
 describe("series differentiation", () => {
     it("separates two series by lightness, not only by hue", () => {
         const [primary, secondary] = separateSeriesFills("#118DFF", "#E66C37", false);

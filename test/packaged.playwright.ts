@@ -4203,15 +4203,91 @@ test.describe("packaged chart design", () => {
             const pattern = root.querySelector("#profile-lens-pattern-secondary");
             return {
                 hatches: pattern ? pattern.querySelectorAll("path").length : 0,
-                scrims: root.querySelectorAll(".profile-lens-lens-scrim").length,
                 outlined: [...root.querySelectorAll(".profile-lens-target rect.profile-lens-bar")]
                     .every((rect) => rect.getAttribute("stroke") === "#FFFFFF")
             };
         });
         expect(contrast.hatches).toBe(1);
         expect(contrast.outlined).toBe(true);
-        // High contrast owns both colours; dimming one of them is what the mode exists to prevent.
+    });
+
+    test("removes the lens entirely in high contrast, including its arm geometry", async ({ page }) => {
+        // A configuration that actually resolves to focusLens. Mounting without a context degrades
+        // to profileOnly, where no lens exists in any theme, so a scrim assertion there proves
+        // nothing about high contrast at all.
+        const shared = {
+            width: 1280,
+            height: 620,
+            entities: [...WORLD_50_KEYS.slice(0, 24)],
+            periods: [],
+            contextMode: "builtInPack",
+            contextPack: "worldCountries",
+            worldDetail: "50m",
+            packKeyMode: "canonical",
+            contextLayout: "focusLens",
+            navigationEnabled: true
+        };
+        const probe = async (): Promise<{
+            effectiveFocus: boolean;
+            lenses: number;
+            scrims: number;
+            rims: number;
+            masks: number;
+            axisStart: number | null;
+        }> => page.evaluate(() => {
+            const root = document.getElementById("visual-root")!;
+            const axis = root.querySelector(".profile-lens-axis");
+            const context = root.querySelector(".profile-lens-context")!.getBoundingClientRect();
+            const chart = root.querySelector("svg.profile-lens-profile-svg")!
+                .getBoundingClientRect();
+            return {
+                // focusLens is the one composition where the context surface and the chart occupy
+                // the same rectangle. Asserting it proves every count below is load bearing rather
+                // than vacuously zero because the layout quietly degraded to profileOnly or split.
+                effectiveFocus: Math.abs(context.x - chart.x) < 1
+                    && Math.abs(context.width - chart.width) < 1
+                    && Math.abs(context.height - chart.height) < 1
+                    && context.width > 0,
+                lenses: root.querySelectorAll(".profile-lens-lens").length,
+                scrims: root.querySelectorAll(".profile-lens-lens-scrim").length,
+                rims: root.querySelectorAll(".profile-lens-lens-rim").length,
+                masks: root.querySelectorAll("#profile-lens-aperture-mask").length,
+                axisStart: axis ? Number(axis.getAttribute("x1")) : null
+            };
+        });
+
+        await mount(page, shared);
+        const enabled = await probe();
+        expect(enabled.effectiveFocus).toBe(true);
+        expect(enabled.lenses).toBe(1);
+        expect(enabled.rims).toBe(1);
+        expect(enabled.masks).toBe(1);
+
+        await mount(page, { ...shared, showLensScrim: false });
+        const disabled = await probe();
+        expect(disabled.effectiveFocus).toBe(true);
+        expect(disabled.lenses).toBe(0);
+
+        await mount(page, {
+            ...shared,
+            highContrast: true,
+            highContrastForeground: "#FFFFFF",
+            highContrastBackground: "#000000",
+            highContrastSelected: "#00FF00"
+        });
+        const contrast = await probe();
+        expect(contrast.effectiveFocus).toBe(true);
+        // Genuinely absent, not merely undimmed. A rim in the single host foreground would compete
+        // with map geometry drawn in that same colour.
+        expect(contrast.lenses).toBe(0);
         expect(contrast.scrims).toBe(0);
+        expect(contrast.rims).toBe(0);
+        expect(contrast.masks).toBe(0);
+        // The aperture pushes bandStart outward, so suppressing only the paint would still move
+        // every arm. High contrast must match the no-lens geometry exactly.
+        expect(contrast.axisStart).toBeCloseTo(disabled.axisStart!, 6);
+        expect(contrast.axisStart!).toBeLessThan(enabled.axisStart!);
+        expect(externalRequests).toEqual([]);
     });
 
     test("adds no rebuilds and stays bounded while the lens tracks the probe", async ({ page }) => {
@@ -4284,8 +4360,99 @@ test.describe("packaged chart design", () => {
         expect(externalRequests).toEqual([]);
     });
 
-    test("keeps proportions and bounded geometry as the tile shrinks", async ({ page }) => {
-        const observed: Array<{ size: string; ratio: number }> = [];
+    test("holds the label guarantee in RTL, measured on painted geometry", async ({ page }) => {
+        const shared = {
+            width: 1280,
+            height: 620,
+            entities: ["Entity A"],
+            periods: [],
+            series: [],
+            bands: ["0 to 17", "18 to 34", "35 to 49", "50 to 64", "65 and over"],
+            profiles: ["Residents", "Median income", "Degree holders"]
+        };
+        // Painted rectangles, not the boxes the engine reserved. Only the browser resolves
+        // text-anchor against dir, so this is the measurement that can catch a mirrored box model.
+        const painted = async (): Promise<{
+            direction: string;
+            labels: Array<{ key: string; text: string; anchor: string; x1: number; x2: number; y1: number; y2: number }>;
+            chart: { left: number; top: number; right: number; bottom: number };
+        }> => page.evaluate(() => {
+            const root = document.getElementById("visual-root")!;
+            const chartSvg = root.querySelector("svg.profile-lens-profile-svg")!;
+            const chart = chartSvg.getBoundingClientRect();
+            return {
+                direction: getComputedStyle(chartSvg).direction,
+                labels: [...root.querySelectorAll(
+                    ".profile-lens-label-layer .profile-lens-chart-label"
+                )].map((node) => {
+                    const rect = node.getBoundingClientRect();
+                    return {
+                        key: node.getAttribute("data-label-key") ?? "",
+                        text: node.textContent ?? "",
+                        anchor: node.getAttribute("text-anchor") ?? "",
+                        x1: rect.left,
+                        x2: rect.right,
+                        y1: rect.top,
+                        y2: rect.bottom
+                    };
+                }),
+                chart: {
+                    left: chart.left,
+                    top: chart.top,
+                    right: chart.right,
+                    bottom: chart.bottom
+                }
+            };
+        });
+
+        for (const value of [
+            { name: "explicit rtl", options: { direction: "rtl" } },
+            { name: "rtl locale", options: { locale: "he-IL" } }
+        ]) {
+            await mount(page, { ...shared, ...value.options });
+            const result = await painted();
+            expect(result.direction, value.name).toBe("rtl");
+            expect(result.labels.length, value.name).toBeGreaterThan(0);
+            // Edge anchors must actually be exercised, otherwise the direction-relative code path
+            // is never reached and the assertions below prove nothing.
+            expect(
+                result.labels.some((label) => label.anchor === "start" || label.anchor === "end"),
+                `${value.name} used no edge anchor`
+            ).toBe(true);
+
+            for (let left = 0; left < result.labels.length; left++) {
+                for (let right = left + 1; right < result.labels.length; right++) {
+                    const a = result.labels[left];
+                    const b = result.labels[right];
+                    const overlaps = a.x1 < b.x2 && a.x2 > b.x1 && a.y1 < b.y2 && a.y2 > b.y1;
+                    expect(
+                        overlaps,
+                        `${value.name}: "${a.text}" overlaps "${b.text}"`
+                    ).toBe(false);
+                }
+            }
+            for (const label of result.labels) {
+                expect(label.x1, `${value.name}: "${label.text}" escaped left`)
+                    .toBeGreaterThanOrEqual(result.chart.left - 1);
+                expect(label.x2, `${value.name}: "${label.text}" escaped right`)
+                    .toBeLessThanOrEqual(result.chart.right + 1);
+                expect(label.y1, `${value.name}: "${label.text}" escaped top`)
+                    .toBeGreaterThanOrEqual(result.chart.top - 1);
+                expect(label.y2, `${value.name}: "${label.text}" escaped bottom`)
+                    .toBeLessThanOrEqual(result.chart.bottom + 1);
+            }
+        }
+
+        // The same frame in LTR, so the RTL result is a direction difference rather than a
+        // configuration that happens to avoid collisions in both directions.
+        await mount(page, { ...shared, direction: "ltr" });
+        const ltr = await painted();
+        expect(ltr.direction).toBe("ltr");
+        expect(ltr.labels.length).toBeGreaterThan(0);
+        expect(externalRequests).toEqual([]);
+    });
+
+    test("keeps proportions and bounded geometry as the tile shrinks", async ({ page }) => {        const observed: Array<{ size: string; ratio: number }> = [];
         for (const size of [
             { width: 1280, height: 620 },
             { width: 760, height: 560 },

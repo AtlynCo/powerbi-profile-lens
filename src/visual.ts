@@ -689,7 +689,8 @@ export class Visual implements IVisual {
             emptyState: {
                 message: this.localization.get("Status_Empty"),
                 guidance: this.localization.get("Empty_Guidance_NoValues")
-            }
+            },
+            rtl: this.resolveDirection() === "rtl"
         });
 
         renderLegend(this.legendElement, {
@@ -1442,9 +1443,18 @@ export class Visual implements IVisual {
      * Only the focus composition has one probe under one chart, so only it can be contained. Split,
      * locator inset and profile only leave the treatment inert, which is also what keeps every
      * previously certified composition pixel-identical apart from the chart itself.
+     *
+     * High contrast is inert too, and the test for it is here rather than in the renderer because
+     * the aperture is load bearing: it pushes `bandStart` outward. Suppressing only the paint would
+     * still move every arm, so the whole treatment has to be resolved away before layout runs. In
+     * high contrast the host owns exactly two colours; a dimming veil would wash one of them out,
+     * and a rim drawn in the foreground is one more ring competing with map geometry already drawn
+     * in that same single colour.
      */
     private lensContainmentFor(effectiveMode: ContextLayoutMode): boolean {
-        return effectiveMode === "focusLens" && this.settings.showLensScrim;
+        return effectiveMode === "focusLens"
+            && this.settings.showLensScrim
+            && !this.host.colorPalette?.isHighContrast;
     }
 
     /**
@@ -1635,7 +1645,8 @@ export class Visual implements IVisual {
             focusKey: this.controller.currentFocusKey ?? rememberedFocusKey(model),
             selectedKeys,
             measure: this.measure,
-            emptyState: this.profileEmptyState(focus, presentation.message)
+            emptyState: this.profileEmptyState(focus, presentation.message),
+            rtl: this.resolveDirection() === "rtl"
         });
 
         const entityOptions = renderEntityList(this.entityElement, {

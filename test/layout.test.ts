@@ -11,7 +11,7 @@ import {
     maxArmReach,
     normalizeAngle
 } from "../src/layout/profileLayout";
-import { estimateTextWidth, fitText } from "../src/layout/textFit";
+import { estimateTextWidth, fitText, isBoldWeight, wrapText } from "../src/layout/textFit";
 
 function request(overrides: Partial<LayoutRequest> = {}): LayoutRequest {
     return {
@@ -341,6 +341,31 @@ describe("lens containment", () => {
 describe("text fitting", () => {
     it("returns the original text when it fits", () => {
         expect(fitText("Band 1", 200, 10)).toBe("Band 1");
+    });
+
+    it("measures bold runs wider, because that is how they paint", () => {
+        // A caption measured at regular weight but painted semibold reserves a box narrower than
+        // its own glyphs, which is a silent overlap in any collision engine downstream.
+        expect(isBoldWeight("600")).toBe(true);
+        expect(isBoldWeight("bold")).toBe(true);
+        expect(isBoldWeight("400")).toBe(false);
+        expect(isBoldWeight(undefined)).toBe(false);
+        const regular = estimateTextWidth("Degree attainment rate", 10);
+        const bold = estimateTextWidth("Degree attainment rate", 10, "600");
+        expect(bold).toBeGreaterThan(regular);
+        expect(estimateTextWidth("Band 1", 10, "400")).toBe(estimateTextWidth("Band 1", 10));
+    });
+
+    it("passes the weight through fitText and wrapText", () => {
+        const seen: Array<string | undefined> = [];
+        const measure = (text: string, size: number, weight?: string): number => {
+            seen.push(weight);
+            return estimateTextWidth(text, size, weight);
+        };
+        fitText("A very long caption that will not fit", 40, 10, measure, "600");
+        wrapText("A very long message that wraps onto lines", 40, 10, 2, measure, "600");
+        expect(seen.length).toBeGreaterThan(0);
+        expect(seen.every((weight) => weight === "600")).toBe(true);
     });
 
     it("trims to a measured budget with an ellipsis", () => {
