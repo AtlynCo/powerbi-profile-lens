@@ -1,10 +1,12 @@
 import type { ContextMode, ScenePoint, SceneTransform, Viewport } from "../contract";
 import { clampCameraToBounds, FIT_PADDING } from "./bounds";
 import type {
+    CameraHomeFocus,
     CameraHomeView,
     CameraLimits,
     ContextCamera,
     ContextPinchSnapshot,
+    ResolvedCameraHomeFocus,
     ResolvedCameraHomeView,
     SceneBounds
 } from "./contract";
@@ -60,20 +62,100 @@ export function cameraToBasePoint(point: ScenePoint, camera: ContextCamera): Sce
     };
 }
 
+/**
+ * Places Home so the fixed centre probe sits on the requested anchor.
+ *
+ * The anchor is expressed in base space, which is the scene projected by the base transform without
+ * the camera, so it stays valid across zoom changes. When no anchor is supplied Home falls back to
+ * the geometric centre of the scene bounds, which is the historical behaviour. The result is always
+ * clamped to the same bounds as any other camera, so an anchor can never escape the context.
+ */
 export function resetCamera(
     homeZoom: number,
     limits: CameraLimits,
     baseBounds: SceneBounds,
-    viewport: Viewport
+    viewport: Viewport,
+    homeAnchor: ScenePoint | null = null
 ): ContextCamera {
     assertFinite(homeZoom, "Home zoom");
     assertLimits(limits);
+    const anchor = homeAnchor !== null
+        && Number.isFinite(homeAnchor.x)
+        && Number.isFinite(homeAnchor.y)
+        ? homeAnchor
+        : {
+            x: (baseBounds.minX + baseBounds.maxX) / 2,
+            y: (baseBounds.minY + baseBounds.maxY) / 2
+        };
     const zoom = Math.min(Math.max(homeZoom, limits.minZoom), limits.maxZoom);
     return clampCameraToBounds({
         zoom,
-        panX: viewport.width / 2 - ((baseBounds.minX + baseBounds.maxX) / 2) * zoom,
-        panY: viewport.height / 2 - ((baseBounds.minY + baseBounds.maxY) / 2) * zoom
+        panX: viewport.width / 2 - anchor.x * zoom,
+        panY: viewport.height / 2 - anchor.y * zoom
     }, baseBounds, viewport, limits.overscroll);
+}
+
+export function resolveCameraHomeFocus(
+    requested: CameraHomeFocus,
+    mode: ContextMode
+): ResolvedCameraHomeFocus {
+    if (requested !== "automatic") {
+        return requested;
+    }
+    // Only a built-in pack paints a complete backdrop while binding a subset of it, so only there
+    // can the geometric centre land on a feature with no data, or on open ocean. Generated and
+    // bound scenes derive their bounds from the bound Entities themselves, so their geometric
+    // centre already sits inside the data and moving Home would only push features out of view.
+    return mode === "builtInPack" ? "dataBearing" : "sceneCenter";
+}
+
+/**
+ * Picks the deterministic base-space anchor Home should centre on.
+ *
+ * Candidates are the features that both carry an Entity binding and have loaded profile detail, so
+ * the probe opens on a profile that actually renders. Among them the anchor is the candidate
+ * closest to the candidate centroid, which keeps the opening view in the middle of the bound data
+ * rather than at an arbitrary edge. Ties break on the provider-canonical key so the same scene
+ * always resolves to the same anchor. When nothing qualifies the result is null and Home degrades
+ * to the geometric scene centre.
+ */
+export function resolveHomeAnchor(
+    candidates: readonly { readonly key: string; readonly center: ScenePoint }[],
+    baseTransform: SceneTransform
+): ScenePoint | null {
+    const usable = candidates
+        .filter((candidate) =>
+            Number.isFinite(candidate.center.x) && Number.isFinite(candidate.center.y))
+        .map((candidate) => ({
+            key: candidate.key,
+            point: projectPoint(candidate.center, baseTransform)
+        }))
+        .filter((candidate) =>
+            Number.isFinite(candidate.point.x) && Number.isFinite(candidate.point.y));
+    if (usable.length === 0) {
+        return null;
+    }
+    if (usable.length === 1) {
+        return usable[0].point;
+    }
+    const centroid = usable.reduce(
+        (total, candidate) => ({
+            x: total.x + candidate.point.x / usable.length,
+            y: total.y + candidate.point.y / usable.length
+        }),
+        { x: 0, y: 0 }
+    );
+    let best = usable[0];
+    let bestDistance = Number.POSITIVE_INFINITY;
+    for (const candidate of usable) {
+        const distance = (candidate.point.x - centroid.x) ** 2
+            + (candidate.point.y - centroid.y) ** 2;
+        if (distance < bestDistance || (distance === bestDistance && candidate.key < best.key)) {
+            best = candidate;
+            bestDistance = distance;
+        }
+    }
+    return best.point;
 }
 
 export function resolveCameraHomeView(
@@ -266,6 +348,13 @@ export function cameraEquals(left: ContextCamera, right: ContextCamera): boolean
     return left.zoom === right.zoom
         && left.panX === right.panX
         && left.panY === right.panY;
+}
+
+export function anchorEquals(left: ScenePoint | null, right: ScenePoint | null): boolean {
+    if (left === null || right === null) {
+        return left === right;
+    }
+    return left.x === right.x && left.y === right.y;
 }
 
 function assertPoint(point: ScenePoint): void {

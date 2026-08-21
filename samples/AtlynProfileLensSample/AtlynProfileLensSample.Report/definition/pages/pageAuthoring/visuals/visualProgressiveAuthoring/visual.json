@@ -167,6 +167,13 @@
                 }
               }
             },
+            "homeFocus": {
+              "expr": {
+                "Literal": {
+                  "Value": "'automatic'"
+                }
+              }
+            },
             "maxZoom": {
               "expr": {
                 "Literal": {

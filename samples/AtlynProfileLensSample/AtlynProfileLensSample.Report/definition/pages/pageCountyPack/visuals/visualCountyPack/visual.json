@@ -20,13 +20,13 @@
                 "Column": {
                   "Expression": {
                     "SourceRef": {
-                      "Entity": "ProfileFacts"
+                      "Entity": "CountyProfiles"
                     }
                   },
                   "Property": "CountyKey"
                 }
               },
-              "queryRef": "ProfileFacts.CountyKey",
+              "queryRef": "CountyProfiles.CountyKey",
               "nativeQueryRef": "CountyKey"
             },
             {
@@ -34,14 +34,14 @@
                 "Column": {
                   "Expression": {
                     "SourceRef": {
-                      "Entity": "ProfileFacts"
+                      "Entity": "CountyProfiles"
                     }
                   },
-                  "Property": "Band"
+                  "Property": "AgeBand"
                 }
               },
-              "queryRef": "ProfileFacts.Band",
-              "nativeQueryRef": "Band"
+              "queryRef": "CountyProfiles.AgeBand",
+              "nativeQueryRef": "AgeBand"
             }
           ]
         },
@@ -54,17 +54,17 @@
                     "Column": {
                       "Expression": {
                         "SourceRef": {
-                          "Entity": "ProfileFacts"
+                          "Entity": "CountyProfiles"
                         }
                       },
-                      "Property": "Metric A"
+                      "Property": "Residents"
                     }
                   },
                   "Function": 0
                 }
               },
-              "queryRef": "Sum(ProfileFacts.Metric A)",
-              "nativeQueryRef": "Sum of Metric A"
+              "queryRef": "Sum(CountyProfiles.Residents)",
+              "nativeQueryRef": "Sum of Residents"
             },
             {
               "field": {
@@ -73,17 +73,17 @@
                     "Column": {
                       "Expression": {
                         "SourceRef": {
-                          "Entity": "ProfileFacts"
+                          "Entity": "CountyProfiles"
                         }
                       },
-                      "Property": "Metric B"
+                      "Property": "Median household income"
                     }
                   },
                   "Function": 0
                 }
               },
-              "queryRef": "Sum(ProfileFacts.Metric B)",
-              "nativeQueryRef": "Sum of Metric B"
+              "queryRef": "Sum(CountyProfiles.Median household income)",
+              "nativeQueryRef": "Sum of Median household income"
             }
           ]
         },
@@ -94,13 +94,13 @@
                 "Measure": {
                   "Expression": {
                     "SourceRef": {
-                      "Entity": "ProfileFacts"
+                      "Entity": "CountyProfiles"
                     }
                   },
                   "Property": "Context value"
                 }
               },
-              "queryRef": "ProfileFacts.Context value",
+              "queryRef": "CountyProfiles.Context value",
               "nativeQueryRef": "Context value"
             }
           ]
@@ -253,6 +253,13 @@
                 }
               }
             },
+            "homeFocus": {
+              "expr": {
+                "Literal": {
+                  "Value": "'automatic'"
+                }
+              }
+            },
             "maxZoom": {
               "expr": {
                 "Literal": {
@@ -292,6 +299,13 @@
               "expr": {
                 "Literal": {
                   "Value": "true"
+                }
+              }
+            },
+            "fallbackEntityKey": {
+              "expr": {
+                "Literal": {
+                  "Value": "'06037'"
                 }
               }
             }

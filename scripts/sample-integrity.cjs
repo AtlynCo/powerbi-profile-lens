@@ -43,7 +43,9 @@ function canonicalTree(files) {
     };
 }
 
-function computeSampleIntegrity({ root, sampleRoot, generatorPath, guid }) {
+function computeSampleIntegrity({ root, sampleRoot, generatorPath, definitionPath, guid }) {
+    const definitionSource = definitionPath
+        ?? path.join(path.dirname(generatorPath), "sample-definition.cjs");
     const excluded = new Set([INTEGRITY_FILENAME]);
     const projectFiles = filesUnder(sampleRoot, sampleRoot, excluded);
     const reportDefinitionRoot = path.join(
@@ -75,6 +77,12 @@ function computeSampleIntegrity({ root, sampleRoot, generatorPath, guid }) {
         fs.readFileSync(generatorPath, "utf8").replace(/\r\n/g, "\n"),
         "utf8"
     );
+    // The generator delegates the model and page configuration to a side-effect-free definition
+    // module, so both files must be bound for the integrity claim to describe the whole generator.
+    const definitionBytes = Buffer.from(
+        fs.readFileSync(definitionSource, "utf8").replace(/\r\n/g, "\n"),
+        "utf8"
+    );
     return {
         schemaVersion: 1,
         projectTree: canonicalTree(projectFiles),
@@ -84,6 +92,11 @@ function computeSampleIntegrity({ root, sampleRoot, generatorPath, guid }) {
             path: portable(path.relative(root, generatorPath)),
             bytes: generatorBytes.length,
             sha256: sha256(generatorBytes)
+        },
+        definition: {
+            path: portable(path.relative(root, definitionSource)),
+            bytes: definitionBytes.length,
+            sha256: sha256(definitionBytes)
         },
         pbip,
         embeddedVisualResource: embedded

@@ -381,6 +381,17 @@
     color: #A80000;
 }
 
+// The empty-state card is decorative: the same text is announced through the header, the status
+// line and the accessible table, so it must never intercept pointer input or focus.
+.profile-lens-empty {
+    pointer-events: none;
+}
+
+.profile-lens-empty-message,
+.profile-lens-empty-guidance {
+    user-select: none;
+}
+
 .profile-lens-reduced-motion * {
     transition: none !important;
     animation: none !important;

@@ -20,28 +20,28 @@
                 "Column": {
                   "Expression": {
                     "SourceRef": {
-                      "Entity": "ProfileFacts"
+                      "Entity": "CommunityProfiles"
                     }
                   },
-                  "Property": "Entity"
+                  "Property": "Community"
                 }
               },
-              "queryRef": "ProfileFacts.Entity",
-              "nativeQueryRef": "Entity"
+              "queryRef": "CommunityProfiles.Community",
+              "nativeQueryRef": "Community"
             },
             {
               "field": {
                 "Column": {
                   "Expression": {
                     "SourceRef": {
-                      "Entity": "ProfileFacts"
+                      "Entity": "CommunityProfiles"
                     }
                   },
-                  "Property": "Band"
+                  "Property": "AgeBand"
                 }
               },
-              "queryRef": "ProfileFacts.Band",
-              "nativeQueryRef": "Band"
+              "queryRef": "CommunityProfiles.AgeBand",
+              "nativeQueryRef": "AgeBand"
             }
           ]
         },
@@ -54,17 +54,17 @@
                     "Column": {
                       "Expression": {
                         "SourceRef": {
-                          "Entity": "ProfileFacts"
+                          "Entity": "CommunityProfiles"
                         }
                       },
-                      "Property": "Metric A"
+                      "Property": "Residents"
                     }
                   },
                   "Function": 0
                 }
               },
-              "queryRef": "Sum(ProfileFacts.Metric A)",
-              "nativeQueryRef": "Sum of Metric A"
+              "queryRef": "Sum(CommunityProfiles.Residents)",
+              "nativeQueryRef": "Sum of Residents"
             }
           ]
         }
@@ -210,6 +210,13 @@
               }
             },
             "homeView": {
+              "expr": {
+                "Literal": {
+                  "Value": "'automatic'"
+                }
+              }
+            },
+            "homeFocus": {
               "expr": {
                 "Literal": {
                   "Value": "'automatic'"

@@ -9,6 +9,16 @@ export interface ContextCamera {
 export type CameraHomeView = "automatic" | "fit" | "fill";
 export type ResolvedCameraHomeView = Exclude<CameraHomeView, "automatic">;
 
+/**
+ * Where Home places the fixed centre probe.
+ *
+ * "dataBearing" centres on a bound Entity that has loaded profile detail, so the probe opens on a
+ * populated profile instead of the geometric centre of the whole context, which for a fitted world
+ * map is open ocean. "sceneCenter" is the historical geometric behaviour and stays reachable.
+ */
+export type CameraHomeFocus = "automatic" | "dataBearing" | "sceneCenter";
+export type ResolvedCameraHomeFocus = Exclude<CameraHomeFocus, "automatic">;
+
 export interface ContextPinchSnapshot {
     readonly baseAnchor: ScenePoint;
     readonly zoom: number;
@@ -37,6 +47,9 @@ export interface ContextViewportSession {
     readonly camera: ContextCamera;
     readonly homeZoom: number;
     readonly homeView: ResolvedCameraHomeView;
+    readonly homeFocus: ResolvedCameraHomeFocus;
+    /** Base-space point Home centres on, or null when Home uses the geometric scene centre. */
+    readonly homeAnchor: ScenePoint | null;
     readonly baseTransform: SceneTransform;
     readonly baseBounds: SceneBounds;
     readonly viewport: Viewport;

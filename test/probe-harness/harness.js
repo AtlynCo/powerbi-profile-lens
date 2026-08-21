@@ -43,6 +43,14 @@
             geometryIndex = valueSources.length;
             valueSources.push(metadata("Geometry", "Geometry", { text: true }));
         }
+        var latitudeIndex = -1;
+        var longitudeIndex = -1;
+        if (config.latitudes && config.longitudes) {
+            latitudeIndex = valueSources.length;
+            valueSources.push(metadata("Latitude", "Latitude", { numeric: true }));
+            longitudeIndex = valueSources.length;
+            valueSources.push(metadata("Longitude", "Longitude", { numeric: true }));
+        }
         var valueCount = Math.max(valueSources.length, 1);
         var seriesCount = Math.max(series.length, 1);
 
@@ -96,6 +104,14 @@
                             value: config.geometryTexts[entityIndex]
                         };
                     }
+                    if (latitudeIndex >= 0) {
+                        values[seriesIndex * valueCount + latitudeIndex] = {
+                            value: config.latitudes[entityIndex % config.latitudes.length]
+                        };
+                        values[seriesIndex * valueCount + longitudeIndex] = {
+                            value: config.longitudes[entityIndex % config.longitudes.length]
+                        };
+                    }
                 }
                 return {
                     value: band,
@@ -122,6 +138,9 @@
         } else if (Object.prototype.hasOwnProperty.call(config, "navigationEnabled")) {
             navigationSettings.enabled = Boolean(config.navigationEnabled);
         }
+        if (Object.prototype.hasOwnProperty.call(config, "homeFocus")) {
+            navigationSettings.homeFocus = config.homeFocus;
+        }
 
         var entityNodes = entities.map(function (entity, entityIndex) {
             var children = periods.length > 0
@@ -145,6 +164,10 @@
                 columns: rowLevels.map(function (level) { return level.sources[0]; }).concat(valueSources),
                 segment: config.segment ? {} : undefined,
                 objects: {
+                    data: {
+                        normalization: config.normalization || "raw",
+                        percentScale: config.percentScale || "fraction"
+                    },
                     context: {
                         mode: config.contextMode || "none",
                         pack: config.contextPack || "worldCountries",

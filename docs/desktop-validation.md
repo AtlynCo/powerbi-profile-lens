@@ -13,7 +13,7 @@ candidate; record the package name and SHA-256 from `dist/release-manifest.json`
 
 ## Context providers and preprocessing
 
-1. Exercise `none`, `grid`, and `hex` with nongeographic product/team/facility/seat-like entities.
+1. Exercise `none`, `grid`, and `hex` with nongeographic community-district-like entities.
 2. Bind complete WGS84 point pairs, then blanks, half-pairs, non-finite values, and coordinates outside
    latitude `[-90,90]` or longitude `[-180,180]`.
 3. Bind strict GeoJSON Geometry and Feature plus strict WKT Point, MultiPoint, Polygon, MultiPolygon.
@@ -42,6 +42,12 @@ candidate; record the package name and SHA-256 from `dist/release-manifest.json`
     disclosure. Exercise case, whitespace, non-string, absent, ambiguous, and unloaded rejection.
 13. Filter to zero Entity rows and verify complete world/state/county geometry, no-data semantics,
     navigation, and zero host selection. Restore rows and confirm camera/base/picking persistence.
+14. In every no-cell state — no feature, unbound feature, unloaded detail, zero rows, and no
+    renderable roles — confirm the chart draws no axis, no band labels, no metric captions, and no
+    stray value labels, and that one centered card carries the state message and its guidance.
+    Confirm the card stays inside the visual at 80x80 and at each intermediate size, that the header
+    state, status line, accessible table, and probe announcement are unchanged, and that no host
+    selection occurs.
 
 ## Layout and rendering
 
@@ -57,6 +63,10 @@ candidate; record the package name and SHA-256 from `dist/release-manifest.json`
    geometry, and to Fit for grid/hex and non-navigable contexts. Compare explicit Fit and Fill,
    confirm Minimum zoom still exposes the full extent, and confirm Home/reset returns to the
    configured home after pan, zoom, and resize.
+6a. Verify Home focus Automatic opens the world, state, and county pages with the center probe over a
+   bound feature that has data, so the profile is populated on first render with no interaction.
+   Confirm Scene center restores the geometric center, that Home focus never selects, and that a
+   deliberate pan or zoom is never overridden when later report data arrives.
 7. From the unmodified hero Home view, perform a pure vertical primary-button drag with zero X
    movement on world, state, and county pages. Confirm material `panY`, stable `panX`, a north/south
    probe boundary transition, zero selection during movement, and exactly one settle on release.

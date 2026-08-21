@@ -79,9 +79,16 @@ selection updates therefore reuse the provider scene and camera.
 Fit remains the configured minimum camera zoom. Home is resolved independently: Automatic chooses
 Fill for navigable built-in packs, points, and bound geometry, and Fit for grid, hex, or
 non-navigable contexts. Fill is calculated from the actual fitted base bounds and padded usable
-viewport, then clamped to the configured minimum and maximum. Initial load and Home/reset use that
-resolved zoom. An incompatible geometry scene resets; valid resize preserves the scene point under
-the old viewport center, while a camera still at Home recomputes the resized Home view. Every path
+viewport, then clamped to the configured minimum and maximum. Home placement is resolved separately
+from Home zoom: Automatic anchors Home on a bound Entity with loaded detail for built-in packs, whose
+complete backdrop can be only partially bound, and keeps the geometric scene centre for generated and
+bound scenes, whose bounds already come from the bound Entities. The anchor is the bound candidate
+nearest the centroid of all bound candidates, memoised per scene identity and model revision, so
+navigation never re-walks the backdrop, and it is null when nothing is bound. Initial load and
+Home/reset use that resolved zoom and anchor. An incompatible geometry scene resets; valid resize
+preserves the scene point under the old viewport center, while a camera still at Home recomputes the
+resized Home view. A later anchor change, such as report data arriving after the backdrop, moves the
+camera only while it is still exactly at Home. Every path
 retains the bounded clamp, so the scene cannot be lost.
 
 SVG geometry is created once under a camera `<g>`. Canvas rasterizes one bounded, overscanned neutral

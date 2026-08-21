@@ -1039,6 +1039,63 @@ describe("interaction", () => {
         expect(mock.selection.select).not.toHaveBeenCalled();
     });
 
+    it("suppresses the chart skeleton and renders one bounded empty state with no data", () => {
+        const { mock, visual } = mount();
+        visual.update(updateOptions(buildMatrixDataView({
+            entities: ["UNKNOWN", "USA"],
+            bands: ["0 to 17", "18 to 34", "35 to 49"],
+            profiles: ["Residents", "Median household income"],
+            objects: {
+                context: {
+                    mode: "builtInPack",
+                    pack: "worldCountries",
+                    packKeyMode: "canonical"
+                },
+                navigation: { enabled: true }
+            }
+        })));
+        const surface = mock.element.querySelector<HTMLElement>(".profile-lens-context")!;
+        setSurfaceBounds(surface, 320, 300);
+        surface.focus();
+        const svg = mock.element.querySelector<SVGSVGElement>("svg.profile-lens-profile-svg")!;
+        expect(mock.element.querySelectorAll(".profile-lens-target")).toHaveLength(0);
+        expect(svg.getAttribute("data-empty")).toBe("true");
+        // The v1.7 orphan skeleton: an axis line, floating band labels and metric captions.
+        expect(svg.querySelectorAll("line")).toHaveLength(0);
+        expect(svg.querySelectorAll(".profile-lens-chart-layer")).toHaveLength(0);
+        expect(svg.querySelectorAll(".profile-lens-label-layer")).toHaveLength(0);
+        expect(svg.querySelectorAll(".profile-lens-empty-card")).toHaveLength(1);
+        expect(svg.querySelector(".profile-lens-empty")?.getAttribute("aria-hidden")).toBe("true");
+        expect((svg.querySelector(".profile-lens-empty-message")?.textContent ?? "").length)
+            .toBeGreaterThan(0);
+        expect((svg.querySelector(".profile-lens-empty-guidance")?.textContent ?? "").length)
+            .toBeGreaterThan(0);
+        // Every existing no-data semantic survives beside the card.
+        expect(mock.element.querySelector(".profile-lens-header-title")?.textContent)
+            .toBe("No Context feature at the center probe");
+        expect(mock.element.querySelector(".profile-lens-table")?.textContent)
+            .toContain("No data in current report context");
+        expect(mock.element.querySelector(".profile-lens-probe-announcement")?.textContent)
+            .toContain("no Context feature");
+        expect(mock.selection.select).not.toHaveBeenCalled();
+    });
+
+    it("restores the chart skeleton once the probe resolves loaded data", () => {
+        const { mock, visual } = mount();
+        visual.update(updateOptions(buildMatrixDataView({
+            entities: ["USA", "CAN"],
+            bands: ["0 to 17", "18 to 34", "35 to 49"],
+            profiles: ["Residents"],
+            objects: {
+                context: { mode: "none" }
+            }
+        })));
+        const svg = mock.element.querySelector<SVGSVGElement>("svg.profile-lens-profile-svg")!;
+        expect(mock.element.querySelectorAll(".profile-lens-target").length).toBeGreaterThan(0);
+        expect(svg.hasAttribute("data-empty")).toBe(false);
+        expect(svg.querySelectorAll(".profile-lens-empty-card")).toHaveLength(0);
+    });
+
     it("restores ordinary Entity focus when Context is removed", () => {
         const { mock, visual } = mount();
         const build = (mode: "builtInPack" | "none") => buildMatrixDataView({

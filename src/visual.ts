@@ -41,7 +41,12 @@ import {
     renderPeriodControl
 } from "./render/chrome";
 import { renderLanding } from "./render/landing";
-import { RenderedTarget, renderProfiles, targetKey } from "./render/profilesSvg";
+import {
+    ProfileEmptyState,
+    RenderedTarget,
+    renderProfiles,
+    targetKey
+} from "./render/profilesSvg";
 import { renderStatus } from "./render/status";
 import { resolveTheme } from "./render/theme";
 import type {
@@ -50,7 +55,8 @@ import type {
     ContextProviderInput,
     ContextRenderRequest,
     ContextScene,
-    ContextSelectionIdentity
+    ContextSelectionIdentity,
+    ScenePoint
 } from "./context/contract";
 import { ContextProviderRegistry, ContextRendererRegistry } from "./context/registry";
 import {
@@ -90,6 +96,7 @@ import {
     viewportOverscroll
 } from "./context/viewport/bounds";
 import {
+    anchorEquals,
     cameraEquals,
     cameraFromPinchSnapshot,
     composeSceneTransform,
@@ -98,7 +105,9 @@ import {
     panCamera,
     preserveCameraOnResize,
     resetCamera,
+    resolveCameraHomeFocus,
     resolveCameraHomeView,
+    resolveHomeAnchor,
     zoomCameraAt
 } from "./context/viewport/camera";
 import { contextSceneIdentity } from "./context/viewport/identity";
@@ -206,6 +215,10 @@ export class Visual implements IVisual {
     private readonly contextMetrics: ContextPerformanceMetrics = createContextPerformanceMetrics();
     private contextSceneCache: CachedContextScene | null = null;
     private viewportSession: ContextViewportSession | null = null;
+    private homeAnchorCandidates: {
+        readonly token: string;
+        readonly candidates: readonly { readonly key: string; readonly center: ScenePoint }[];
+    } | null = null;
     private modelRevision = 0;
     private detailCoverage: ProfileDetailCoverage | null = null;
     private fallbackResolution: FallbackResolution = { kind: "disabled" };
@@ -667,7 +680,11 @@ export class Visual implements IVisual {
             interactive: allowInteractions,
             focusKey: this.controller.currentFocusKey ?? rememberedFocusKey(model),
             selectedKeys,
-            measure: this.measure
+            measure: this.measure,
+            emptyState: {
+                message: this.localization.get("Status_Empty"),
+                guidance: this.localization.get("Empty_Guidance_NoValues")
+            }
         });
 
         renderLegend(this.legendElement, {
@@ -1113,15 +1130,39 @@ export class Visual implements IVisual {
             scene.mode,
             navigationEnabled
         );
+        const homeFocus = resolveCameraHomeFocus(this.settings.homeFocus, scene.mode);
         const homeZoom = homeZoomForBounds(homeView, limits, baseBounds, viewport);
+        // Home is a local camera placement only. Nothing here touches the SelectionManager, so an
+        // initial render, a restore and a resize can never emit a host selection.
+        const homeAnchor = homeFocus === "dataBearing"
+            ? resolveHomeAnchor(this.dataBearingAnchors(scene, sceneIdentity), baseTransform)
+            : null;
         const existing = this.viewportSession;
+        // "At Home" means the user has not navigated away from the current Home placement. It is
+        // the only condition under which a later Home anchor change may move the camera, so data
+        // arriving after the backdrop can improve the opening view without ever overriding a
+        // deliberate pan or zoom.
+        const atPreviousHome = existing !== null && cameraEquals(
+            existing.camera,
+            resetCamera(
+                existing.homeZoom,
+                {
+                    minZoom: existing.homeZoom,
+                    maxZoom: existing.homeZoom,
+                    overscroll: viewportOverscroll(existing.viewport)
+                },
+                existing.baseBounds,
+                existing.viewport,
+                existing.homeAnchor
+            )
+        );
         let camera: ContextCamera;
         if (
             !existing
             || existing.sceneIdentity !== sceneIdentity
             || existing.invalidResize
         ) {
-            camera = resetCamera(homeZoom, limits, baseBounds, viewport);
+            camera = resetCamera(homeZoom, limits, baseBounds, viewport, homeAnchor);
         } else if (
             existing.viewport.width !== viewport.width
             || existing.viewport.height !== viewport.height
@@ -1130,21 +1171,8 @@ export class Visual implements IVisual {
             || existing.baseTransform.translateY !== baseTransform.translateY
             || existing.baseTransform.invertY !== baseTransform.invertY
         ) {
-            const wasAtHome = cameraEquals(
-                existing.camera,
-                resetCamera(
-                    existing.homeZoom,
-                    {
-                        minZoom: existing.homeZoom,
-                        maxZoom: existing.homeZoom,
-                        overscroll: viewportOverscroll(existing.viewport)
-                    },
-                    existing.baseBounds,
-                    existing.viewport
-                )
-            );
-            camera = wasAtHome
-                ? resetCamera(homeZoom, limits, baseBounds, viewport)
+            camera = atPreviousHome
+                ? resetCamera(homeZoom, limits, baseBounds, viewport, homeAnchor)
                 : preserveCameraOnResize(
                     existing.camera,
                     existing.baseTransform,
@@ -1153,12 +1181,14 @@ export class Visual implements IVisual {
                     viewport,
                     baseBounds,
                     limits
-                ) ?? resetCamera(homeZoom, limits, baseBounds, viewport);
+                ) ?? resetCamera(homeZoom, limits, baseBounds, viewport, homeAnchor);
         } else if (
             existing.homeView !== homeView
             || existing.homeZoom !== homeZoom
+            || existing.homeFocus !== homeFocus
+            || (!anchorEquals(existing.homeAnchor, homeAnchor) && atPreviousHome)
         ) {
-            camera = resetCamera(homeZoom, limits, baseBounds, viewport);
+            camera = resetCamera(homeZoom, limits, baseBounds, viewport, homeAnchor);
         } else {
             const zoom = Math.min(
                 Math.max(existing.camera.zoom, limits.minZoom),
@@ -1185,6 +1215,8 @@ export class Visual implements IVisual {
             camera,
             homeZoom,
             homeView,
+            homeFocus,
+            homeAnchor,
             baseTransform,
             baseBounds,
             viewport,
@@ -1192,6 +1224,41 @@ export class Visual implements IVisual {
         };
         this.viewportSession = session;
         return session;
+    }
+
+    /**
+     * Scene-space centres of features that carry an Entity binding with loaded profile detail.
+     *
+     * The scan is memoised per scene identity and model revision so navigation never re-walks the
+     * backdrop, and it deliberately reads only provider-canonical geometry that already exists.
+     */
+    private dataBearingAnchors(
+        scene: ContextScene,
+        sceneIdentity: string
+    ): readonly { readonly key: string; readonly center: ScenePoint }[] {
+        const model = this.model;
+        const coverage = this.detailCoverage;
+        if (!model || !coverage) {
+            return [];
+        }
+        const token = `${sceneIdentity}|${this.modelRevision}`;
+        if (this.homeAnchorCandidates?.token === token) {
+            return this.homeAnchorCandidates.candidates;
+        }
+        const candidates: { readonly key: string; readonly center: ScenePoint }[] = [];
+        for (const feature of scene.backdrop.features) {
+            const binding = scene.entities.byFeatureKey.get(feature.key);
+            if (!binding) {
+                continue;
+            }
+            const periods = coverage.loadedPeriodIndexesByEntity.get(binding.entityIndex);
+            if (!periods || periods.size === 0) {
+                continue;
+            }
+            candidates.push({ key: feature.key, center: feature.geometry.center });
+        }
+        this.homeAnchorCandidates = { token, candidates };
+        return candidates;
     }
 
     private cameraLimits(
@@ -1243,7 +1310,8 @@ export class Visual implements IVisual {
             session.homeZoom,
             this.cameraLimits(session.viewport),
             session.baseBounds,
-            session.viewport
+            session.viewport,
+            session.homeAnchor
         ));
     }
 
@@ -1531,7 +1599,8 @@ export class Visual implements IVisual {
             interactive: session.allowInteractions && hasLoadedProfile,
             focusKey: this.controller.currentFocusKey ?? rememberedFocusKey(model),
             selectedKeys,
-            measure: this.measure
+            measure: this.measure,
+            emptyState: this.profileEmptyState(focus, presentation.message)
         });
 
         const entityOptions = renderEntityList(this.entityElement, {
@@ -2247,6 +2316,27 @@ export class Visual implements IVisual {
     private canRenderBindingFreeContext(): boolean {
         return this.settings.contextMode === "builtInPack"
             && this.settings.contextLayout !== "profileOnly";
+    }
+
+    /**
+     * Copy for the designed no-data profile presentation.
+     *
+     * The message mirrors the header and accessible-table state text so the chart never contradicts
+     * them, and the guidance names the one action that resolves the state.
+     */
+    private profileEmptyState(
+        focus: ContextFocusState,
+        message: string | undefined
+    ): ProfileEmptyState {
+        const guidanceKey = focus.kind === "unloadedEntity"
+            ? "Empty_Guidance_Unloaded"
+            : focus.kind === "loadedEntity" || focus.kind === "fallbackEntity"
+                ? "Empty_Guidance_NoValues"
+                : "Empty_Guidance_MoveProbe";
+        return {
+            message: message ?? this.localization.get("Status_Empty"),
+            guidance: this.localization.get(guidanceKey)
+        };
     }
 
     private focusPresentation(focus: ContextFocusState): {
