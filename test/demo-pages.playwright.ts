@@ -76,7 +76,9 @@ const OPTION_PASSTHROUGH = [
     "homeFocus",
     "fallbackEntityKey",
     "navigationMode",
-    "navigationEnabled"
+    "navigationEnabled",
+    "direction",
+    "locale"
 ] as const;
 
 interface Audit {
@@ -107,6 +109,8 @@ interface Audit {
         y2: number;
     }>;
     readonly chartRect: { left: number; top: number; right: number; bottom: number } | null;
+    readonly direction: string;
+    readonly edgeAnchoredLabels: number;
 }
 
 const REMOTE_SCHEMES = ["http", "https", "ws", "wss"].map((scheme) => `${scheme}:`);
@@ -243,7 +247,14 @@ async function auditPage(page: Page): Promise<Audit> {
                         bottom: rect.bottom
                     };
                 })()
-                : null
+                : null,
+            direction: chart ? getComputedStyle(chart).direction : "",
+            edgeAnchoredLabels: [...(labelLayer?.querySelectorAll(
+                ".profile-lens-chart-label"
+            ) ?? [])].filter((node) => {
+                const anchor = node.getAttribute("text-anchor");
+                return anchor === "start" || anchor === "end";
+            }).length
         };
     });
 }
@@ -445,6 +456,9 @@ test.describe("packaged demo page audit", () => {
     });
 
     test("every demo page stays readable when the tile is scaled down", async ({ page }) => {
+        // Two mounts per data-bearing page, each re-injecting the packaged bundle. Inherently long,
+        // so it gets its own budget rather than borrowing the default single-mount one.
+        test.setTimeout(240000);
         const observed: Array<{ page: string; size: string; labels: number }> = [];
         for (const { page: samplePage, visual } of dataVisuals) {
             for (const size of [{ width: 490, height: 390 }, { width: 258, height: 198 }]) {
@@ -462,6 +476,42 @@ test.describe("packaged demo page audit", () => {
         }
         console.log(`Demo page label readability\n${observed
             .map((entry) => `${entry.page} ${entry.size}: ${entry.labels} labels`)
+            .join("\n")}`);
+        expect(externalRequests).toEqual([]);
+    });
+
+    test("every demo page stays readable right to left", async ({ page }) => {
+        test.setTimeout(240000);
+        const observed: Array<{ page: string; labels: number; edgeAnchored: number }> = [];
+        for (const { page: samplePage, visual } of dataVisuals) {
+            const position = visual.options?.position;
+            const width = Math.min(position?.width ?? 1520, 1552);
+            const height = Math.min(position?.height ?? 800, 852);
+            await mount(page, {
+                ...mountOptionsFor(visual, width, height),
+                direction: "rtl"
+            });
+            const label = `${samplePage.name}/${visual.name} rtl`;
+            const audit = await auditPage(page);
+            expect(audit.failed, `${label} raised a failure`).toBe(0);
+            expect(audit.direction, `${label} did not render right to left`).toBe("rtl");
+            // Arm captions and scale annotations are the edge-anchored labels, and text-anchor is
+            // resolved against direction, so these are exactly the labels an LTR-only box model
+            // mispredicts. The audit measures painted rectangles, so it catches that directly.
+            assertReadableLabels(audit, label);
+            observed.push({
+                page: `${samplePage.name}/${visual.name}`,
+                labels: audit.labels.length,
+                edgeAnchored: audit.edgeAnchoredLabels
+            });
+        }
+        expect(
+            observed.some((entry) => entry.edgeAnchored > 0),
+            "no demo page exercised an edge-anchored label in RTL"
+        ).toBe(true);
+        console.log(`Demo page RTL readability\n${observed
+            .map((entry) =>
+                `${entry.page}: ${entry.labels} labels, ${entry.edgeAnchored} edge anchored`)
             .join("\n")}`);
         expect(externalRequests).toEqual([]);
     });

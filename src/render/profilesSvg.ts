@@ -31,6 +31,8 @@ const LABEL_PRIORITY = {
 
 const LABEL_PADDING = 1.5;
 const LABEL_LINE_RATIO = 1.22;
+/** Weight the arm caption and the empty-state message are painted at, and measured at. */
+const CAPTION_WEIGHT = "600";
 
 /**
  * Copy for the designed no-data presentation.
@@ -57,6 +59,13 @@ export interface RenderInput {
     readonly selectedKeys: ReadonlySet<string>;
     readonly measure?: TextMeasurer;
     readonly emptyState?: ProfileEmptyState | null;
+    /**
+     * Resolved writing direction of the chart.
+     *
+     * Taken from the same resolution that writes `dir` on the visual root, rather than read back
+     * from the DOM, so label geometry is deterministic and assertable without a browser.
+     */
+    readonly rtl?: boolean;
 }
 
 export interface RenderedTarget {
@@ -286,7 +295,10 @@ export function renderProfiles(svg: SVGSVGElement, input: RenderInput): readonly
         });
         if (profileRef && layout.chrome.armCaptions) {
             const budget = Math.max(layout.radius * 0.9, 24);
-            const caption = fitText(profileRef.label, budget, fontSize, measure);
+            // Measured at the weight it is painted at. A semibold caption is a few percent wider
+            // than the same string at regular weight, and reserving the narrower box is a silent
+            // overlap waiting for a layout that puts something next to it.
+            const caption = fitText(profileRef.label, budget, fontSize, measure, CAPTION_WEIGHT);
             if (caption.length > 0) {
                 candidates.push({
                     key: `caption:${arm.profileIndex}`,
@@ -294,13 +306,13 @@ export function renderProfiles(svg: SVGSVGElement, input: RenderInput): readonly
                     priority: LABEL_PRIORITY.armCaption,
                     order: arm.profileIndex,
                     slots: [0, 1, -1].map(stack),
-                    width: measure(caption, fontSize),
+                    width: measure(caption, fontSize, CAPTION_WEIGHT),
                     height: lineHeight,
                     align: arm.labelAlign,
                     fontSize,
                     kind: "caption",
                     color: theme.labelColor,
-                    weight: "600"
+                    weight: CAPTION_WEIGHT
                 });
             }
         }
@@ -340,7 +352,8 @@ export function renderProfiles(svg: SVGSVGElement, input: RenderInput): readonly
             height: Math.max(layout.chart.height - 8, 1)
         },
         cap: LABEL_CAPS[layout.tier],
-        padding: LABEL_PADDING
+        padding: LABEL_PADDING,
+        rtl: input.rtl === true
     });
     appendPlacedLabels(labelLayer, placement);
     return targets;
@@ -372,10 +385,13 @@ function appendPlacedLabels(labelLayer: SVGGElement, placement: PlacementResult)
  */
 function appendLens(svg: SVGSVGElement, input: RenderInput): void {
     const lens = input.layout.lens;
-    if (!lens) {
+    const { theme } = input;
+    // Second, independent guarantee. The composition already resolves the lens away under high
+    // contrast so the aperture never moves the arms; refusing to paint one here means no future
+    // caller can reintroduce a veil or a rim over a two-colour host palette by accident.
+    if (!lens || theme.isHighContrast) {
         return;
     }
-    const { theme } = input;
     const group = element<SVGGElement>("g");
     group.setAttribute("class", "profile-lens-lens");
     group.setAttribute("aria-hidden", "true");
@@ -525,7 +541,7 @@ function appendEmptyState(svg: SVGSVGElement, input: RenderInput, measure: TextM
     const messageLeading = messageSize * 1.34;
     const guidanceLeading = guidanceSize * 1.32;
 
-    const messageLines = wrapText(message, maxTextWidth, messageSize, 3, measure);
+    const messageLines = wrapText(message, maxTextWidth, messageSize, 3, measure, CAPTION_WEIGHT);
     if (messageLines.length === 0) {
         return;
     }
@@ -541,7 +557,7 @@ function appendEmptyState(svg: SVGSVGElement, input: RenderInput, measure: TextM
     }
 
     const textWidth = Math.max(
-        ...messageLines.map((line) => measure(line, messageSize)),
+        ...messageLines.map((line) => measure(line, messageSize, CAPTION_WEIGHT)),
         ...guidanceLines.map((line) => measure(line, guidanceSize)),
         1
     );
@@ -573,7 +589,7 @@ function appendEmptyState(svg: SVGSVGElement, input: RenderInput, measure: TextM
             "middle"
         );
         node.setAttribute("class", "profile-lens-empty-message");
-        node.setAttribute("font-weight", "600");
+        node.setAttribute("font-weight", CAPTION_WEIGHT);
         group.appendChild(node);
     });
     const guidanceTop = contentTop + messageLines.length * messageLeading + gap;

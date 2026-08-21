@@ -53,11 +53,19 @@ candidate; record the package name and SHA-256 from `dist/release-manifest.json`
     anchored outside the aperture. Confirm the scrim never receives hover, tooltip, context menu, or
     selection, that the semantic option list is unchanged, and that the treatment stays drawn while
     the probe crosses empty geography. Confirm it is absent in `split`, `locatorInset`, and
-    `profileOnly`, absent in high contrast, and absent when **Profiles > Dim map around lens** is off.
-16. Confirm band labels appear on every arm beside the bars they name, that no two chart labels
+    `profileOnly`, and absent when **Profiles > Dim map around lens** is off.
+16. Switch the host to high contrast while `focusLens` is active with a bound context. Confirm the
+    lens is **entirely** absent — no dimming veil, no rim circle, and no aperture — and that the arms
+    start at the same distance from the center as they do with the lens switched off, not pushed
+    outward. Confirm bars keep their host outline and the second series keeps its hatch.
+17. Confirm band labels appear on every arm beside the bars they name, that no two chart labels
     overlap or leave the visual at any tile size, that value labels and each arm's `Max` scale
     annotation appear at the largest tier, and that a report which had value labels turned off before
     upgrading still has them off.
+18. Repeat step 17 with a right-to-left locale and with **Layout > Direction** forced to right to
+    left. Arm captions and scale annotations are anchored to an arm edge, and text anchoring is
+    resolved against the writing direction, so confirm specifically that those labels sit on the
+    expected side, stay inside the visual, and do not overlap band or value labels.
 
 ## Layout and rendering
 

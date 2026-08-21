@@ -1,10 +1,30 @@
-export type TextMeasurer = (text: string, fontSizePx: number) => number;
+/**
+ * Measures text as it will actually be painted.
+ *
+ * Weight is part of the signature because it changes the advance width: a semibold caption is a few
+ * percent wider than the same string at regular weight. Measuring without it makes a collision
+ * engine reserve a box narrower than the glyphs, which is a silent overlap.
+ */
+export type TextMeasurer = (text: string, fontSizePx: number, fontWeight?: string) => number;
 
 const ELLIPSIS = "\u2026";
+/** Advance-width premium of a bold run over the same string at regular weight. */
+const BOLD_WIDTH_FACTOR = 1.05;
+
+export function isBoldWeight(fontWeight?: string): boolean {
+    if (!fontWeight) {
+        return false;
+    }
+    if (fontWeight === "bold" || fontWeight === "bolder") {
+        return true;
+    }
+    const numeric = Number(fontWeight);
+    return Number.isFinite(numeric) && numeric >= 600;
+}
 
 /** Deterministic fallback measurement used when the browser cannot measure SVG text. */
-export const estimateTextWidth: TextMeasurer = (text, fontSizePx) =>
-    text.length * fontSizePx * 0.55;
+export const estimateTextWidth: TextMeasurer = (text, fontSizePx, fontWeight) =>
+    text.length * fontSizePx * 0.55 * (isBoldWeight(fontWeight) ? BOLD_WIDTH_FACTOR : 1);
 
 /**
  * Trims text to a measured pixel budget instead of relying on CSS ellipsis, so labels never escape
@@ -14,15 +34,16 @@ export function fitText(
     text: string,
     maxWidth: number,
     fontSizePx: number,
-    measure: TextMeasurer = estimateTextWidth
+    measure: TextMeasurer = estimateTextWidth,
+    fontWeight?: string
 ): string {
     if (text.length === 0 || maxWidth <= 0) {
         return "";
     }
-    if (measure(text, fontSizePx) <= maxWidth) {
+    if (measure(text, fontSizePx, fontWeight) <= maxWidth) {
         return text;
     }
-    if (measure(ELLIPSIS, fontSizePx) > maxWidth) {
+    if (measure(ELLIPSIS, fontSizePx, fontWeight) > maxWidth) {
         return "";
     }
     let low = 0;
@@ -30,7 +51,7 @@ export function fitText(
     while (low < high) {
         const middle = Math.ceil((low + high) / 2);
         const candidate = `${text.slice(0, middle)}${ELLIPSIS}`;
-        if (measure(candidate, fontSizePx) <= maxWidth) {
+        if (measure(candidate, fontSizePx, fontWeight) <= maxWidth) {
             low = middle;
         } else {
             high = middle - 1;
@@ -50,7 +71,8 @@ export function wrapText(
     maxWidth: number,
     fontSizePx: number,
     maxLines: number,
-    measure: TextMeasurer = estimateTextWidth
+    measure: TextMeasurer = estimateTextWidth,
+    fontWeight?: string
 ): readonly string[] {
     const words = text.split(/\s+/u).filter((word) => word.length > 0);
     if (words.length === 0 || maxWidth <= 0 || maxLines <= 0) {
@@ -61,7 +83,7 @@ export function wrapText(
     for (let index = 0; index < words.length; index++) {
         const word = words[index];
         const candidate = current.length === 0 ? word : `${current} ${word}`;
-        if (measure(candidate, fontSizePx) <= maxWidth || current.length === 0) {
+        if (measure(candidate, fontSizePx, fontWeight) <= maxWidth || current.length === 0) {
             current = candidate;
             continue;
         }
@@ -77,7 +99,7 @@ export function wrapText(
     }
     return lines
         .slice(0, maxLines)
-        .map((line) => fitText(line, maxWidth, fontSizePx, measure))
+        .map((line) => fitText(line, maxWidth, fontSizePx, measure, fontWeight))
         .filter((line) => line.length > 0);
 }
 
@@ -93,8 +115,11 @@ export function createSvgTextMeasurer(svg: SVGSVGElement): TextMeasurer {
     probe.setAttribute("aria-hidden", "true");
     svg.appendChild(probe);
 
-    return (text, fontSizePx) => {
-        const key = `${fontSizePx}:${text}`;
+    return (text, fontSizePx, fontWeight) => {
+        const weight = fontWeight ?? "";
+        // Weight belongs in the key as well as on the probe, or the first measurement of a string
+        // would be reused for every later weight of that same string.
+        const key = `${fontSizePx}:${weight}:${text}`;
         const cached = cache.get(key);
         if (cached !== undefined) {
             return cached;
@@ -105,13 +130,18 @@ export function createSvgTextMeasurer(svg: SVGSVGElement): TextMeasurer {
         let width: number;
         if (typeof probe.getComputedTextLength === "function") {
             probe.setAttribute("font-size", `${fontSizePx}px`);
+            if (weight.length > 0) {
+                probe.setAttribute("font-weight", weight);
+            } else {
+                probe.removeAttribute("font-weight");
+            }
             probe.textContent = text;
             width = probe.getComputedTextLength();
             if (!Number.isFinite(width) || width <= 0) {
-                width = estimateTextWidth(text, fontSizePx);
+                width = estimateTextWidth(text, fontSizePx, fontWeight);
             }
         } else {
-            width = estimateTextWidth(text, fontSizePx);
+            width = estimateTextWidth(text, fontSizePx, fontWeight);
         }
         cache.set(key, width);
         return width;

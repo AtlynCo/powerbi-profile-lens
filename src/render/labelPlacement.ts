@@ -63,6 +63,15 @@ export interface PlacementOptions {
     /** Hard ceiling on visible labels. Reached by priority order, never by input order. */
     readonly cap: number;
     readonly padding: number;
+    /**
+     * True when the chart renders right to left.
+     *
+     * `text-anchor` is direction relative, not side relative: under `dir="rtl"` a `start` anchored
+     * label grows leftward from its anchor. Assuming otherwise makes every predicted box the mirror
+     * image of the painted one, which silently voids the no-overlap and no-escape guarantees for
+     * exactly the labels that use an edge anchor.
+     */
+    readonly rtl?: boolean;
 }
 
 export interface PlacementResult {
@@ -88,21 +97,33 @@ export const LABEL_CAPS = {
     full: 160
 } as const;
 
+/**
+ * Rectangle a label will occupy once painted.
+ *
+ * `start` and `end` are resolved against the writing direction, exactly as SVG resolves them, so
+ * the predicted box is the painted box in both directions.
+ */
 export function labelBoxFor(
     slot: LabelSlot,
     width: number,
     height: number,
-    align: LabelAlign
+    align: LabelAlign,
+    rtl = false
 ): LabelBox {
     const halfHeight = height / 2;
-    if (align === "start") {
-        return { x1: slot.x, y1: slot.y - halfHeight, x2: slot.x + width, y2: slot.y + halfHeight };
+    if (align === "middle") {
+        const half = width / 2;
+        return {
+            x1: slot.x - half,
+            y1: slot.y - halfHeight,
+            x2: slot.x + half,
+            y2: slot.y + halfHeight
+        };
     }
-    if (align === "end") {
-        return { x1: slot.x - width, y1: slot.y - halfHeight, x2: slot.x, y2: slot.y + halfHeight };
-    }
-    const half = width / 2;
-    return { x1: slot.x - half, y1: slot.y - halfHeight, x2: slot.x + half, y2: slot.y + halfHeight };
+    const growsRight = (align === "start") !== rtl;
+    return growsRight
+        ? { x1: slot.x, y1: slot.y - halfHeight, x2: slot.x + width, y2: slot.y + halfHeight }
+        : { x1: slot.x - width, y1: slot.y - halfHeight, x2: slot.x, y2: slot.y + halfHeight };
 }
 
 export function boxesOverlap(left: LabelBox, right: LabelBox, padding: number): boolean {
@@ -151,7 +172,13 @@ export function placeLabels(
         const slots = candidate.slots.slice(0, MAX_LABEL_SLOTS);
         for (let index = 0; index < slots.length; index++) {
             const box = clampBox(
-                labelBoxFor(slots[index], candidate.width, candidate.height, candidate.align),
+                labelBoxFor(
+                    slots[index],
+                    candidate.width,
+                    candidate.height,
+                    candidate.align,
+                    options.rtl
+                ),
                 options.bounds
             );
             if (occupied.some((other) => boxesOverlap(box, other, options.padding))) {
@@ -168,7 +195,7 @@ export function placeLabels(
         placed.push({
             key: candidate.key,
             text: candidate.text,
-            x: anchorX(chosen.box, candidate.align),
+            x: anchorX(chosen.box, candidate.align, options.rtl),
             y: (chosen.box.y1 + chosen.box.y2) / 2,
             align: candidate.align,
             fontSize: candidate.fontSize,
@@ -197,12 +224,11 @@ function clampBox(box: LabelBox, bounds: Rect): LabelBox {
     return { x1, y1, x2: x1 + width, y2: y1 + height };
 }
 
-function anchorX(box: LabelBox, align: LabelAlign): number {
-    if (align === "start") {
-        return box.x1;
+/** Anchor coordinate that paints `box` for this anchor under this writing direction. */
+function anchorX(box: LabelBox, align: LabelAlign, rtl = false): number {
+    if (align === "middle") {
+        return (box.x1 + box.x2) / 2;
     }
-    if (align === "end") {
-        return box.x2;
-    }
-    return (box.x1 + box.x2) / 2;
+    const growsRight = (align === "start") !== rtl;
+    return growsRight ? box.x1 : box.x2;
 }

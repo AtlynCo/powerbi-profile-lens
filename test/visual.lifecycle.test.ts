@@ -1369,9 +1369,58 @@ describe("interaction", () => {
         expect(fills.size).toBeGreaterThan(1);
     });
 
-    it("keeps the high contrast hatch and never dims the host palette", () => {
-        const { mock, visual } = mount({ highContrast: true });
+    it("keeps the label guarantee when the chart renders right to left", () => {
+        const { mock, visual } = mount({ locale: "he-IL" });
         visual.update(updateOptions(buildMatrixDataView({
+            entities: ["USA"],
+            bands: ["0 to 17", "18 to 34", "35 to 49"],
+            profiles: ["Residents", "Median household income", "Degree holders"],
+            objects: { context: { mode: "none" } }
+        }), { width: 1280, height: 620 }));
+        expect(mock.element.querySelector(".profile-lens")?.getAttribute("dir")).toBe("rtl");
+        const svg = mock.element.querySelector<SVGSVGElement>("svg.profile-lens-profile-svg")!;
+        const labels = [...svg.querySelectorAll<SVGTextElement>(".profile-lens-chart-label")];
+        expect(labels.length).toBeGreaterThan(0);
+        // Arm captions and scale annotations use an edge anchor, and SVG resolves start/end against
+        // direction, so these are the labels an LTR-only box model mispredicts.
+        const edgeAnchored = labels.filter((label) => {
+            const anchor = label.getAttribute("text-anchor");
+            return anchor === "start" || anchor === "end";
+        });
+        expect(edgeAnchored.length).toBeGreaterThan(0);
+
+        const boxes = labels.map((label) => {
+            const fontSize = Number((label.getAttribute("font-size") ?? "10px").replace("px", ""));
+            const width = (label.textContent ?? "").length * fontSize * 0.55;
+            const x = Number(label.getAttribute("x"));
+            const y = Number(label.getAttribute("y"));
+            const anchor = label.getAttribute("text-anchor");
+            // Resolved the way the browser resolves it under dir="rtl".
+            const growsRight = anchor === "end";
+            const x1 = anchor === "middle"
+                ? x - width / 2
+                : growsRight ? x : x - width;
+            return { x1, x2: x1 + width, y1: y - fontSize * 0.61, y2: y + fontSize * 0.61 };
+        });
+        for (let left = 0; left < boxes.length; left++) {
+            for (let right = left + 1; right < boxes.length; right++) {
+                const a = boxes[left];
+                const b = boxes[right];
+                const overlaps = a.x1 < b.x2 && a.x2 > b.x1 && a.y1 < b.y2 && a.y2 > b.y1;
+                expect(overlaps, `${labels[left].textContent} over ${labels[right].textContent}`)
+                    .toBe(false);
+            }
+        }
+        const chartX = Number(svg.getAttribute("viewBox")!.split(" ")[0]);
+        const chartWidth = Number(svg.getAttribute("width"));
+        for (const box of boxes) {
+            expect(box.x1).toBeGreaterThanOrEqual(chartX - 1);
+            expect(box.x2).toBeLessThanOrEqual(chartX + chartWidth + 1);
+        }
+    });
+
+    it("removes the lens entirely in high contrast, including its arm geometry", () => {
+        const build = (overrides: Record<string, unknown>) => buildMatrixDataView({
             entities: ["MLI", "USA"],
             bands: ["0 to 17", "18 to 34"],
             series: ["Urban", "Rural"],
@@ -1383,15 +1432,44 @@ describe("interaction", () => {
                     packKeyMode: "canonical"
                 },
                 layout: { contextLayout: "focusLens" },
-                navigation: { enabled: true, fallbackEntityKey: "USA" }
+                navigation: { enabled: true, fallbackEntityKey: "USA" },
+                ...overrides
             }
-        }), { width: 1280, height: 620 }));
-        const svg = mock.element.querySelector<SVGSVGElement>("svg.profile-lens-profile-svg")!;
-        const pattern = svg.querySelector("#profile-lens-pattern-secondary")!;
-        expect(pattern.querySelectorAll("path")).toHaveLength(1);
-        // Washing out one of the two host colours is exactly what high contrast exists to prevent.
-        expect(svg.querySelectorAll(".profile-lens-lens-scrim")).toHaveLength(0);
-        expect(svg.querySelectorAll(".profile-lens-lens-rim")).toHaveLength(1);
+        });
+        const axisStart = (element: HTMLElement): number =>
+            Number(element.querySelector(".profile-lens-axis")!.getAttribute("x1"));
+
+        const contrast = mount({ highContrast: true });
+        contrast.visual.update(updateOptions(build({}), { width: 1280, height: 620 }));
+        const contrastSvg = contrast.mock.element
+            .querySelector<SVGSVGElement>("svg.profile-lens-profile-svg")!;
+        expect(contrastSvg.querySelectorAll(".profile-lens-target").length).toBeGreaterThan(0);
+        expect(contrastSvg.querySelector("#profile-lens-pattern-secondary")!
+            .querySelectorAll("path")).toHaveLength(1);
+        // Genuinely absent, not merely undimmed: no group, no rim, and no aperture mask. A rim
+        // painted in the single host foreground would compete with map geometry drawn in that
+        // same colour, and washing out one of the two host colours is what the mode prevents.
+        expect(contrastSvg.querySelectorAll(".profile-lens-lens")).toHaveLength(0);
+        expect(contrastSvg.querySelectorAll(".profile-lens-lens-scrim")).toHaveLength(0);
+        expect(contrastSvg.querySelectorAll(".profile-lens-lens-rim")).toHaveLength(0);
+        expect(contrastSvg.querySelector("#profile-lens-aperture-mask")).toBeNull();
+
+        // The aperture is load bearing: it pushes bandStart outward. Suppressing only the paint
+        // would still move every arm, so the geometry has to match the no-lens composition exactly
+        // and differ from the lens composition.
+        const disabled = mount();
+        disabled.visual.update(updateOptions(
+            build({ profiles: { showLensScrim: false } }),
+            { width: 1280, height: 620 }
+        ));
+        const enabled = mount();
+        enabled.visual.update(updateOptions(build({}), { width: 1280, height: 620 }));
+        const enabledSvg = enabled.mock.element
+            .querySelector<SVGSVGElement>("svg.profile-lens-profile-svg")!;
+        expect(enabledSvg.querySelectorAll(".profile-lens-lens-rim")).toHaveLength(1);
+
+        expect(axisStart(contrast.mock.element)).toBeCloseTo(axisStart(disabled.mock.element), 6);
+        expect(axisStart(contrast.mock.element)).toBeLessThan(axisStart(enabled.mock.element));
     });
 
     it("restores ordinary Entity focus when Context is removed", () => {
