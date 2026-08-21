@@ -50,7 +50,16 @@ interactive, non-profile-only Context scene with multiple navigable features. Pe
 remain static. When active, left-drag and one-finger drag pan; wheel, trackpad, and two-pointer pinch zoom;
 Shift+Arrow pans; and `+`/`-` zooms. `Navigation > Home view` defaults to `Automatic`: multi-feature
 built-in maps, points, and bound geometry start and reset to `Fill`, while grid, hex, and
-non-navigable contexts use `Fit`. Explicit `Fit` and `Fill` remain author-controlled. Home or the
+non-navigable contexts use `Fit`. Explicit `Fit` and `Fill` remain author-controlled.
+`Navigation > Home focus` also defaults to `Automatic`, which centers Home on a bound Entity that has
+loaded profile detail whenever a built-in pack paints a complete backdrop over a partially bound
+report, so the fixed center probe opens on a populated profile instead of the geometric center of the
+whole map. Generated and bound scenes derive their bounds from the bound Entities themselves and keep
+the geometric center, and `Scene center` restores it everywhere. The anchor is the bound candidate
+nearest the centroid of all bound candidates, so it is deterministic, and it degrades to the geometric
+center when nothing is bound. Home focus is a local camera placement only: it never selects, it moves
+the camera only on a fresh scene or while the camera is still at Home, and it never overrides a
+deliberate pan or zoom. Home or the
 reset control returns to this resolved home camera; the configured minimum zoom remains reachable
 for the complete fitted extent. Zoom is anchored under the cursor or pinch midpoint. The default
 range is 1 through 8, bounded pan keeps the scene from being lost, and valid resize preserves the
@@ -75,6 +84,14 @@ report matches carry analytical values, tooltips, highlights, and Power BI ident
 features show `No data in current report context`; unloaded detail and no-feature states are distinct
 and never retain the prior profile. A selected built-in pack remains a navigable, semantic backdrop
 even when the current DataView has zero Entity rows or no renderable profile fields.
+
+When a frame carries no cells at all — no feature, an unbound feature, unloaded detail, zero rows, or
+no renderable roles — the chart draws no skeleton. The axis, band labels, metric captions, and value
+labels are suppressed together, and one centered, bounded card carries the current state message and
+the single action that resolves it. The card is decorative and `aria-hidden`, because the same text
+is already announced by the header state, the status line, and the accessible table, all of which are
+unchanged. The card degrades with the density tiers and stays inside an 80x80 tile, and no-data states
+still make no host selection.
 
 An optional fallback Entity key is exact raw bound text. It applies only over no feature, is visibly
 disclosed, and is never silently inferred as `WLD`; it never masks a known no-data feature. Authors can
@@ -234,6 +251,12 @@ logic, physical drag/wheel/synthetic-pinch camera behavior, inverse Canvas picki
 zero provider/scene/base/picking rebuild deltas, partial-profile p95/max, interaction call counts,
 accessibility semantics, lifecycle, package reproducibility, and
 absence of network requests from the packaged bundle in Chromium.
+
+A packaged-Chromium demo-page audit mounts every data-bearing configuration of the generated PBIP
+sample on the packaged bundle and asserts, per page, that the profile renders at least one mark, that
+a frame with zero cells paints no orphan skeleton, that the designed empty state appears exactly when
+it is expected, and that no external request is made. The audit imports the same side-effect-free
+definition module the sample generator uses, so it cannot drift from the shipped sample.
 
 They do not prove native Desktop field-well behavior, segmentation, bookmarks, service behavior,
 exports, dashboard pinning, DirectQuery/Direct Lake behavior, or native expand/collapse/drilldown.

@@ -20,27 +20,27 @@
                 "Column": {
                   "Expression": {
                     "SourceRef": {
-                      "Entity": "ProfileFacts"
+                      "Entity": "WorldProfiles"
                     }
                   },
-                  "Property": "ViewportWorldKey"
+                  "Property": "CountryKey"
                 }
               },
-              "queryRef": "ProfileFacts.ViewportWorldKey",
-              "nativeQueryRef": "ViewportWorldKey"
+              "queryRef": "WorldProfiles.CountryKey",
+              "nativeQueryRef": "CountryKey"
             },
             {
               "field": {
                 "Column": {
                   "Expression": {
                     "SourceRef": {
-                      "Entity": "ProfileFacts"
+                      "Entity": "WorldProfiles"
                     }
                   },
                   "Property": "Period"
                 }
               },
-              "queryRef": "ProfileFacts.Period",
+              "queryRef": "WorldProfiles.Period",
               "nativeQueryRef": "Period"
             },
             {
@@ -48,14 +48,14 @@
                 "Column": {
                   "Expression": {
                     "SourceRef": {
-                      "Entity": "ProfileFacts"
+                      "Entity": "WorldProfiles"
                     }
                   },
-                  "Property": "Band"
+                  "Property": "AgeBand"
                 }
               },
-              "queryRef": "ProfileFacts.Band",
-              "nativeQueryRef": "Band"
+              "queryRef": "WorldProfiles.AgeBand",
+              "nativeQueryRef": "AgeBand"
             }
           ]
         },
@@ -66,42 +66,42 @@
                 "Measure": {
                   "Expression": {
                     "SourceRef": {
-                      "Entity": "ProfileFacts"
+                      "Entity": "WorldProfiles"
                     }
                   },
-                  "Property": "Population Distribution"
+                  "Property": "Population by age band"
                 }
               },
-              "queryRef": "ProfileFacts.Population Distribution",
-              "nativeQueryRef": "Population Distribution"
+              "queryRef": "WorldProfiles.Population by age band",
+              "nativeQueryRef": "Population by age band"
             },
             {
               "field": {
                 "Measure": {
                   "Expression": {
                     "SourceRef": {
-                      "Entity": "ProfileFacts"
+                      "Entity": "WorldProfiles"
                     }
                   },
-                  "Property": "Household Income Brackets"
+                  "Property": "Median income by age"
                 }
               },
-              "queryRef": "ProfileFacts.Household Income Brackets",
-              "nativeQueryRef": "Household Income Brackets"
+              "queryRef": "WorldProfiles.Median income by age",
+              "nativeQueryRef": "Median income by age"
             },
             {
               "field": {
                 "Measure": {
                   "Expression": {
                     "SourceRef": {
-                      "Entity": "ProfileFacts"
+                      "Entity": "WorldProfiles"
                     }
                   },
-                  "Property": "Educational Attainment"
+                  "Property": "Degree attainment by age"
                 }
               },
-              "queryRef": "ProfileFacts.Educational Attainment",
-              "nativeQueryRef": "Educational Attainment"
+              "queryRef": "WorldProfiles.Degree attainment by age",
+              "nativeQueryRef": "Degree attainment by age"
             }
           ]
         },
@@ -112,14 +112,14 @@
                 "Column": {
                   "Expression": {
                     "SourceRef": {
-                      "Entity": "ProfileFacts"
+                      "Entity": "WorldProfiles"
                     }
                   },
-                  "Property": "Series"
+                  "Property": "Settlement"
                 }
               },
-              "queryRef": "ProfileFacts.Series",
-              "nativeQueryRef": "Series"
+              "queryRef": "WorldProfiles.Settlement",
+              "nativeQueryRef": "Settlement"
             }
           ]
         },
@@ -130,13 +130,13 @@
                 "Measure": {
                   "Expression": {
                     "SourceRef": {
-                      "Entity": "ProfileFacts"
+                      "Entity": "WorldProfiles"
                     }
                   },
                   "Property": "Context value"
                 }
               },
-              "queryRef": "ProfileFacts.Context value",
+              "queryRef": "WorldProfiles.Context value",
               "nativeQueryRef": "Context value"
             }
           ]
@@ -289,6 +289,13 @@
                 }
               }
             },
+            "homeFocus": {
+              "expr": {
+                "Literal": {
+                  "Value": "'automatic'"
+                }
+              }
+            },
             "maxZoom": {
               "expr": {
                 "Literal": {
@@ -334,7 +341,7 @@
             "fallbackEntityKey": {
               "expr": {
                 "Literal": {
-                  "Value": "'WLD'"
+                  "Value": "'USA'"
                 }
               }
             }

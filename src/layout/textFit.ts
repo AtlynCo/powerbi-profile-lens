@@ -40,6 +40,48 @@ export function fitText(
 }
 
 /**
+ * Wraps text onto at most maxLines measured lines.
+ *
+ * Words that cannot fit on their own are trimmed by fitText, and any remainder that exceeds the
+ * line budget is folded into the last line so nothing is silently dropped without an ellipsis.
+ */
+export function wrapText(
+    text: string,
+    maxWidth: number,
+    fontSizePx: number,
+    maxLines: number,
+    measure: TextMeasurer = estimateTextWidth
+): readonly string[] {
+    const words = text.split(/\s+/u).filter((word) => word.length > 0);
+    if (words.length === 0 || maxWidth <= 0 || maxLines <= 0) {
+        return [];
+    }
+    const lines: string[] = [];
+    let current = "";
+    for (let index = 0; index < words.length; index++) {
+        const word = words[index];
+        const candidate = current.length === 0 ? word : `${current} ${word}`;
+        if (measure(candidate, fontSizePx) <= maxWidth || current.length === 0) {
+            current = candidate;
+            continue;
+        }
+        lines.push(current);
+        if (lines.length === maxLines - 1) {
+            current = words.slice(index).join(" ");
+            break;
+        }
+        current = word;
+    }
+    if (current.length > 0) {
+        lines.push(current);
+    }
+    return lines
+        .slice(0, maxLines)
+        .map((line) => fitText(line, maxWidth, fontSizePx, measure))
+        .filter((line) => line.length > 0);
+}
+
+/**
  * Creates a measurer backed by the browser's SVG text metrics, with a cache and a deterministic
  * fallback for environments that do not implement getComputedTextLength.
  */

@@ -4,7 +4,7 @@ import {
     ProfileLayout,
     bandSegment
 } from "../layout/profileLayout";
-import { TextMeasurer, estimateTextWidth, fitText } from "../layout/textFit";
+import { TextMeasurer, estimateTextWidth, fitText, wrapText } from "../layout/textFit";
 import { ResolvedSettings } from "../formatting";
 import { Localization } from "../localization";
 import { IMPLICIT_INDEX, ProfileDataModel } from "../model/contract";
@@ -12,6 +12,17 @@ import { NormalizedCell, NormalizedFrame, formatDisplayValue } from "../model/no
 import { Theme, seriesColor } from "./theme";
 
 const SVG_NS = "http://www.w3.org/2000/svg";
+
+/**
+ * Copy for the designed no-data presentation.
+ *
+ * The message repeats the authoritative state text already shown in the header, the status line and
+ * the accessible table, so the chart never contradicts them, and the guidance names the next action.
+ */
+export interface ProfileEmptyState {
+    readonly message: string;
+    readonly guidance: string;
+}
 
 export interface RenderInput {
     readonly model: ProfileDataModel;
@@ -26,6 +37,7 @@ export interface RenderInput {
     readonly focusKey: string | null;
     readonly selectedKeys: ReadonlySet<string>;
     readonly measure?: TextMeasurer;
+    readonly emptyState?: ProfileEmptyState | null;
 }
 
 export interface RenderedTarget {
@@ -47,6 +59,10 @@ export function targetKey(profileIndex: number, bandIndex: number, seriesIndex: 
  *
  * The renderer only writes attributes and text nodes, never markup, and it returns targets so the
  * interaction layer can attach listeners without re-querying the DOM by selector.
+ *
+ * When the frame carries no cells there is nothing to measure, so the chart skeleton is suppressed
+ * entirely and one bounded empty-state card is drawn instead. Painting an axis, band labels and
+ * metric captions around zero bars is what makes a no-data probe read as broken rather than empty.
  */
 export function renderProfiles(svg: SVGSVGElement, input: RenderInput): readonly RenderedTarget[] {
     const { layout, theme, settings, localization } = input;
@@ -61,11 +77,19 @@ export function renderProfiles(svg: SVGSVGElement, input: RenderInput): readonly
     svg.setAttribute("aria-label", localization.get("Aria_Chart"));
     svg.setAttribute("focusable", "false");
 
+    const measure = input.measure ?? estimateTextWidth;
+
+    if (frameCellCount(input.frame) === 0) {
+        svg.setAttribute("data-empty", "true");
+        appendEmptyState(svg, input, measure);
+        return [];
+    }
+    svg.removeAttribute("data-empty");
+
     if (theme.usePatterns) {
         svg.appendChild(buildPatternDefs(theme));
     }
 
-    const measure = input.measure ?? estimateTextWidth;
     const chartLayer = element<SVGGElement>("g");
     chartLayer.setAttribute("class", "profile-lens-chart-layer");
     const labelLayer = element<SVGGElement>("g");
@@ -203,6 +227,113 @@ export function renderProfiles(svg: SVGSVGElement, input: RenderInput): readonly
     }
 
     return targets;
+}
+
+function frameCellCount(frame: NormalizedFrame): number {
+    let total = 0;
+    for (const profile of frame.profiles) {
+        total += profile.cells.length;
+    }
+    return total;
+}
+
+/**
+ * Draws the designed no-data presentation: one centred, bounded card carrying the current state
+ * message and the next action. Everything is clamped to the chart rectangle so the card degrades
+ * cleanly down to an 80x80 tile instead of escaping the visual root.
+ */
+function appendEmptyState(svg: SVGSVGElement, input: RenderInput, measure: TextMeasurer): void {
+    const { layout, theme, settings, localization } = input;
+    const group = element<SVGGElement>("g");
+    group.setAttribute("class", "profile-lens-empty");
+    // The header, status line and accessible table already carry this text for assistive
+    // technology, so the card is decorative and must not be announced a second time.
+    group.setAttribute("aria-hidden", "true");
+    svg.appendChild(group);
+
+    const chart = layout.chart;
+    const micro = layout.tier === "micro";
+    const compact = layout.tier === "compact";
+    const rawMessage = input.emptyState?.message.trim() ?? "";
+    const message = rawMessage.length > 0 ? rawMessage : localization.get("Status_Empty");
+    const guidance = input.emptyState?.guidance.trim() ?? "";
+
+    const paddingX = micro ? 4 : 10;
+    const paddingY = micro ? 4 : 8;
+    const outerWidth = Math.max(chart.width - (micro ? 4 : 12), 8);
+    const outerHeight = Math.max(chart.height - (micro ? 4 : 12), 8);
+    const maxTextWidth = Math.max(Math.min(outerWidth - paddingX * 2, 320), 8);
+    const messageSize = Math.max(
+        micro ? settings.fontSize - 3 : compact ? settings.fontSize - 1 : settings.fontSize,
+        7
+    );
+    const guidanceSize = Math.max(messageSize - 1, 7);
+    const messageLeading = messageSize * 1.34;
+    const guidanceLeading = guidanceSize * 1.32;
+
+    const messageLines = wrapText(message, maxTextWidth, messageSize, 3, measure);
+    if (messageLines.length === 0) {
+        return;
+    }
+    let guidanceLines = micro || guidance.length === 0
+        ? []
+        : wrapText(guidance, maxTextWidth, guidanceSize, 2, measure);
+    const gap = guidanceLines.length > 0 ? Math.max(messageSize * 0.4, 3) : 0;
+    const contentHeight = (): number =>
+        messageLines.length * messageLeading
+        + (guidanceLines.length > 0 ? gap + guidanceLines.length * guidanceLeading : 0);
+    while (guidanceLines.length > 0 && contentHeight() + paddingY * 2 > outerHeight) {
+        guidanceLines = guidanceLines.slice(0, guidanceLines.length - 1);
+    }
+
+    const textWidth = Math.max(
+        ...messageLines.map((line) => measure(line, messageSize)),
+        ...guidanceLines.map((line) => measure(line, guidanceSize)),
+        1
+    );
+    const cardWidth = Math.min(textWidth + paddingX * 2, outerWidth);
+    const cardHeight = Math.min(contentHeight() + paddingY * 2, outerHeight);
+    const centerX = chart.x + chart.width / 2;
+    const centerY = chart.y + chart.height / 2;
+
+    const card = element<SVGRectElement>("rect");
+    card.setAttribute("class", "profile-lens-empty-card");
+    card.setAttribute("x", String(round(centerX - cardWidth / 2)));
+    card.setAttribute("y", String(round(centerY - cardHeight / 2)));
+    card.setAttribute("width", String(round(cardWidth)));
+    card.setAttribute("height", String(round(cardHeight)));
+    card.setAttribute("rx", String(micro ? 3 : 6));
+    card.setAttribute("fill", theme.background);
+    card.setAttribute("fill-opacity", theme.isHighContrast ? "1" : "0.92");
+    card.setAttribute("stroke", theme.isHighContrast ? theme.foreground : theme.gridColor);
+    card.setAttribute("stroke-width", "1");
+    group.appendChild(card);
+
+    const contentTop = centerY - contentHeight() / 2;
+    messageLines.forEach((line, index) => {
+        const node = text(
+            line,
+            { x: centerX, y: contentTop + messageLeading * (index + 0.5) },
+            messageSize,
+            theme.foreground,
+            "middle"
+        );
+        node.setAttribute("class", "profile-lens-empty-message");
+        node.setAttribute("font-weight", "600");
+        group.appendChild(node);
+    });
+    const guidanceTop = contentTop + messageLines.length * messageLeading + gap;
+    guidanceLines.forEach((line, index) => {
+        const node = text(
+            line,
+            { x: centerX, y: guidanceTop + guidanceLeading * (index + 0.5) },
+            guidanceSize,
+            theme.labelColor,
+            "middle"
+        );
+        node.setAttribute("class", "profile-lens-empty-guidance");
+        group.appendChild(node);
+    });
 }
 
 function appendBandLabels(

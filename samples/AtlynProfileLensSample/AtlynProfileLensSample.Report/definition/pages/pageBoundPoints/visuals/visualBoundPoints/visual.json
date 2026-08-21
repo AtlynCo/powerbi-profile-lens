@@ -20,28 +20,28 @@
                 "Column": {
                   "Expression": {
                     "SourceRef": {
-                      "Entity": "ProfileFacts"
+                      "Entity": "CommunityProfiles"
                     }
                   },
-                  "Property": "Entity"
+                  "Property": "Community"
                 }
               },
-              "queryRef": "ProfileFacts.Entity",
-              "nativeQueryRef": "Entity"
+              "queryRef": "CommunityProfiles.Community",
+              "nativeQueryRef": "Community"
             },
             {
               "field": {
                 "Column": {
                   "Expression": {
                     "SourceRef": {
-                      "Entity": "ProfileFacts"
+                      "Entity": "CommunityProfiles"
                     }
                   },
-                  "Property": "Band"
+                  "Property": "AgeBand"
                 }
               },
-              "queryRef": "ProfileFacts.Band",
-              "nativeQueryRef": "Band"
+              "queryRef": "CommunityProfiles.AgeBand",
+              "nativeQueryRef": "AgeBand"
             }
           ]
         },
@@ -54,17 +54,17 @@
                     "Column": {
                       "Expression": {
                         "SourceRef": {
-                          "Entity": "ProfileFacts"
+                          "Entity": "CommunityProfiles"
                         }
                       },
-                      "Property": "Metric A"
+                      "Property": "Residents"
                     }
                   },
                   "Function": 0
                 }
               },
-              "queryRef": "Sum(ProfileFacts.Metric A)",
-              "nativeQueryRef": "Sum of Metric A"
+              "queryRef": "Sum(CommunityProfiles.Residents)",
+              "nativeQueryRef": "Sum of Residents"
             },
             {
               "field": {
@@ -73,17 +73,17 @@
                     "Column": {
                       "Expression": {
                         "SourceRef": {
-                          "Entity": "ProfileFacts"
+                          "Entity": "CommunityProfiles"
                         }
                       },
-                      "Property": "Metric B"
+                      "Property": "Median household income"
                     }
                   },
                   "Function": 0
                 }
               },
-              "queryRef": "Sum(ProfileFacts.Metric B)",
-              "nativeQueryRef": "Sum of Metric B"
+              "queryRef": "Sum(CommunityProfiles.Median household income)",
+              "nativeQueryRef": "Sum of Median household income"
             }
           ]
         },
@@ -94,13 +94,13 @@
                 "Measure": {
                   "Expression": {
                     "SourceRef": {
-                      "Entity": "ProfileFacts"
+                      "Entity": "CommunityProfiles"
                     }
                   },
                   "Property": "Context value"
                 }
               },
-              "queryRef": "ProfileFacts.Context value",
+              "queryRef": "CommunityProfiles.Context value",
               "nativeQueryRef": "Context value"
             }
           ]
@@ -112,13 +112,13 @@
                 "Measure": {
                   "Expression": {
                     "SourceRef": {
-                      "Entity": "ProfileFacts"
+                      "Entity": "CommunityProfiles"
                     }
                   },
                   "Property": "Selected latitude"
                 }
               },
-              "queryRef": "ProfileFacts.Selected latitude",
+              "queryRef": "CommunityProfiles.Selected latitude",
               "nativeQueryRef": "Selected latitude"
             }
           ]
@@ -130,13 +130,13 @@
                 "Measure": {
                   "Expression": {
                     "SourceRef": {
-                      "Entity": "ProfileFacts"
+                      "Entity": "CommunityProfiles"
                     }
                   },
                   "Property": "Selected longitude"
                 }
               },
-              "queryRef": "ProfileFacts.Selected longitude",
+              "queryRef": "CommunityProfiles.Selected longitude",
               "nativeQueryRef": "Selected longitude"
             }
           ]
@@ -289,6 +289,13 @@
                 }
               }
             },
+            "homeFocus": {
+              "expr": {
+                "Literal": {
+                  "Value": "'automatic'"
+                }
+              }
+            },
             "maxZoom": {
               "expr": {
                 "Literal": {
@@ -328,6 +335,13 @@
               "expr": {
                 "Literal": {
                   "Value": "true"
+                }
+              }
+            },
+            "fallbackEntityKey": {
+              "expr": {
+                "Literal": {
+                  "Value": "'Riverbend District'"
                 }
               }
             }

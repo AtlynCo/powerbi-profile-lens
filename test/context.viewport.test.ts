@@ -8,6 +8,7 @@ import {
     viewportOverscroll
 } from "../src/context/viewport/bounds";
 import {
+    anchorEquals,
     cameraFromPinchSnapshot,
     cameraToBasePoint,
     composeSceneTransform,
@@ -18,7 +19,9 @@ import {
     projectPoint,
     createPinchSnapshot,
     resetCamera,
+    resolveCameraHomeFocus,
     resolveCameraHomeView,
+    resolveHomeAnchor,
     zoomCameraAt
 } from "../src/context/viewport/camera";
 import { contextSceneIdentity } from "../src/context/viewport/identity";
@@ -51,6 +54,62 @@ function polygonScene(offset = 0): ContextScene {
 }
 
 describe("context viewport camera", () => {
+    it("resolves data-bearing Home only for complete built-in pack backdrops", () => {
+        for (const mode of ["builtInPack"] as const) {
+            expect(resolveCameraHomeFocus("automatic", mode)).toBe("dataBearing");
+        }
+        for (const mode of ["none", "points", "boundGeometry", "grid", "hex"] as const) {
+            expect(resolveCameraHomeFocus("automatic", mode)).toBe("sceneCenter");
+        }
+        expect(resolveCameraHomeFocus("sceneCenter", "builtInPack")).toBe("sceneCenter");
+        expect(resolveCameraHomeFocus("dataBearing", "grid")).toBe("dataBearing");
+    });
+
+    it("anchors Home on the data-bearing candidate nearest their centroid", () => {
+        const base: SceneTransform = {
+            scale: 2,
+            translateX: 10,
+            translateY: 4,
+            invertY: false
+        };
+        expect(resolveHomeAnchor([], base)).toBeNull();
+        expect(resolveHomeAnchor(
+            [{ key: "a", center: { x: Number.NaN, y: 3 } }],
+            base
+        )).toBeNull();
+        expect(resolveHomeAnchor(
+            [{ key: "only", center: { x: 3, y: 7 } }],
+            base
+        )).toEqual(projectPoint({ x: 3, y: 7 }, base));
+
+        const candidates = [
+            { key: "west", center: { x: 0, y: 0 } },
+            { key: "middle", center: { x: 10, y: 0 } },
+            { key: "east", center: { x: 20, y: 0 } }
+        ];
+        expect(resolveHomeAnchor(candidates, base))
+            .toEqual(projectPoint({ x: 10, y: 0 }, base));
+        // Deterministic across input order.
+        expect(resolveHomeAnchor([...candidates].reverse(), base))
+            .toEqual(resolveHomeAnchor(candidates, base));
+    });
+
+    it("centres Home on the supplied anchor and degrades to the scene centre", () => {
+        const bounds = { minX: 0, maxX: 100, minY: 0, maxY: 100 };
+        const viewport = { width: 200, height: 200 };
+        const limits = { minZoom: 1, maxZoom: 8, overscroll: 400 };
+        const geometric = resetCamera(1, limits, bounds, viewport);
+        expect(resetCamera(1, limits, bounds, viewport, null)).toEqual(geometric);
+        expect(resetCamera(1, limits, bounds, viewport, { x: Number.NaN, y: 3 }))
+            .toEqual(geometric);
+        const anchored = resetCamera(1, limits, bounds, viewport, { x: 20, y: 80 });
+        expect(anchored).toEqual({ zoom: 1, panX: 200 / 2 - 20, panY: 200 / 2 - 80 });
+        expect(anchorEquals(null, null)).toBe(true);
+        expect(anchorEquals(null, { x: 1, y: 2 })).toBe(false);
+        expect(anchorEquals({ x: 1, y: 2 }, { x: 1, y: 2 })).toBe(true);
+        expect(anchorEquals({ x: 1, y: 2 }, { x: 1, y: 3 })).toBe(false);
+    });
+
     it("composes and inverts finite transforms in both Y orientations", () => {
         for (const invertY of [false, true]) {
             const base: SceneTransform = {

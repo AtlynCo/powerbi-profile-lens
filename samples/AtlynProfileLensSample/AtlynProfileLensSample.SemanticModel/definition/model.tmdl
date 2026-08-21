@@ -3,4 +3,12 @@ model Model
 	defaultPowerBIDataSourceVersion: powerBI_V3
 	sourceQueryCulture: en-US
 
-ref table ProfileFacts
+ref table CommunityProfiles
+
+ref table WorldProfiles
+
+ref table StateProfiles
+
+ref table CountyProfiles
+
+ref table KeyDiagnostics

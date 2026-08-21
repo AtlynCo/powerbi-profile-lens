@@ -10,7 +10,7 @@ import {
     TextDirection
 } from "./model/contract";
 import type { ContextMode } from "./context/contract";
-import type { CameraHomeView } from "./context/viewport/contract";
+import type { CameraHomeFocus, CameraHomeView } from "./context/viewport/contract";
 import type { ContextLayoutMode } from "./layout/contextLayout";
 import type { DetailStrategyId } from "./detail/contract";
 
@@ -284,6 +284,13 @@ export class NavigationCard extends Card {
         value: "automatic"
     });
 
+    public homeFocus = new formattingSettings.AutoDropdown({
+        name: "homeFocus",
+        displayNameKey: "Format_HomeFocus",
+        descriptionKey: "Format_HomeFocus_Description",
+        value: "automatic"
+    });
+
     public maxZoom = new formattingSettings.NumUpDown({
         name: "maxZoom",
         displayNameKey: "Format_MaxZoom",
@@ -342,6 +349,7 @@ export class NavigationCard extends Card {
         this.enabled,
         this.minZoom,
         this.homeView,
+        this.homeFocus,
         this.maxZoom,
         this.wheelSensitivity,
         this.showCenterProbe,
@@ -611,6 +619,7 @@ export interface ResolvedSettings {
     readonly navigationMode: "auto" | "on" | "off";
     readonly minZoom: number;
     readonly homeView: CameraHomeView;
+    readonly homeFocus: CameraHomeFocus;
     readonly maxZoom: number;
     readonly wheelSensitivity: number;
     readonly showCenterProbe: boolean;
@@ -731,6 +740,11 @@ export function resolveSettings(
         homeView: enumValue(
             model.navigation.homeView.value,
             ["automatic", "fit", "fill"],
+            "automatic"
+        ),
+        homeFocus: enumValue(
+            model.navigation.homeFocus.value,
+            ["automatic", "dataBearing", "sceneCenter"],
             "automatic"
         ),
         maxZoom,

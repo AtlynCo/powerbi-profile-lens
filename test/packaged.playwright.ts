@@ -3032,6 +3032,9 @@ test.describe("packaged visual in a real browser", () => {
             contextPack: "worldCountries",
             packKeyMode: "canonical",
             fallbackEntityKey: "WLD",
+            // This test is about fallback versus no-data backdrop semantics, so Home is pinned to
+            // the scene centre and the assertions stay independent of data-bearing Home placement.
+            homeFocus: "sceneCenter",
             entities: ["WLD", "USA"],
             periods: [],
             bands: ["Band 1"],

@@ -163,6 +163,7 @@ describe("capabilities contract", () => {
         expect(Object.keys(capabilities.objects.navigation.properties).sort()).toEqual([
             "enabled",
             "fallbackEntityKey",
+            "homeFocus",
             "homeView",
             "maxZoom",
             "minZoom",
@@ -183,6 +184,11 @@ describe("capabilities contract", () => {
         };
         expect(homeView.type.enumeration.map((entry) => entry.value))
             .toEqual(["automatic", "fit", "fill"]);
+        const homeFocus = capabilities.objects.navigation.properties.homeFocus as {
+            type: { enumeration: Array<{ value: string }> };
+        };
+        expect(homeFocus.type.enumeration.map((entry) => entry.value))
+            .toEqual(["automatic", "dataBearing", "sceneCenter"]);
     });
 
     it("migrates absent and legacy boolean navigation values to auto/on/off", () => {
@@ -204,5 +210,12 @@ describe("capabilities contract", () => {
         expect(resolveSettings(model).homeView).toBe("fill");
         model.navigation.homeView.value = "unsupported";
         expect(resolveSettings(model).homeView).toBe("automatic");
+        expect(resolveSettings(new ProfileLensFormattingModel()).homeFocus).toBe("automatic");
+        model.navigation.homeFocus.value = "dataBearing";
+        expect(resolveSettings(model).homeFocus).toBe("dataBearing");
+        model.navigation.homeFocus.value = "sceneCenter";
+        expect(resolveSettings(model).homeFocus).toBe("sceneCenter");
+        model.navigation.homeFocus.value = "unsupported";
+        expect(resolveSettings(model).homeFocus).toBe("automatic");
     });
 });

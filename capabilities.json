@@ -706,6 +706,31 @@
             ]
           }
         },
+        "homeFocus": {
+          "displayName": "Home focus",
+          "displayNameKey": "Format_HomeFocus",
+          "description": "Automatic centers Home on a bound Entity that has profile data so the center probe opens on a populated profile. Scene center keeps the previous geometric center of the whole context.",
+          "descriptionKey": "Format_HomeFocus_Description",
+          "type": {
+            "enumeration": [
+              {
+                "value": "automatic",
+                "displayName": "Automatic",
+                "displayNameKey": "Format_HomeFocus_Automatic"
+              },
+              {
+                "value": "dataBearing",
+                "displayName": "Bound data",
+                "displayNameKey": "Format_HomeFocus_DataBearing"
+              },
+              {
+                "value": "sceneCenter",
+                "displayName": "Scene center",
+                "displayNameKey": "Format_HomeFocus_SceneCenter"
+              }
+            ]
+          }
+        },
         "maxZoom": {
           "displayName": "Maximum zoom",
           "displayNameKey": "Format_MaxZoom",

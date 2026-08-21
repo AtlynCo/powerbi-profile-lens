@@ -20,27 +20,27 @@
                 "Column": {
                   "Expression": {
                     "SourceRef": {
-                      "Entity": "ProfileFacts"
+                      "Entity": "CommunityProfiles"
                     }
                   },
-                  "Property": "Entity"
+                  "Property": "Community"
                 }
               },
-              "queryRef": "ProfileFacts.Entity",
-              "nativeQueryRef": "Entity"
+              "queryRef": "CommunityProfiles.Community",
+              "nativeQueryRef": "Community"
             },
             {
               "field": {
                 "Column": {
                   "Expression": {
                     "SourceRef": {
-                      "Entity": "ProfileFacts"
+                      "Entity": "CommunityProfiles"
                     }
                   },
                   "Property": "Period"
                 }
               },
-              "queryRef": "ProfileFacts.Period",
+              "queryRef": "CommunityProfiles.Period",
               "nativeQueryRef": "Period"
             },
             {
@@ -48,14 +48,14 @@
                 "Column": {
                   "Expression": {
                     "SourceRef": {
-                      "Entity": "ProfileFacts"
+                      "Entity": "CommunityProfiles"
                     }
                   },
-                  "Property": "Band"
+                  "Property": "AgeBand"
                 }
               },
-              "queryRef": "ProfileFacts.Band",
-              "nativeQueryRef": "Band"
+              "queryRef": "CommunityProfiles.AgeBand",
+              "nativeQueryRef": "AgeBand"
             }
           ]
         },
@@ -68,17 +68,17 @@
                     "Column": {
                       "Expression": {
                         "SourceRef": {
-                          "Entity": "ProfileFacts"
+                          "Entity": "CommunityProfiles"
                         }
                       },
-                      "Property": "Metric A"
+                      "Property": "Residents"
                     }
                   },
                   "Function": 0
                 }
               },
-              "queryRef": "Sum(ProfileFacts.Metric A)",
-              "nativeQueryRef": "Sum of Metric A"
+              "queryRef": "Sum(CommunityProfiles.Residents)",
+              "nativeQueryRef": "Sum of Residents"
             },
             {
               "field": {
@@ -87,17 +87,17 @@
                     "Column": {
                       "Expression": {
                         "SourceRef": {
-                          "Entity": "ProfileFacts"
+                          "Entity": "CommunityProfiles"
                         }
                       },
-                      "Property": "Metric B"
+                      "Property": "Median household income"
                     }
                   },
                   "Function": 0
                 }
               },
-              "queryRef": "Sum(ProfileFacts.Metric B)",
-              "nativeQueryRef": "Sum of Metric B"
+              "queryRef": "Sum(CommunityProfiles.Median household income)",
+              "nativeQueryRef": "Sum of Median household income"
             },
             {
               "field": {
@@ -106,17 +106,17 @@
                     "Column": {
                       "Expression": {
                         "SourceRef": {
-                          "Entity": "ProfileFacts"
+                          "Entity": "CommunityProfiles"
                         }
                       },
-                      "Property": "Metric C"
+                      "Property": "Degree attainment rate"
                     }
                   },
                   "Function": 0
                 }
               },
-              "queryRef": "Sum(ProfileFacts.Metric C)",
-              "nativeQueryRef": "Sum of Metric C"
+              "queryRef": "Sum(CommunityProfiles.Degree attainment rate)",
+              "nativeQueryRef": "Sum of Degree attainment rate"
             },
             {
               "field": {
@@ -125,17 +125,17 @@
                     "Column": {
                       "Expression": {
                         "SourceRef": {
-                          "Entity": "ProfileFacts"
+                          "Entity": "CommunityProfiles"
                         }
                       },
-                      "Property": "Metric D"
+                      "Property": "Health coverage rate"
                     }
                   },
                   "Function": 0
                 }
               },
-              "queryRef": "Sum(ProfileFacts.Metric D)",
-              "nativeQueryRef": "Sum of Metric D"
+              "queryRef": "Sum(CommunityProfiles.Health coverage rate)",
+              "nativeQueryRef": "Sum of Health coverage rate"
             },
             {
               "field": {
@@ -144,17 +144,17 @@
                     "Column": {
                       "Expression": {
                         "SourceRef": {
-                          "Entity": "ProfileFacts"
+                          "Entity": "CommunityProfiles"
                         }
                       },
-                      "Property": "Metric E"
+                      "Property": "Labor force participation"
                     }
                   },
                   "Function": 0
                 }
               },
-              "queryRef": "Sum(ProfileFacts.Metric E)",
-              "nativeQueryRef": "Sum of Metric E"
+              "queryRef": "Sum(CommunityProfiles.Labor force participation)",
+              "nativeQueryRef": "Sum of Labor force participation"
             },
             {
               "field": {
@@ -163,17 +163,17 @@
                     "Column": {
                       "Expression": {
                         "SourceRef": {
-                          "Entity": "ProfileFacts"
+                          "Entity": "CommunityProfiles"
                         }
                       },
-                      "Property": "Metric F"
+                      "Property": "Housing cost burden"
                     }
                   },
                   "Function": 0
                 }
               },
-              "queryRef": "Sum(ProfileFacts.Metric F)",
-              "nativeQueryRef": "Sum of Metric F"
+              "queryRef": "Sum(CommunityProfiles.Housing cost burden)",
+              "nativeQueryRef": "Sum of Housing cost burden"
             }
           ]
         },
@@ -184,14 +184,14 @@
                 "Column": {
                   "Expression": {
                     "SourceRef": {
-                      "Entity": "ProfileFacts"
+                      "Entity": "CommunityProfiles"
                     }
                   },
-                  "Property": "Series"
+                  "Property": "Settlement"
                 }
               },
-              "queryRef": "ProfileFacts.Series",
-              "nativeQueryRef": "Series"
+              "queryRef": "CommunityProfiles.Settlement",
+              "nativeQueryRef": "Settlement"
             }
           ]
         }
@@ -337,6 +337,13 @@
               }
             },
             "homeView": {
+              "expr": {
+                "Literal": {
+                  "Value": "'automatic'"
+                }
+              }
+            },
+            "homeFocus": {
               "expr": {
                 "Literal": {
                   "Value": "'automatic'"
