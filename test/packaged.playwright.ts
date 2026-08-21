@@ -591,7 +591,7 @@ test.describe("packaged visual in a real browser", () => {
             };
             await mount(page, options);
             const fills = await page.evaluate(() =>
-                Array.from(document.querySelectorAll(".profile-lens-target rect"))
+                Array.from(document.querySelectorAll(".profile-lens-target rect.profile-lens-bar"))
                     .slice(0, 4)
                     .map((node) => ({
                         fill: node.getAttribute("fill"),
@@ -3834,5 +3834,513 @@ test.describe("packaged visual in a real browser", () => {
                 }
             }
         }
+    });
+});
+
+/**
+ * Chart design probes.
+ *
+ * Every assertion here corresponds to a defect the packaged v1.8 bundle actually rendered in
+ * Chromium: labels on one arm out of six, labels at the far edge of the value budget, an
+ * unreadable label run at 490x390, no numbers anywhere, and a chart drawn over an undimmed map with
+ * no containment.
+ */
+test.describe("packaged chart design", () => {
+    const CHART_LABEL_SELECTOR = ".profile-lens-label-layer .profile-lens-chart-label";
+
+    async function labelBoxes(page: Page): Promise<Array<{
+        kind: string;
+        key: string;
+        text: string;
+        x1: number;
+        y1: number;
+        x2: number;
+        y2: number;
+    }>> {
+        return page.evaluate((selector) => [...document.querySelectorAll(selector)]
+            .map((node) => {
+                const box = (node as SVGGraphicsElement).getBBox();
+                return {
+                    kind: node.getAttribute("data-label-kind") ?? "",
+                    key: node.getAttribute("data-label-key") ?? "",
+                    text: node.textContent ?? "",
+                    x1: box.x,
+                    y1: box.y,
+                    x2: box.x + box.width,
+                    y2: box.y + box.height
+                };
+            }), CHART_LABEL_SELECTOR);
+    }
+
+    test("labels every arm and keeps band labels beside their bands", async ({ page }) => {
+        await mount(page, {
+            width: 1280,
+            height: 620,
+            entities: ["Entity A"],
+            periods: [],
+            series: [],
+            bands: ["0 to 17", "18 to 34", "35 to 49", "50 to 64", "65 and over"],
+            profiles: ["Residents", "Median income", "Degree holders", "Labor force"]
+        });
+        const labels = await labelBoxes(page);
+        const arms = new Set(labels
+            .filter((label) => label.kind === "band")
+            .map((label) => label.key.split(":")[1]));
+        // v1.8 drew band labels for arm 0 only.
+        expect([...arms].sort()).toEqual(["0", "1", "2", "3"]);
+        expect(labels.filter((label) => label.kind === "caption")).toHaveLength(4);
+
+        const geometry = await page.evaluate(() => [...document.querySelectorAll(".profile-lens-arm")]
+            .map((arm) => {
+                const rects = [...arm.querySelectorAll("rect")];
+                const boxes = rects.map((rect) => (rect as SVGGraphicsElement).getBoundingClientRect());
+                return {
+                    index: arm.getAttribute("data-profile-index") ?? "",
+                    left: Math.min(...boxes.map((box) => box.left)),
+                    right: Math.max(...boxes.map((box) => box.right)),
+                    top: Math.min(...boxes.map((box) => box.top)),
+                    bottom: Math.max(...boxes.map((box) => box.bottom))
+                };
+            }));
+        const screenLabels = await page.evaluate((selector) =>
+            [...document.querySelectorAll(selector)]
+                .filter((node) => node.getAttribute("data-label-kind") === "band")
+                .map((node) => {
+                    const box = node.getBoundingClientRect();
+                    return {
+                        index: (node.getAttribute("data-label-key") ?? "").split(":")[1],
+                        x: (box.left + box.right) / 2,
+                        y: (box.top + box.bottom) / 2
+                    };
+                }), CHART_LABEL_SELECTOR);
+        for (const label of screenLabels) {
+            const arm = geometry.find((entry) => entry.index === label.index)!;
+            const distance = Math.max(
+                arm.left - label.x,
+                label.x - arm.right,
+                arm.top - label.y,
+                label.y - arm.bottom,
+                0
+            );
+            // v1.8 placed these at valueExtent + 8, roughly 350px from the bars on a tall arm.
+            expect(distance, `${label.index} band label drifted from its arm`).toBeLessThan(60);
+        }
+    });
+
+    test("shows values and a per-arm scale annotation at the full tier", async ({ page }) => {
+        await mount(page, { width: 1280, height: 620, entities: ["Entity A"], periods: [] });
+        const labels = await labelBoxes(page);
+        expect(labels.filter((label) => label.kind === "value").length).toBeGreaterThan(0);
+        const scales = labels.filter((label) => label.kind === "scale");
+        expect(scales).toHaveLength(3);
+        for (const scale of scales) {
+            expect(scale.text).toMatch(/^Max /);
+        }
+
+        await mount(page, {
+            width: 1280,
+            height: 620,
+            entities: ["Entity A"],
+            periods: [],
+            normalization: "shareOfProfile"
+        });
+        const proportional = await labelBoxes(page);
+        for (const scale of proportional.filter((label) => label.kind === "scale")) {
+            // A proportional maximum is meaningless without the unit that defines it.
+            expect(scale.text).toContain("Share of profile");
+        }
+    });
+
+    test("keeps a persisted decision to hide values", async ({ page }) => {
+        await mount(page, {
+            width: 1280,
+            height: 620,
+            entities: ["Entity A"],
+            periods: [],
+            showValueLabels: false
+        });
+        const labels = await labelBoxes(page);
+        expect(labels.filter((label) => label.kind === "value")).toHaveLength(0);
+        expect(await page.locator(".profile-lens-target").count()).toBeGreaterThan(0);
+    });
+
+    test("never overlaps two chart labels, down to an 80x80 tile", async ({ page }) => {
+        const observed: Array<{ size: string; labels: number; cap: string | null }> = [];
+        for (const size of [
+            { width: 1280, height: 620 },
+            { width: 760, height: 560 },
+            { width: 490, height: 390 },
+            { width: 258, height: 198 },
+            { width: 178, height: 138 },
+            { width: 80, height: 80 }
+        ]) {
+            await mount(page, {
+                width: size.width,
+                height: size.height,
+                entities: ["Entity A"],
+                periods: [],
+                bands: ["0 to 17", "18 to 34", "35 to 49", "50 to 64", "65 and over"],
+                profiles: ["Residents", "Median household income"]
+            });
+            const label = `${size.width}x${size.height}`;
+            const boxes = await labelBoxes(page);
+            const cap = await page.locator(".profile-lens-label-layer").first()
+                .getAttribute("data-label-cap");
+            observed.push({ size: label, labels: boxes.length, cap });
+            expect(boxes.length, `${label} exceeded its cap`)
+                .toBeLessThanOrEqual(Number(cap ?? 0));
+            for (let left = 0; left < boxes.length; left++) {
+                for (let right = left + 1; right < boxes.length; right++) {
+                    const a = boxes[left];
+                    const b = boxes[right];
+                    const overlaps = a.x1 < b.x2 && a.x2 > b.x1 && a.y1 < b.y2 && a.y2 > b.y1;
+                    // v1.8 rendered "Band 5Band 4Band 3Band 2Band 1" as one run at 490x390.
+                    expect(overlaps, `${label}: "${a.text}" over "${b.text}"`).toBe(false);
+                }
+            }
+            const chart = await page.locator("svg.profile-lens-profile-svg").first().boundingBox();
+            for (const box of await page.evaluate((selector) =>
+                [...document.querySelectorAll(selector)]
+                    .map((node) => node.getBoundingClientRect())
+                    .map((rect) => ({ left: rect.left, top: rect.top, right: rect.right, bottom: rect.bottom })),
+            CHART_LABEL_SELECTOR)) {
+                expect(box.left, `${label} label escaped left`).toBeGreaterThanOrEqual(chart!.x - 1);
+                expect(box.right, `${label} label escaped right`)
+                    .toBeLessThanOrEqual(chart!.x + chart!.width + 1);
+                expect(box.top, `${label} label escaped top`).toBeGreaterThanOrEqual(chart!.y - 1);
+                expect(box.bottom, `${label} label escaped bottom`)
+                    .toBeLessThanOrEqual(chart!.y + chart!.height + 1);
+            }
+        }
+        expect(observed.at(-1)!.labels).toBe(0);
+        console.log(`Chart label placement: ${JSON.stringify(observed)}`);
+        expect(externalRequests).toEqual([]);
+    });
+
+    test("contains the focus lens and keeps the treatment out of picking and semantics", async ({ page }) => {
+        await mount(page, {
+            width: 1280,
+            height: 620,
+            entities: [...WORLD_50_KEYS.slice(0, 24)],
+            periods: [],
+            contextMode: "builtInPack",
+            contextPack: "worldCountries",
+            worldDetail: "50m",
+            packKeyMode: "canonical",
+            contextLayout: "focusLens",
+            navigationEnabled: true
+        });
+        const lens = await page.evaluate(() => {
+            const root = document.getElementById("visual-root")!;
+            const group = root.querySelector(".profile-lens-lens");
+            const rim = root.querySelector(".profile-lens-lens-rim");
+            const scrim = root.querySelector(".profile-lens-lens-scrim");
+            const surface = root.querySelector(".profile-lens-context")!.getBoundingClientRect();
+            const rimBox = rim ? rim.getBoundingClientRect() : null;
+            const scrimBox = scrim ? scrim.getBoundingClientRect() : null;
+            return {
+                present: Boolean(group),
+                ariaHidden: group?.getAttribute("aria-hidden") ?? null,
+                pointerEvents: group ? getComputedStyle(group).pointerEvents : null,
+                targets: group ? group.querySelectorAll("[data-key]").length : -1,
+                roles: group ? group.querySelectorAll("[role]").length : -1,
+                options: root.querySelectorAll('.profile-lens-context [role="option"]').length,
+                semanticInsideLens: group
+                    ? group.querySelectorAll('[role="option"]').length
+                    : -1,
+                mask: Boolean(root.querySelector("#profile-lens-aperture-mask")),
+                rimCenter: rimBox
+                    ? { x: (rimBox.left + rimBox.right) / 2, y: (rimBox.top + rimBox.bottom) / 2 }
+                    : null,
+                probeCenter: { x: surface.left + surface.width / 2, y: surface.top + surface.height / 2 },
+                scrimCovers: scrimBox
+                    ? scrimBox.left <= surface.left
+                        && scrimBox.top <= surface.top
+                        && scrimBox.right >= surface.right
+                        && scrimBox.bottom >= surface.bottom
+                    : false
+            };
+        });
+        expect(lens.present).toBe(true);
+        expect(lens.ariaHidden).toBe("true");
+        expect(lens.pointerEvents).toBe("none");
+        expect(lens.targets).toBe(0);
+        expect(lens.roles).toBe(0);
+        expect(lens.semanticInsideLens).toBe(0);
+        expect(lens.mask).toBe(true);
+        expect(lens.scrimCovers).toBe(true);
+        // The aperture is anchored on the fixed centre probe, not on the chart's own bounding box.
+        expect(Math.abs(lens.rimCenter!.x - lens.probeCenter.x)).toBeLessThan(2);
+        expect(Math.abs(lens.rimCenter!.y - lens.probeCenter.y)).toBeLessThan(2);
+        // The listbox options are still the map features, and nothing was added to them.
+        expect(lens.options).toBeGreaterThan(0);
+
+        const hitLens = await page.evaluate(() => {
+            const surface = document.querySelector(".profile-lens-context")!.getBoundingClientRect();
+            const element = document.elementFromPoint(
+                surface.left + surface.width / 2 + 4,
+                surface.top + surface.height / 2 + 4
+            );
+            return element ? element.className.toString() : "";
+        });
+        expect(hitLens).not.toContain("profile-lens-lens");
+
+        const selectCalls = await page.evaluate(() => (window as unknown as {
+            profileLensHost: { calls: { select: number } };
+        }).profileLensHost.calls.select);
+        expect(selectCalls).toBe(0);
+        expect(externalRequests).toEqual([]);
+    });
+
+    test("leaves the lens inert outside the focus composition and when disabled", async ({ page }) => {
+        for (const contextLayout of ["split", "locatorInset", "profileOnly"]) {
+            await mount(page, {
+                width: 1280,
+                height: 620,
+                entities: [...WORLD_50_KEYS.slice(0, 24)],
+                periods: [],
+                contextMode: "builtInPack",
+                contextPack: "worldCountries",
+                worldDetail: "50m",
+                packKeyMode: "canonical",
+                contextLayout,
+                navigationEnabled: true
+            });
+            expect(await page.locator(".profile-lens-lens").count(), contextLayout).toBe(0);
+        }
+        await mount(page, {
+            width: 1280,
+            height: 620,
+            entities: [...WORLD_50_KEYS.slice(0, 24)],
+            periods: [],
+            contextMode: "builtInPack",
+            contextPack: "worldCountries",
+            worldDetail: "50m",
+            packKeyMode: "canonical",
+            contextLayout: "focusLens",
+            showLensScrim: false,
+            navigationEnabled: true
+        });
+        expect(await page.locator(".profile-lens-lens").count()).toBe(0);
+        expect(await page.locator(".profile-lens-target").count()).toBeGreaterThan(0);
+    });
+
+    test("renders identical chart semantics under SVG and Canvas context surfaces", async ({ page }) => {
+        const snapshot = async (): Promise<unknown> => page.evaluate(() => {
+            const root = document.getElementById("visual-root")!;
+            const chart = root.querySelector("svg.profile-lens-profile-svg")!;
+            return {
+                renderer: root.querySelector(".profile-lens-context-canvas")
+                    && (root.querySelector(".profile-lens-context-canvas") as HTMLCanvasElement).width > 0
+                    ? "canvas"
+                    : "svg",
+                targets: [...root.querySelectorAll(".profile-lens-target")]
+                    .map((node) => `${node.getAttribute("data-key")}|${node.getAttribute("aria-label")}`),
+                labels: [...chart.querySelectorAll(".profile-lens-chart-label")]
+                    .map((node) => `${node.getAttribute("data-label-key")}|${node.textContent}`),
+                lens: chart.querySelectorAll(".profile-lens-lens").length,
+                aperture: chart.querySelector(".profile-lens-lens-rim")?.getAttribute("r") ?? null
+            };
+        });
+        const shared = {
+            width: 1280,
+            height: 620,
+            entities: [...WORLD_50_KEYS.slice(0, 20)],
+            periods: [],
+            contextMode: "builtInPack",
+            contextPack: "worldCountries",
+            worldDetail: "50m",
+            packKeyMode: "canonical",
+            contextLayout: "focusLens",
+            navigationEnabled: true
+        };
+        await mount(page, { ...shared, svgFeatureThreshold: 5000, svgVertexThreshold: 5000000 });
+        const svg = await snapshot();
+        await mount(page, { ...shared, svgFeatureThreshold: 1, svgVertexThreshold: 1 });
+        const canvas = await snapshot();
+        expect(canvas).toEqual(svg);
+    });
+
+    test("distinguishes series without colour alone in both themes", async ({ page }) => {
+        const shared = {
+            width: 1280,
+            height: 620,
+            entities: ["Entity A"],
+            periods: [],
+            series: ["Urban", "Rural"],
+            profiles: ["Residents"]
+        };
+        await mount(page, shared);
+        const normal = await page.evaluate(() => {
+            const root = document.getElementById("visual-root")!;
+            const pattern = root.querySelector("#profile-lens-pattern-secondary");
+            const fills = [...root.querySelectorAll(".profile-lens-target rect.profile-lens-bar")]
+                .map((rect) => rect.getAttribute("fill"));
+            return {
+                dots: pattern ? pattern.querySelectorAll("circle").length : 0,
+                hatches: pattern ? pattern.querySelectorAll("path").length : 0,
+                distinctFills: new Set(fills).size,
+                mirrored: new Set([...root.querySelectorAll(".profile-lens-target rect.profile-lens-bar")]
+                    .map((rect) => Math.sign(Number(rect.getAttribute("y"))))).size
+            };
+        });
+        // A rotation-invariant stipple, not the diagonal hatch that read as noise on rotated arms.
+        expect(normal.dots).toBe(1);
+        expect(normal.hatches).toBe(0);
+        expect(normal.distinctFills).toBeGreaterThan(1);
+        // Position already separates the two series, so hue is never the only channel.
+        expect(normal.mirrored).toBeGreaterThan(1);
+
+        await mount(page, {
+            ...shared,
+            highContrast: true,
+            highContrastForeground: "#FFFFFF",
+            highContrastBackground: "#000000",
+            highContrastSelected: "#00FF00"
+        });
+        const contrast = await page.evaluate(() => {
+            const root = document.getElementById("visual-root")!;
+            const pattern = root.querySelector("#profile-lens-pattern-secondary");
+            return {
+                hatches: pattern ? pattern.querySelectorAll("path").length : 0,
+                scrims: root.querySelectorAll(".profile-lens-lens-scrim").length,
+                outlined: [...root.querySelectorAll(".profile-lens-target rect.profile-lens-bar")]
+                    .every((rect) => rect.getAttribute("stroke") === "#FFFFFF")
+            };
+        });
+        expect(contrast.hatches).toBe(1);
+        expect(contrast.outlined).toBe(true);
+        // High contrast owns both colours; dimming one of them is what the mode exists to prevent.
+        expect(contrast.scrims).toBe(0);
+    });
+
+    test("adds no rebuilds and stays bounded while the lens tracks the probe", async ({ page }) => {
+        await mount(page, {
+            width: 1280,
+            height: 620,
+            entities: [...WORLD_50_KEYS.slice(0, 40)],
+            periods: [],
+            contextMode: "builtInPack",
+            contextPack: "worldCountries",
+            worldDetail: "50m",
+            packKeyMode: "canonical",
+            contextLayout: "focusLens",
+            navigationEnabled: true
+        });
+        const surface = page.locator(".profile-lens-context");
+        const read = async () => surface.evaluate((node) => {
+            const metrics = (node as HTMLElement & {
+                __profileLensContextMetrics?: {
+                    providerBuilds: number;
+                    sceneBuilds: number;
+                    sceneIndexBuilds: number;
+                    svgGeometryBuilds: number;
+                    canvasRasterBuilds: number;
+                    canvasPickingBuilds: number;
+                    probeTransitions: number;
+                    profilePartialUpdates: number;
+                    profilePartialDurationsMs: number[];
+                };
+            }).__profileLensContextMetrics;
+            if (!metrics) throw new Error("context metrics are missing");
+            return { ...metrics, profilePartialDurationsMs: [...metrics.profilePartialDurationsMs] };
+        });
+        const before = await read();
+        const box = (await surface.boundingBox())!;
+        await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+        await page.mouse.down();
+        for (let index = 0; index < 24; index++) {
+            await page.mouse.move(
+                box.x + box.width / 2 - index * 6,
+                box.y + box.height / 2 + index * 3
+            );
+        }
+        await page.mouse.up();
+        await page.waitForTimeout(150);
+        const after = await read();
+        // The lens is drawn in the chart layer, so tracking the probe cannot rebuild the provider,
+        // the scene, the reference geometry, the base raster or the picking index.
+        expect(after.providerBuilds).toBe(before.providerBuilds);
+        expect(after.sceneBuilds).toBe(before.sceneBuilds);
+        expect(after.sceneIndexBuilds).toBe(before.sceneIndexBuilds);
+        expect(after.svgGeometryBuilds).toBe(before.svgGeometryBuilds);
+        expect(after.canvasRasterBuilds).toBe(before.canvasRasterBuilds);
+        expect(after.canvasPickingBuilds).toBe(before.canvasPickingBuilds);
+        const partialDelta = after.profilePartialUpdates - before.profilePartialUpdates;
+        expect(partialDelta).toBeGreaterThan(0);
+        expect(partialDelta).toBe(after.probeTransitions - before.probeTransitions);
+        const durations = after.profilePartialDurationsMs
+            .slice(-partialDelta)
+            .sort((left, right) => left - right);
+        const p95 = durations[Math.floor((durations.length - 1) * 0.95)] ?? Number.POSITIVE_INFINITY;
+        expect(p95).toBeLessThanOrEqual(16.7);
+        expect(durations.at(-1)!).toBeLessThanOrEqual(33.4);
+        expect(await page.locator(".profile-lens-lens-rim").count()).toBe(1);
+        console.log(`Lens probe tracking: ${JSON.stringify({
+            partialDelta,
+            p95,
+            max: durations.at(-1)
+        })}`);
+        expect(externalRequests).toEqual([]);
+    });
+
+    test("keeps proportions and bounded geometry as the tile shrinks", async ({ page }) => {
+        const observed: Array<{ size: string; ratio: number }> = [];
+        for (const size of [
+            { width: 1280, height: 620 },
+            { width: 760, height: 560 },
+            { width: 490, height: 390 }
+        ]) {
+            await mount(page, {
+                width: size.width,
+                height: size.height,
+                entities: ["Entity A"],
+                periods: [],
+                series: [],
+                profiles: ["Residents", "Median income", "Degree holders"]
+            });
+            const ratio = await page.evaluate(() => {
+                const rects = [...document.querySelectorAll(".profile-lens-arm rect.profile-lens-bar")];
+                const widths = rects.map((rect) => Number(rect.getAttribute("width")));
+                const xs = rects.map((rect) => Number(rect.getAttribute("x")));
+                const span = Math.max(...xs) - Math.min(...xs);
+                return widths[0] / (span / Math.max(rects.length / 3 - 1, 1));
+            });
+            observed.push({ size: `${size.width}x${size.height}`, ratio });
+        }
+        const first = observed[0].ratio;
+        for (const entry of observed) {
+            // A fixed design box, not a per-tile recomposition with different relative weights.
+            expect(Math.abs(entry.ratio - first), entry.size).toBeLessThan(0.25);
+        }
+        console.log(`Chart proportion stability: ${JSON.stringify(observed)}`);
+    });
+
+    test("fills a wide tile instead of a square of it", async ({ page }) => {
+        await mount(page, {
+            width: 1520,
+            height: 560,
+            entities: ["Entity A"],
+            periods: [],
+            series: ["Urban", "Rural"],
+            profiles: ["Residents"]
+        });
+        const usage = await page.evaluate(() => {
+            const chart = document.querySelector("svg.profile-lens-profile-svg")!.getBoundingClientRect();
+            const rects = [...document.querySelectorAll(".profile-lens-arm rect.profile-lens-bar")]
+                .map((rect) => rect.getBoundingClientRect());
+            return {
+                chartWidth: chart.width,
+                chartHeight: chart.height,
+                usedWidth: Math.max(...rects.map((rect) => rect.right))
+                    - Math.min(...rects.map((rect) => rect.left)),
+                usedHeight: Math.max(...rects.map((rect) => rect.bottom))
+                    - Math.min(...rects.map((rect) => rect.top))
+            };
+        });
+        // v1.8 capped the band axis at the inscribed circle, so a 1520x560 tile used a 560 square.
+        expect(usage.usedWidth / usage.chartWidth).toBeGreaterThan(0.75);
+        expect(usage.usedHeight / usage.chartHeight).toBeGreaterThan(0.5);
+        console.log(`Wide tile usage: ${JSON.stringify(usage)}`);
     });
 });

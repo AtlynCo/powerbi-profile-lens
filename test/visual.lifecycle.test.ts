@@ -1096,6 +1096,304 @@ describe("interaction", () => {
         expect(svg.querySelectorAll(".profile-lens-empty-card")).toHaveLength(0);
     });
 
+    it("labels every arm, not only the first", () => {
+        const { mock, visual } = mount();
+        visual.update(updateOptions(buildMatrixDataView({
+            entities: ["USA"],
+            bands: ["0 to 17", "18 to 34", "35 to 49"],
+            profiles: ["Residents", "Median household income", "Degree holders"],
+            objects: { context: { mode: "none" } }
+        }), { width: 1280, height: 620 }));
+        const labels = [...mock.element.querySelectorAll<SVGTextElement>(
+            '.profile-lens-label-layer [data-label-kind="band"]'
+        )];
+        const arms = new Set(labels.map((label) => label.getAttribute("data-label-key")!.split(":")[1]));
+        // v1.7 labelled arm 0 only, which left five of six arms on the period page unlabelled.
+        expect(arms).toEqual(new Set(["0", "1", "2"]));
+        const captions = mock.element.querySelectorAll('[data-label-kind="caption"]');
+        expect(captions).toHaveLength(3);
+    });
+
+    it("places band labels beside their own band, not at the far edge of the value budget", () => {
+        const { mock, visual } = mount();
+        visual.update(updateOptions(buildMatrixDataView({
+            entities: ["USA"],
+            bands: ["0 to 17", "18 to 34", "35 to 49"],
+            profiles: ["Residents"],
+            objects: { context: { mode: "none" } }
+        }), { width: 1280, height: 620 }));
+        const svg = mock.element.querySelector<SVGSVGElement>("svg.profile-lens-profile-svg")!;
+        const bars = [...svg.querySelectorAll<SVGRectElement>(".profile-lens-target rect.profile-lens-bar")];
+        expect(bars.length).toBeGreaterThan(0);
+        const barBottom = Math.max(...bars.map((bar) =>
+            Number(bar.getAttribute("y")) + Number(bar.getAttribute("height"))));
+        const bandLabels = [...svg.querySelectorAll<SVGTextElement>('[data-label-kind="band"]')];
+        expect(bandLabels.length).toBeGreaterThan(0);
+        const armGroup = svg.querySelector<SVGGElement>(".profile-lens-arm")!;
+        const originY = Number(/translate\([^,]+,([^)]+)\)/.exec(
+            armGroup.getAttribute("transform") ?? ""
+        )![1]);
+        for (const label of bandLabels) {
+            // Under v1.7 these sat at valueExtent + 8, roughly 350px below the bars they name.
+            expect(Math.abs(Number(label.getAttribute("y")) - (originY + barBottom)))
+                .toBeLessThan(40);
+        }
+    });
+
+    it("shows numbers and a scale annotation at the full tier", () => {
+        const { mock, visual } = mount();
+        visual.update(updateOptions(buildMatrixDataView({
+            entities: ["USA"],
+            bands: ["0 to 17", "18 to 34", "35 to 49"],
+            profiles: ["Residents"],
+            objects: { context: { mode: "none" } }
+        }), { width: 1280, height: 620 }));
+        const root = mock.element;
+        expect(root.querySelectorAll('[data-label-kind="value"]').length).toBeGreaterThan(0);
+        const scale = root.querySelector('[data-label-kind="scale"]');
+        expect(scale?.textContent ?? "").toMatch(/^Max /);
+    });
+
+    it("names the normalization in the scale annotation when values are proportional", () => {
+        const { mock, visual } = mount();
+        visual.update(updateOptions(buildMatrixDataView({
+            entities: ["USA"],
+            bands: ["0 to 17", "18 to 34", "35 to 49"],
+            profiles: ["Residents"],
+            objects: {
+                context: { mode: "none" },
+                data: { normalization: "shareOfProfile" }
+            }
+        }), { width: 1280, height: 620 }));
+        const scale = mock.element.querySelector('[data-label-kind="scale"]');
+        expect(scale?.textContent ?? "").toContain("Share of profile");
+    });
+
+    it("respects a persisted decision to keep value labels off", () => {
+        const { mock, visual } = mount();
+        visual.update(updateOptions(buildMatrixDataView({
+            entities: ["USA"],
+            bands: ["0 to 17", "18 to 34"],
+            profiles: ["Residents"],
+            objects: {
+                context: { mode: "none" },
+                profiles: { showValueLabels: false }
+            }
+        }), { width: 1280, height: 620 }));
+        expect(mock.element.querySelectorAll('[data-label-kind="value"]')).toHaveLength(0);
+        expect(mock.element.querySelectorAll(".profile-lens-target").length).toBeGreaterThan(0);
+    });
+
+    it("keeps every label inside the chart and free of overlap on a small tile", () => {
+        const { mock, visual } = mount();
+        visual.update(updateOptions(buildMatrixDataView({
+            entities: ["USA"],
+            bands: ["0 to 17", "18 to 34", "35 to 49", "50 to 64", "65 and over"],
+            series: ["Urban", "Rural"],
+            profiles: ["Residents"],
+            objects: { context: { mode: "none" } }
+        }), { width: 490, height: 390 }));
+        const svg = mock.element.querySelector<SVGSVGElement>("svg.profile-lens-profile-svg")!;
+        const layer = svg.querySelector<SVGGElement>(".profile-lens-label-layer")!;
+        const cap = Number(layer.getAttribute("data-label-cap"));
+        const labels = [...layer.querySelectorAll<SVGTextElement>("text")];
+        expect(labels.length).toBeGreaterThan(0);
+        expect(labels.length).toBeLessThanOrEqual(cap);
+        const boxes = labels.map((label) => {
+            const fontSize = Number((label.getAttribute("font-size") ?? "10px").replace("px", ""));
+            const width = (label.textContent ?? "").length * fontSize * 0.55;
+            const x = Number(label.getAttribute("x"));
+            const y = Number(label.getAttribute("y"));
+            const anchor = label.getAttribute("text-anchor");
+            const x1 = anchor === "start" ? x : anchor === "end" ? x - width : x - width / 2;
+            return { x1, x2: x1 + width, y1: y - fontSize * 0.61, y2: y + fontSize * 0.61 };
+        });
+        // v1.7 rendered "Band 5Band 4Band 3Band 2Band 1" as one unreadable run at this size.
+        for (let left = 0; left < boxes.length; left++) {
+            for (let right = left + 1; right < boxes.length; right++) {
+                const a = boxes[left];
+                const b = boxes[right];
+                const overlaps = a.x1 < b.x2 && a.x2 > b.x1 && a.y1 < b.y2 && a.y2 > b.y1;
+                expect(overlaps, `${labels[left].textContent} over ${labels[right].textContent}`)
+                    .toBe(false);
+            }
+        }
+    });
+
+    it("contains the focus lens with an inert scrim and aperture", () => {
+        const { mock, visual } = mount();
+        visual.update(updateOptions(buildMatrixDataView({
+            // The fitted world camera puts the fixed centre probe over Mali, so binding it is what
+            // makes the probe resolve a loaded profile in this harness.
+            entities: ["MLI", "USA"],
+            bands: ["0 to 17", "18 to 34"],
+            profiles: ["Residents"],
+            objects: {
+                context: {
+                    mode: "builtInPack",
+                    pack: "worldCountries",
+                    packKeyMode: "canonical"
+                },
+                layout: { contextLayout: "focusLens" },
+                navigation: { enabled: true, fallbackEntityKey: "USA" }
+            }
+        }), { width: 1280, height: 620 }));
+        const svg = mock.element.querySelector<SVGSVGElement>("svg.profile-lens-profile-svg")!;
+        const lens = svg.querySelector<SVGGElement>(".profile-lens-lens")!;
+        expect(lens).not.toBeNull();
+        expect(lens.getAttribute("aria-hidden")).toBe("true");
+        expect(lens.getAttribute("pointer-events")).toBe("none");
+        expect(lens.querySelectorAll(".profile-lens-lens-scrim")).toHaveLength(1);
+        expect(lens.querySelectorAll(".profile-lens-lens-rim")).toHaveLength(1);
+        expect(svg.querySelector("#profile-lens-aperture-mask")).not.toBeNull();
+        // The lens carries no identity and no target, so picking, selection, tooltips and the
+        // accessible table cannot see it.
+        expect(lens.querySelectorAll(".profile-lens-target")).toHaveLength(0);
+        expect(lens.querySelectorAll("[data-key]")).toHaveLength(0);
+        expect(lens.querySelectorAll("[role]")).toHaveLength(0);
+        const rim = lens.querySelector(".profile-lens-lens-rim")!;
+        const apertureRadius = Number(rim.getAttribute("r"));
+        for (const arm of svg.querySelectorAll<SVGGElement>(".profile-lens-arm")) {
+            for (const bar of arm.querySelectorAll<SVGRectElement>("rect")) {
+                expect(Number(bar.getAttribute("x"))).toBeGreaterThan(apertureRadius);
+            }
+        }
+        // Rounded caps carve the corners out of the drawn shape, so each band carries an invisible
+        // rectangle that keeps its interactive area exactly what it was before the restyle.
+        const targets = [...svg.querySelectorAll<SVGGElement>(".profile-lens-target")];
+        expect(targets.length).toBeGreaterThan(0);
+        for (const target of targets) {
+            const bar = target.querySelector<SVGRectElement>("rect.profile-lens-bar")!;
+            const hitArea = target.querySelector<SVGRectElement>("rect.profile-lens-bar-hit")!;
+            expect(hitArea).not.toBeNull();
+            expect(hitArea.getAttribute("pointer-events")).toBe("all");
+            expect(hitArea.hasAttribute("rx")).toBe(false);
+            for (const attribute of ["x", "y", "width", "height"]) {
+                expect(hitArea.getAttribute(attribute)).toBe(bar.getAttribute(attribute));
+            }
+        }
+    });
+
+    it("keeps the lens containment through the designed empty state", () => {
+        const { mock, visual } = mount();
+        visual.update(updateOptions(buildMatrixDataView({
+            // Bound to nothing the probe can land on, so the frame carries no cells.
+            entities: ["ZZA", "ZZB"],
+            bands: ["0 to 17", "18 to 34"],
+            profiles: ["Residents"],
+            objects: {
+                context: {
+                    mode: "builtInPack",
+                    pack: "worldCountries",
+                    packKeyMode: "canonical"
+                },
+                layout: { contextLayout: "focusLens" },
+                navigation: { enabled: true }
+            }
+        }), { width: 1280, height: 620 }));
+        const svg = mock.element.querySelector<SVGSVGElement>("svg.profile-lens-profile-svg")!;
+        expect(svg.getAttribute("data-empty")).toBe("true");
+        expect(svg.querySelectorAll(".profile-lens-empty-card")).toHaveLength(1);
+        // Containment belongs to the composition, not the data. Dropping it here would flash the
+        // map between dimmed and live every time the probe crossed empty geography.
+        expect(svg.querySelectorAll(".profile-lens-lens")).toHaveLength(1);
+        // The orphan skeleton stays suppressed.
+        expect(svg.querySelectorAll("line")).toHaveLength(0);
+        expect(svg.querySelectorAll(".profile-lens-chart-layer")).toHaveLength(0);
+        expect(svg.querySelectorAll(".profile-lens-label-layer")).toHaveLength(0);
+    });
+
+    it("leaves the lens treatment inert outside the focus composition", () => {        const { mock, visual } = mount();
+        const build = (contextLayout: string) => buildMatrixDataView({
+            entities: ["USA", "CAN"],
+            bands: ["0 to 17", "18 to 34"],
+            profiles: ["Residents"],
+            objects: {
+                context: {
+                    mode: "builtInPack",
+                    pack: "worldCountries",
+                    packKeyMode: "canonical"
+                },
+                layout: { contextLayout },
+                navigation: { enabled: true, fallbackEntityKey: "USA" }
+            }
+        });
+        for (const mode of ["split", "locatorInset", "profileOnly"]) {
+            visual.update(updateOptions(build(mode), { width: 1280, height: 620 }));
+            expect(
+                mock.element.querySelectorAll(".profile-lens-lens"),
+                `${mode} drew a lens`
+            ).toHaveLength(0);
+        }
+    });
+
+    it("turns the lens off when the author disables it", () => {
+        const { mock, visual } = mount();
+        visual.update(updateOptions(buildMatrixDataView({
+            entities: ["MLI", "USA"],
+            bands: ["0 to 17", "18 to 34"],
+            profiles: ["Residents"],
+            objects: {
+                context: {
+                    mode: "builtInPack",
+                    pack: "worldCountries",
+                    packKeyMode: "canonical"
+                },
+                layout: { contextLayout: "focusLens" },
+                profiles: { showLensScrim: false },
+                navigation: { enabled: true, fallbackEntityKey: "USA" }
+            }
+        }), { width: 1280, height: 620 }));
+        expect(mock.element.querySelectorAll(".profile-lens-lens")).toHaveLength(0);
+        expect(mock.element.querySelectorAll(".profile-lens-target").length).toBeGreaterThan(0);
+    });
+
+    it("keeps series distinguishable without relying on colour alone", () => {
+        const { mock, visual } = mount();
+        visual.update(updateOptions(buildMatrixDataView({
+            entities: ["USA"],
+            bands: ["0 to 17", "18 to 34"],
+            series: ["Urban", "Rural"],
+            profiles: ["Residents"],
+            objects: { context: { mode: "none" } }
+        }), { width: 1280, height: 620 }));
+        const svg = mock.element.querySelector<SVGSVGElement>("svg.profile-lens-profile-svg")!;
+        const pattern = svg.querySelector("#profile-lens-pattern-secondary");
+        expect(pattern).not.toBeNull();
+        // A rotation-invariant stipple replaces the diagonal hatch that read as noise on rotated
+        // arms, and the two series sit on opposite sides of the axis whatever the palette does.
+        expect(pattern!.querySelectorAll("circle")).toHaveLength(1);
+        expect(pattern!.querySelectorAll("path")).toHaveLength(0);
+        const fills = new Set([...svg.querySelectorAll(".profile-lens-target rect.profile-lens-bar")]
+            .map((rect) => rect.getAttribute("fill")));
+        expect(fills.size).toBeGreaterThan(1);
+    });
+
+    it("keeps the high contrast hatch and never dims the host palette", () => {
+        const { mock, visual } = mount({ highContrast: true });
+        visual.update(updateOptions(buildMatrixDataView({
+            entities: ["MLI", "USA"],
+            bands: ["0 to 17", "18 to 34"],
+            series: ["Urban", "Rural"],
+            profiles: ["Residents"],
+            objects: {
+                context: {
+                    mode: "builtInPack",
+                    pack: "worldCountries",
+                    packKeyMode: "canonical"
+                },
+                layout: { contextLayout: "focusLens" },
+                navigation: { enabled: true, fallbackEntityKey: "USA" }
+            }
+        }), { width: 1280, height: 620 }));
+        const svg = mock.element.querySelector<SVGSVGElement>("svg.profile-lens-profile-svg")!;
+        const pattern = svg.querySelector("#profile-lens-pattern-secondary")!;
+        expect(pattern.querySelectorAll("path")).toHaveLength(1);
+        // Washing out one of the two host colours is exactly what high contrast exists to prevent.
+        expect(svg.querySelectorAll(".profile-lens-lens-scrim")).toHaveLength(0);
+        expect(svg.querySelectorAll(".profile-lens-lens-rim")).toHaveLength(1);
+    });
+
     it("restores ordinary Entity focus when Context is removed", () => {
         const { mock, visual } = mount();
         const build = (mode: "builtInPack" | "none") => buildMatrixDataView({
@@ -3438,6 +3736,9 @@ describe("accessibility and theming", () => {
         visual.update(updateOptions(buildMatrixDataView({
             entities: ["Entity A", "Entity B"],
             bands: ["Band 1"],
+            // Two series, because pattern differentiation only means anything when there is a
+            // second series to differentiate.
+            series: ["Series X", "Series Y"],
             profiles: ["Metric A"],
             objects: {
                 context: { mode: "grid" },
@@ -3451,7 +3752,7 @@ describe("accessibility and theming", () => {
         expect(root?.style.getPropertyValue("--profile-lens-selected")).toBe("#00FF00");
         expect(root?.style.getPropertyValue("--profile-lens-muted")).toBe("#FFFFFF");
         expect(root?.style.getPropertyValue("--profile-lens-border")).toBe("#FFFFFF");
-        const rect = mock.element.querySelector(".profile-lens-target rect");
+        const rect = mock.element.querySelector(".profile-lens-target rect.profile-lens-bar");
         expect(rect?.getAttribute("fill")).toBe("#FFFFFF");
         expect(rect?.getAttribute("stroke")).toBe("#FFFFFF");
         expect(mock.element.querySelector("pattern")).not.toBeNull();

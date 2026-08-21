@@ -93,6 +93,22 @@ is already announced by the header state, the status line, and the accessible ta
 unchanged. The card degrades with the density tiers and stays inside an 80x80 tile, and no-data states
 still make no host selection.
 
+In `focusLens` the chart is contained: a translucent scrim dims the cartography around a clear
+circular aperture on the fixed center probe, and every arm is anchored outside that aperture, so the
+chart reads as one instrument over a dimmed map rather than loose marks over a live one. The scrim
+and aperture are decorative and never participate in picking, selection, tooltips, or semantics; they
+are inert for `split`, `locatorInset`, and `profileOnly`, inert in high contrast where the host owns
+both colors, and can be switched off with **Profiles > Dim map around lens**.
+
+Band labels are drawn on every arm, anchored to the band they describe. A mirrored arm carries them
+in a gutter on its own axis, exactly where a population pyramid carries its age scale; an unmirrored
+arm carries them against the baseline. Every chart label goes through one deterministic, capped
+placement pass: labels are placed in priority order, a colliding label is staggered and then skipped
+rather than drawn on top of another, and an explicit per-tier cap bounds the visible count. Value
+labels are on by default at the largest size tier and each arm carries a scale annotation naming its
+axis maximum and, for proportional modes, the normalization that defines the unit. Reports that
+explicitly turned value labels off keep them off.
+
 An optional fallback Entity key is exact raw bound text. It applies only over no feature, is visibly
 disclosed, and is never silently inferred as `WLD`; it never masks a known no-data feature. Authors can
 hide unbound base paint while keeping the complete backdrop probeable, navigable, and semantic.
@@ -255,8 +271,10 @@ absence of network requests from the packaged bundle in Chromium.
 A packaged-Chromium demo-page audit mounts every data-bearing configuration of the generated PBIP
 sample on the packaged bundle and asserts, per page, that the profile renders at least one mark, that
 a frame with zero cells paints no orphan skeleton, that the designed empty state appears exactly when
-it is expected, and that no external request is made. The audit imports the same side-effect-free
-definition module the sample generator uses, so it cannot drift from the shipped sample.
+it is expected, that every arm carries band labels, that no two chart labels overlap and none escapes
+the chart at the authored size or when scaled down, and that no external request is made. The audit
+imports the same side-effect-free definition module the sample generator uses, so it cannot drift from
+the shipped sample.
 
 They do not prove native Desktop field-well behavior, segmentation, bookmarks, service behavior,
 exports, dashboard pinning, DirectQuery/Direct Lake behavior, or native expand/collapse/drilldown.

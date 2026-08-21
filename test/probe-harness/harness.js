@@ -142,6 +142,33 @@
             navigationSettings.homeFocus = config.homeFocus;
         }
 
+        var profileSettings = {};
+        var profileKeys = [
+            "barThickness",
+            "showValueLabels",
+            "showBandLabels",
+            "showAxis",
+            "showLensScrim",
+            "fontSize"
+        ];
+        var hasProfileSettings = false;
+        profileKeys.forEach(function (key) {
+            if (Object.prototype.hasOwnProperty.call(config, key)) {
+                profileSettings[key] = config[key];
+                hasProfileSettings = true;
+            }
+        });
+        var seriesSettings = {};
+        var hasSeriesSettings = false;
+        ["primaryColor", "secondaryColor", "usePatterns", "showLegend"].forEach(function (key) {
+            if (Object.prototype.hasOwnProperty.call(config, key)) {
+                seriesSettings[key] = key.endsWith("Color")
+                    ? { solid: { color: config[key] } }
+                    : config[key];
+                hasSeriesSettings = true;
+            }
+        });
+
         var entityNodes = entities.map(function (entity, entityIndex) {
             var children = periods.length > 0
                 ? periods.map(function (period, periodIndex) {
@@ -163,33 +190,40 @@
             metadata: {
                 columns: rowLevels.map(function (level) { return level.sources[0]; }).concat(valueSources),
                 segment: config.segment ? {} : undefined,
-                objects: {
-                    data: {
-                        normalization: config.normalization || "raw",
-                        percentScale: config.percentScale || "fraction"
-                    },
-                    context: {
-                        mode: config.contextMode || "none",
-                        pack: config.contextPack || "worldCountries",
-                        worldDetail: config.worldDetail || "110m",
-                        referenceDetail: config.referenceDetail || "standard",
-                        showPhysicalLayers: config.showPhysicalLayers !== false,
-                        showLabels: config.showLabels !== false,
-                        labelDensity: config.labelDensity || "balanced",
-                        showGraticule: config.showGraticule !== false,
-                        packKeyMode: config.packKeyMode || "auto",
-                        svgFeatureThreshold: config.svgFeatureThreshold || 500,
-                        svgVertexThreshold: config.svgVertexThreshold || 20000,
-                        pointSize: config.pointSize || 6
-                    },
-                    layout: {
-                        contextLayout: config.contextLayout || "split"
-                    },
-                    interaction: {
-                        mode: config.interactionMode || "reportSelection"
-                    },
-                    navigation: navigationSettings
-                }
+                objects: (function () {
+                    var objects = {
+                        data: {
+                            normalization: config.normalization || "raw",
+                            percentScale: config.percentScale || "fraction"
+                        },
+                        context: {
+                            mode: config.contextMode || "none",
+                            pack: config.contextPack || "worldCountries",
+                            worldDetail: config.worldDetail || "110m",
+                            referenceDetail: config.referenceDetail || "standard",
+                            showPhysicalLayers: config.showPhysicalLayers !== false,
+                            showLabels: config.showLabels !== false,
+                            labelDensity: config.labelDensity || "balanced",
+                            showGraticule: config.showGraticule !== false,
+                            packKeyMode: config.packKeyMode || "auto",
+                            svgFeatureThreshold: config.svgFeatureThreshold || 500,
+                            svgVertexThreshold: config.svgVertexThreshold || 20000,
+                            pointSize: config.pointSize || 6
+                        },
+                        layout: {
+                            contextLayout: config.contextLayout || "split"
+                        },
+                        interaction: {
+                            mode: config.interactionMode || "reportSelection"
+                        },
+                        navigation: navigationSettings
+                    };
+                    // Only written when the caller asked for one, so the default path still proves
+                    // what an unset report resolves to.
+                    if (hasProfileSettings) objects.profiles = profileSettings;
+                    if (hasSeriesSettings) objects.series = seriesSettings;
+                    return objects;
+                })()
             },
             matrix: {
                 rows: { levels: rowLevels, root: { children: entityNodes } },
