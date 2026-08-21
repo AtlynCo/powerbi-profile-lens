@@ -25,7 +25,7 @@ import {
 import { compareDiagnostics, messageKeyFor, severityOf } from "./model/diagnostics";
 import { SegmentTracker, withSegmentState } from "./model/segments";
 import { computeProfileLayout } from "./layout/profileLayout";
-import { createSvgTextMeasurer } from "./layout/textFit";
+import { createSvgTextMeasurer, estimateTextWidth } from "./layout/textFit";
 import {
     InteractionController,
     InteractionFocusSource,
@@ -70,6 +70,7 @@ import {
 import { fitScene } from "./context/projection";
 import { chooseContextRenderer } from "./context/rendererSelection";
 import { computeContextLayout } from "./layout/contextLayout";
+import type { ContextLayoutMode } from "./layout/contextLayout";
 import {
     ContextPerformanceMetrics,
     ContextSurfaceElements,
@@ -156,6 +157,7 @@ interface FocusedRenderSession {
         readonly height: number;
     };
     readonly hasContext: boolean;
+    readonly lensContainment: boolean;
     readonly contextInteraction: SurfaceInteraction | null;
     readonly connectorTarget?: { readonly x: number; readonly y: number };
 }
@@ -606,6 +608,8 @@ export class Visual implements IVisual {
             armRotationDegrees: this.settings.armRotation,
             requestedBandGap: this.settings.bandGap,
             requestedThickness: this.settings.barThickness,
+            requestedFontSize: this.settings.fontSize,
+            requestedBandLabelWidth: this.bandLabelWidthFor(model),
             showPeriodControl: this.settings.showPeriod && periodIndex !== IMPLICIT_INDEX,
             showLegend: this.settings.showLegend,
             showBandLabels: this.settings.showBandLabels,
@@ -645,6 +649,7 @@ export class Visual implements IVisual {
         const layout = computeProfileLayout({
             viewport: { width: composite.profile.width, height: composite.profile.height },
             ...commonLayoutRequest,
+            lensContainment: this.lensContainmentFor(composite.effectiveMode),
             showEntityList: !hasContext
                 && this.settings.showEntityList
                 && model.entities.length > 1
@@ -839,6 +844,7 @@ export class Visual implements IVisual {
             allowInteractions,
             profileRect: composite.profile,
             hasContext,
+            lensContainment: this.lensContainmentFor(composite.effectiveMode),
             contextInteraction,
             connectorTarget
         };
@@ -1430,6 +1436,32 @@ export class Visual implements IVisual {
         this.svg.style.height = `${rect.height}px`;
     }
 
+    /**
+     * Whether the chart draws the lens containment.
+     *
+     * Only the focus composition has one probe under one chart, so only it can be contained. Split,
+     * locator inset and profile only leave the treatment inert, which is also what keeps every
+     * previously certified composition pixel-identical apart from the chart itself.
+     */
+    private lensContainmentFor(effectiveMode: ContextLayoutMode): boolean {
+        return effectiveMode === "focusLens" && this.settings.showLensScrim;
+    }
+
+    /**
+     * Widest band label, estimated deterministically.
+     *
+     * Layout has to reserve the mirrored axis gutter before anything is drawn, and it must produce
+     * the same geometry in a unit test as in a browser, so the estimate never uses live text
+     * metrics. The renderer still trims each label to the reserved budget with the real measurer.
+     */
+    private bandLabelWidthFor(model: ProfileDataModel): number {
+        let widest = 0;
+        for (const band of model.bands) {
+            widest = Math.max(widest, estimateTextWidth(band.label, this.settings.fontSize));
+        }
+        return widest;
+    }
+
     private resolveProbeFocus(forceRender = false): void {
         const session = this.focusedRenderSession;
         const viewport = this.viewportSession;
@@ -1554,6 +1586,8 @@ export class Visual implements IVisual {
             armRotationDegrees: this.settings.armRotation,
             requestedBandGap: this.settings.bandGap,
             requestedThickness: this.settings.barThickness,
+            requestedFontSize: this.settings.fontSize,
+            requestedBandLabelWidth: this.bandLabelWidthFor(model),
             showPeriodControl: this.settings.showPeriod
                 && hasLoadedProfile
                 && periodIndex !== IMPLICIT_INDEX,
@@ -1562,6 +1596,7 @@ export class Visual implements IVisual {
             showValueLabels: this.settings.showValueLabels,
             showAxis: this.settings.showAxis,
             showHeader: this.settings.showHeader,
+            lensContainment: session.lensContainment,
             showEntityList: !session.hasContext
                 && this.settings.showEntityList
                 && model.entities.length > 1

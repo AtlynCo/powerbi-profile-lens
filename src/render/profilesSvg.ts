@@ -2,16 +2,35 @@ import {
     ArmLayout,
     Point,
     ProfileLayout,
+    bandLabelOffset,
     bandSegment
 } from "../layout/profileLayout";
 import { TextMeasurer, estimateTextWidth, fitText, wrapText } from "../layout/textFit";
 import { ResolvedSettings } from "../formatting";
 import { Localization } from "../localization";
-import { IMPLICIT_INDEX, ProfileDataModel } from "../model/contract";
+import { IMPLICIT_INDEX, NormalizationMode, ProfileDataModel } from "../model/contract";
 import { NormalizedCell, NormalizedFrame, formatDisplayValue } from "../model/normalization";
-import { Theme, seriesColor } from "./theme";
+import { Theme, seriesFill } from "./theme";
+import {
+    LABEL_CAPS,
+    LabelCandidate,
+    LabelSlot,
+    PlacementResult,
+    placeLabels
+} from "./labelPlacement";
 
 const SVG_NS = "http://www.w3.org/2000/svg";
+
+/** Priority classes for the label placement pass. Lower wins when two labels would collide. */
+const LABEL_PRIORITY = {
+    armCaption: 0,
+    scale: 1,
+    band: 2,
+    value: 3
+} as const;
+
+const LABEL_PADDING = 1.5;
+const LABEL_LINE_RATIO = 1.22;
 
 /**
  * Copy for the designed no-data presentation.
@@ -63,9 +82,13 @@ export function targetKey(profileIndex: number, bandIndex: number, seriesIndex: 
  * When the frame carries no cells there is nothing to measure, so the chart skeleton is suppressed
  * entirely and one bounded empty-state card is drawn instead. Painting an axis, band labels and
  * metric captions around zero bars is what makes a no-data probe read as broken rather than empty.
+ *
+ * Every label goes through one deterministic, capped placement pass instead of being written at a
+ * computed position and hoped for. That is what turns "Band 5Band 4Band 3Band 2Band 1" into either
+ * a readable label or no label at all.
  */
 export function renderProfiles(svg: SVGSVGElement, input: RenderInput): readonly RenderedTarget[] {
-    const { layout, theme, settings, localization } = input;
+    const { layout, theme, localization } = input;
     clear(svg);
     svg.setAttribute("width", String(Math.max(layout.chart.width, 0)));
     svg.setAttribute("height", String(Math.max(layout.chart.height, 0)));
@@ -78,6 +101,11 @@ export function renderProfiles(svg: SVGSVGElement, input: RenderInput): readonly
     svg.setAttribute("focusable", "false");
 
     const measure = input.measure ?? estimateTextWidth;
+    // The containment is a property of the composition, not of the data, so the scrim and aperture
+    // stay put while the probe crosses empty geography. Dropping them there would make the map
+    // flash between dimmed and live on every ocean crossing.
+    svg.appendChild(buildDefs(theme, layout));
+    appendLens(svg, input);
 
     if (frameCellCount(input.frame) === 0) {
         svg.setAttribute("data-empty", "true");
@@ -86,20 +114,21 @@ export function renderProfiles(svg: SVGSVGElement, input: RenderInput): readonly
     }
     svg.removeAttribute("data-empty");
 
-    if (theme.usePatterns) {
-        svg.appendChild(buildPatternDefs(theme));
-    }
-
     const chartLayer = element<SVGGElement>("g");
     chartLayer.setAttribute("class", "profile-lens-chart-layer");
     const labelLayer = element<SVGGElement>("g");
     labelLayer.setAttribute("class", "profile-lens-label-layer");
     labelLayer.setAttribute("aria-hidden", "true");
+    labelLayer.setAttribute("pointer-events", "none");
     svg.appendChild(chartLayer);
     svg.appendChild(labelLayer);
 
     const targets: RenderedTarget[] = [];
+    const candidates: LabelCandidate[] = [];
     const bandCount = Math.max(input.model.bands.length, 1);
+    const fontSize = layout.labelFontSize;
+    const valueFontSize = Math.max(fontSize - 1, 7);
+    const lineHeight = fontSize * LABEL_LINE_RATIO;
 
     for (const arm of layout.arms) {
         const profile = input.frame.profiles.find((entry) => entry.profileIndex === arm.profileIndex);
@@ -108,6 +137,7 @@ export function renderProfiles(svg: SVGSVGElement, input: RenderInput): readonly
         }
         const armGroup = element<SVGGElement>("g");
         armGroup.setAttribute("class", "profile-lens-arm");
+        armGroup.setAttribute("data-profile-index", String(arm.profileIndex));
         armGroup.setAttribute(
             "transform",
             `translate(${round(arm.origin.x)},${round(arm.origin.y)}) rotate(${round(-arm.angleDegrees)})`
@@ -115,14 +145,7 @@ export function renderProfiles(svg: SVGSVGElement, input: RenderInput): readonly
         chartLayer.appendChild(armGroup);
 
         if (layout.chrome.axis) {
-            const axis = element<SVGLineElement>("line");
-            axis.setAttribute("x1", String(round(arm.bandStart)));
-            axis.setAttribute("y1", "0");
-            axis.setAttribute("x2", String(round(arm.bandStart + arm.bandExtent)));
-            axis.setAttribute("y2", "0");
-            axis.setAttribute("stroke", theme.gridColor);
-            axis.setAttribute("stroke-width", "1");
-            armGroup.appendChild(axis);
+            appendBaseline(armGroup, arm, theme, layout.scale);
         }
 
         for (const cell of profile.cells) {
@@ -157,10 +180,20 @@ export function renderProfiles(svg: SVGSVGElement, input: RenderInput): readonly
             const rect = element<SVGRectElement>("rect");
             const isMissing = cell.state !== "value" || cell.display === null;
             const height = isMissing ? Math.max(arm.valueExtent * 0.05, 2) : Math.max(geometry.height, 0);
+            const width = Math.max(geometry.width, 1);
+            const top = isMissing ? -height : geometry.y;
+            rect.setAttribute("class", "profile-lens-bar");
             rect.setAttribute("x", String(round(geometry.x)));
-            rect.setAttribute("y", String(round(isMissing ? -height : geometry.y)));
-            rect.setAttribute("width", String(round(Math.max(geometry.width, 1))));
+            rect.setAttribute("y", String(round(top)));
+            rect.setAttribute("width", String(round(width)));
             rect.setAttribute("height", String(round(height)));
+            // Rounded caps. Radius is capped by the shorter side so a short bar becomes a lozenge
+            // rather than a clipped rectangle, which is what makes the small values still read.
+            const capRadius = Math.min(width * 0.42, height / 2);
+            if (capRadius > 0.4) {
+                rect.setAttribute("rx", String(round(capRadius)));
+                rect.setAttribute("ry", String(round(capRadius)));
+            }
             rect.setAttribute("fill", isMissing ? theme.missingColor : fillFor(theme, seriesSlot));
             rect.setAttribute("stroke", theme.isHighContrast ? theme.foreground : "none");
             rect.setAttribute("stroke-width", theme.isHighContrast ? "1" : "0");
@@ -177,6 +210,21 @@ export function renderProfiles(svg: SVGSVGElement, input: RenderInput): readonly
                 rect.setAttribute("stroke-width", "2");
             }
             group.appendChild(rect);
+            // Rounded caps carve the corners out of the shape, and an SVG hit test follows the
+            // shape rather than its box. This invisible rectangle keeps the interactive area of a
+            // band exactly what it was before the restyle, so hover, tooltip, context menu, click
+            // and keyboard targets are unchanged.
+            const hit = element<SVGRectElement>("rect");
+            hit.setAttribute("class", "profile-lens-bar-hit");
+            hit.setAttribute("x", String(round(geometry.x)));
+            hit.setAttribute("y", String(round(top)));
+            hit.setAttribute("width", String(round(width)));
+            hit.setAttribute("height", String(round(height)));
+            hit.setAttribute("fill", "none");
+            hit.setAttribute("stroke", "none");
+            hit.setAttribute("pointer-events", "all");
+            hit.setAttribute("aria-hidden", "true");
+            group.appendChild(hit);
             armGroup.appendChild(group);
 
             targets.push({
@@ -190,43 +238,249 @@ export function renderProfiles(svg: SVGSVGElement, input: RenderInput): readonly
             });
 
             if (layout.chrome.valueLabels && !isMissing) {
-                const labelOffset = geometry.y < 0 ? geometry.y - 4 : geometry.y + geometry.height + 4;
-                const anchor = rotate(
-                    { x: geometry.x + geometry.width / 2, y: labelOffset },
-                    arm.angleDegrees,
-                    arm.origin
+                const text = formatDisplayValue(
+                    cell.display,
+                    input.frame.mode,
+                    localization.currentLocale
                 );
-                labelLayer.appendChild(
-                    text(
-                        formatDisplayValue(cell.display, input.frame.mode, localization.currentLocale),
-                        anchor,
-                        settings.fontSize - 1,
-                        theme.labelColor,
-                        "middle"
-                    )
-                );
+                const outward = geometry.y < 0 ? -1 : 1;
+                const tip = geometry.y < 0 ? geometry.y : geometry.y + geometry.height;
+                const step = valueFontSize * LABEL_LINE_RATIO;
+                candidates.push({
+                    key: `value:${key}`,
+                    text,
+                    priority: LABEL_PRIORITY.value,
+                    order: arm.profileIndex * 1000 + cell.bandIndex * 10 + seriesSlot,
+                    slots: [0, 1, 2].map((index) => rotate(
+                        {
+                            x: geometry.x + geometry.width / 2,
+                            y: tip + outward * (step * 0.62 + index * step)
+                        },
+                        arm.angleDegrees,
+                        arm.origin
+                    )),
+                    width: measure(text, valueFontSize),
+                    height: step,
+                    align: "middle",
+                    fontSize: valueFontSize,
+                    kind: "value",
+                    color: theme.labelColor
+                });
             }
         }
 
-        if (layout.chrome.bandLabels && arm.profileIndex === 0) {
-            appendBandLabels(labelLayer, input, arm, bandCount, measure);
+        if (layout.chrome.bandLabels) {
+            collectBandLabels(candidates, input, arm, bandCount, measure, fontSize);
         }
 
         const profileRef = input.model.profiles[arm.profileIndex];
-        if (profileRef && layout.chrome.bandLabels) {
-            const label = fitText(
-                profileRef.label,
+        // Caption and scale stack away from the chart centre in screen space, and fall back to the
+        // opposite side when the preferred one runs into the chart edge. Stacking radially collapses
+        // once the anchor is clamped, and a single line of separation is inside the collision
+        // padding, so the step is deliberately wider than one line.
+        const away = arm.labelAnchor.y >= layout.center.y ? 1 : -1;
+        const step = lineHeight * 1.3;
+        const stack = (offset: number): LabelSlot => ({
+            x: arm.labelAnchor.x,
+            y: arm.labelAnchor.y + away * offset * step
+        });
+        if (profileRef && layout.chrome.armCaptions) {
+            const budget = Math.max(layout.radius * 0.9, 24);
+            const caption = fitText(profileRef.label, budget, fontSize, measure);
+            if (caption.length > 0) {
+                candidates.push({
+                    key: `caption:${arm.profileIndex}`,
+                    text: caption,
+                    priority: LABEL_PRIORITY.armCaption,
+                    order: arm.profileIndex,
+                    slots: [0, 1, -1].map(stack),
+                    width: measure(caption, fontSize),
+                    height: lineHeight,
+                    align: arm.labelAlign,
+                    fontSize,
+                    kind: "caption",
+                    color: theme.labelColor,
+                    weight: "600"
+                });
+            }
+        }
+
+        if (layout.chrome.scaleAnnotation) {
+            const scaleText = fitText(
+                scaleAnnotationFor(input, profile.axisMaximum),
                 Math.max(layout.radius * 0.9, 24),
-                settings.fontSize,
+                valueFontSize,
                 measure
             );
-            labelLayer.appendChild(
-                text(label, arm.labelAnchor, settings.fontSize, theme.labelColor, arm.labelAlign)
-            );
+            if (scaleText.length > 0) {
+                candidates.push({
+                    key: `scale:${arm.profileIndex}`,
+                    text: scaleText,
+                    priority: LABEL_PRIORITY.scale,
+                    order: arm.profileIndex,
+                    slots: [1, -1, 2, -2].map(stack),
+                    width: measure(scaleText, valueFontSize),
+                    height: valueFontSize * LABEL_LINE_RATIO,
+                    align: arm.labelAlign,
+                    fontSize: valueFontSize,
+                    kind: "scale",
+                    color: theme.labelColor
+                });
+            }
         }
     }
 
+    const placement = placeLabels(candidates, {
+        // Deflated so a label clamped to the edge still keeps a hairline of margin inside the
+        // surface rather than sitting exactly on the clip boundary.
+        bounds: {
+            x: layout.chart.x + 4,
+            y: layout.chart.y + 4,
+            width: Math.max(layout.chart.width - 8, 1),
+            height: Math.max(layout.chart.height - 8, 1)
+        },
+        cap: LABEL_CAPS[layout.tier],
+        padding: LABEL_PADDING
+    });
+    appendPlacedLabels(labelLayer, placement);
     return targets;
+}
+
+function appendPlacedLabels(labelLayer: SVGGElement, placement: PlacementResult): void {
+    labelLayer.setAttribute("data-label-cap", String(placement.cap));
+    labelLayer.setAttribute("data-label-count", String(placement.placed.length));
+    labelLayer.setAttribute("data-label-skipped", String(placement.skipped));
+    for (const label of placement.placed) {
+        const node = text(label.text, { x: label.x, y: label.y }, label.fontSize, label.color, label.align);
+        node.setAttribute("class", `profile-lens-chart-label profile-lens-chart-label-${label.kind}`);
+        node.setAttribute("data-label-kind", label.kind);
+        node.setAttribute("data-label-key", label.key);
+        if (label.weight) {
+            node.setAttribute("font-weight", label.weight);
+        }
+        labelLayer.appendChild(node);
+    }
+}
+
+/**
+ * Draws the screen-space lens: a dimming scrim over the cartography with a clear circular aperture
+ * at the fixed centre probe, plus a rim that states where the measurement is taken.
+ *
+ * The whole group is inert. It carries no identity, it is excluded from picking by the surface
+ * stylesheet and by an explicit pointer-events rule, and it is hidden from assistive technology,
+ * so selection, tooltips, the accessible table and every announcement are unchanged.
+ */
+function appendLens(svg: SVGSVGElement, input: RenderInput): void {
+    const lens = input.layout.lens;
+    if (!lens) {
+        return;
+    }
+    const { theme } = input;
+    const group = element<SVGGElement>("g");
+    group.setAttribute("class", "profile-lens-lens");
+    group.setAttribute("aria-hidden", "true");
+    group.setAttribute("pointer-events", "none");
+    group.setAttribute("data-aperture-radius", String(round(lens.apertureRadius)));
+
+    if (theme.lens.scrimOpacity > 0) {
+        const scrim = element<SVGRectElement>("rect");
+        scrim.setAttribute("class", "profile-lens-lens-scrim");
+        scrim.setAttribute("x", String(round(lens.scrim.x)));
+        scrim.setAttribute("y", String(round(lens.scrim.y)));
+        scrim.setAttribute("width", String(round(lens.scrim.width)));
+        scrim.setAttribute("height", String(round(lens.scrim.height)));
+        scrim.setAttribute("fill", theme.lens.scrim);
+        scrim.setAttribute("fill-opacity", String(theme.lens.scrimOpacity));
+        scrim.setAttribute("mask", "url(#profile-lens-aperture-mask)");
+        scrim.setAttribute("pointer-events", "none");
+        group.appendChild(scrim);
+    }
+
+    const rim = element<SVGCircleElement>("circle");
+    rim.setAttribute("class", "profile-lens-lens-rim");
+    rim.setAttribute("cx", String(round(lens.center.x)));
+    rim.setAttribute("cy", String(round(lens.center.y)));
+    rim.setAttribute("r", String(round(lens.apertureRadius)));
+    rim.setAttribute("fill", "none");
+    rim.setAttribute("stroke", theme.lens.rim);
+    rim.setAttribute("stroke-opacity", String(theme.lens.rimOpacity));
+    rim.setAttribute("stroke-width", String(round(Math.max(input.layout.scale, 0.5))));
+    rim.setAttribute("pointer-events", "none");
+    group.appendChild(rim);
+    svg.appendChild(group);
+}
+
+function buildDefs(theme: Theme, layout: ProfileLayout): SVGDefsElement {
+    const defs = element<SVGDefsElement>("defs");
+    if (theme.usePatterns && layout.seriesCount > 1) {
+        defs.appendChild(buildSeriesTexture(theme));
+    }
+    if (layout.lens) {
+        defs.appendChild(buildApertureMask(layout));
+    }
+    return defs;
+}
+
+function buildApertureMask(layout: ProfileLayout): SVGMaskElement {
+    const lens = layout.lens!;
+    const mask = element<SVGMaskElement>("mask");
+    mask.setAttribute("id", "profile-lens-aperture-mask");
+    mask.setAttribute("maskUnits", "userSpaceOnUse");
+    mask.setAttribute("x", String(round(lens.scrim.x)));
+    mask.setAttribute("y", String(round(lens.scrim.y)));
+    mask.setAttribute("width", String(round(lens.scrim.width)));
+    mask.setAttribute("height", String(round(lens.scrim.height)));
+    const cover = element<SVGRectElement>("rect");
+    cover.setAttribute("x", String(round(lens.scrim.x)));
+    cover.setAttribute("y", String(round(lens.scrim.y)));
+    cover.setAttribute("width", String(round(lens.scrim.width)));
+    cover.setAttribute("height", String(round(lens.scrim.height)));
+    cover.setAttribute("fill", "#FFFFFF");
+    const hole = element<SVGCircleElement>("circle");
+    hole.setAttribute("cx", String(round(lens.center.x)));
+    hole.setAttribute("cy", String(round(lens.center.y)));
+    hole.setAttribute("r", String(round(lens.apertureRadius)));
+    hole.setAttribute("fill", "#000000");
+    mask.appendChild(cover);
+    mask.appendChild(hole);
+    return mask;
+}
+
+/**
+ * Draws the baseline and its inner tick.
+ *
+ * A mirrored arm reads as a pyramid, so the baseline is the spine the two series grow away from and
+ * it has to be legible in its own right rather than a hairline the bars swallow.
+ */
+function appendBaseline(
+    armGroup: SVGGElement,
+    arm: ArmLayout,
+    theme: Theme,
+    scale: number
+): void {
+    const strokeWidth = Math.max(1, Math.round(1.4 * scale * 100) / 100);
+    const axis = element<SVGLineElement>("line");
+    axis.setAttribute("class", "profile-lens-axis");
+    axis.setAttribute("x1", String(round(arm.bandStart)));
+    axis.setAttribute("y1", "0");
+    axis.setAttribute("x2", String(round(arm.bandStart + arm.bandExtent)));
+    axis.setAttribute("y2", "0");
+    axis.setAttribute("stroke", theme.axisColor);
+    axis.setAttribute("stroke-width", String(strokeWidth));
+    axis.setAttribute("stroke-linecap", "round");
+    armGroup.appendChild(axis);
+
+    const tickHalf = Math.max(arm.axisGutter / 2, 3 * scale);
+    const tick = element<SVGLineElement>("line");
+    tick.setAttribute("class", "profile-lens-axis-tick");
+    tick.setAttribute("x1", String(round(arm.bandStart)));
+    tick.setAttribute("y1", String(round(-tickHalf)));
+    tick.setAttribute("x2", String(round(arm.bandStart)));
+    tick.setAttribute("y2", String(round(tickHalf)));
+    tick.setAttribute("stroke", theme.axisColor);
+    tick.setAttribute("stroke-width", String(strokeWidth));
+    tick.setAttribute("stroke-linecap", "round");
+    armGroup.appendChild(tick);
 }
 
 function frameCellCount(frame: NormalizedFrame): number {
@@ -336,29 +590,88 @@ function appendEmptyState(svg: SVGSVGElement, input: RenderInput, measure: TextM
     });
 }
 
-function appendBandLabels(
-    labelLayer: SVGGElement,
+/**
+ * Collects one band label per band, on every arm.
+ *
+ * The anchor comes from the band's own geometry, never from the far edge of the value budget, so a
+ * label sits beside the bars it describes rather than hundreds of pixels away from them. A mirrored
+ * arm puts them in the axis gutter, exactly where a population pyramid carries its band scale; an
+ * unmirrored arm puts them on the free side of the baseline. Both offer bounded stagger slots for
+ * the placement pass to fall back on.
+ */
+function collectBandLabels(
+    candidates: LabelCandidate[],
     input: RenderInput,
     arm: ArmLayout,
     bandCount: number,
-    measure: TextMeasurer
+    measure: TextMeasurer,
+    fontSize: number
 ): void {
     const slot = arm.bandExtent / bandCount;
-    const budget = Math.max(slot * 1.6, 16);
+    const radians = (arm.angleDegrees * Math.PI) / 180;
+    // A mirrored band label lives in the axis gutter, so its budget is whatever the gutter can
+    // show along the arm's perpendicular, not the band slot.
+    const gutterBudget = Math.abs(Math.sin(radians)) < 0.15
+        ? Math.max(slot * 1.4, 18)
+        : Math.max(arm.axisGutter - arm.bandGap, 12);
+    const budget = arm.mirrored ? gutterBudget : Math.max(slot * 1.4, 18);
+    const baseOffset = bandLabelOffset(arm, fontSize);
+    const step = fontSize * LABEL_LINE_RATIO;
+    const outside = arm.valueExtent + step * 0.7;
     for (const band of input.model.bands) {
-        const local: Point = {
-            x: arm.bandStart + slot * band.index + slot / 2,
-            y: arm.valueExtent + 8
-        };
-        const anchor = rotate(local, arm.angleDegrees, arm.origin);
-        const label = fitText(band.label, budget, input.settings.fontSize - 1, measure);
+        const label = fitText(band.label, budget, fontSize, measure);
         if (label.length === 0) {
             continue;
         }
-        labelLayer.appendChild(
-            text(label, anchor, input.settings.fontSize - 1, input.theme.labelColor, "middle")
-        );
+        const along = arm.bandStart + slot * band.index + slot / 2;
+        // Stay adjacent to the band first: step away from the baseline before giving up and
+        // crossing to the far side of the bars, so a displaced label still reads as this band's.
+        const offsets = arm.mirrored
+            ? [baseOffset, outside, -outside, baseOffset + step]
+            : [baseOffset, baseOffset + step, baseOffset + step * 2, -outside];
+        candidates.push({
+            key: `band:${arm.profileIndex}:${band.index}`,
+            text: label,
+            priority: LABEL_PRIORITY.band,
+            order: arm.profileIndex * 1000 + band.index,
+            slots: offsets.map((offset): LabelSlot =>
+                rotate({ x: along, y: offset }, arm.angleDegrees, arm.origin)),
+            width: measure(label, fontSize),
+            height: step,
+            align: "middle",
+            fontSize,
+            kind: "band",
+            color: input.theme.labelColor
+        });
     }
+}
+
+const NORMALIZATION_KEYS = {
+    raw: "Format_Normalization_Raw",
+    shareOfProfile: "Format_Normalization_ShareOfProfile",
+    shareWithinSeries: "Format_Normalization_ShareWithinSeries",
+    indexToMaximum: "Format_Normalization_IndexToMaximum",
+    alreadyPercent: "Format_Normalization_AlreadyPercent"
+} as const satisfies Readonly<Record<NormalizationMode, string>>;
+
+/**
+ * Scale annotation for one arm: the axis maximum, plus the normalization that defines the unit.
+ *
+ * Without it the chart states magnitudes it never quantifies. Raw values need no qualifier because
+ * the number is the value; every proportional mode does, because the same 42% means something
+ * different under share of profile and index to maximum.
+ */
+export function scaleAnnotationFor(input: RenderInput, axisMaximum: number): string {
+    const mode = input.frame.mode;
+    const value = formatDisplayValue(axisMaximum, mode, input.localization.currentLocale);
+    if (mode === "raw") {
+        return input.localization.format("Chart_ScaleMaximum", value);
+    }
+    return input.localization.format(
+        "Chart_ScaleMaximumOf",
+        value,
+        input.localization.get(NORMALIZATION_KEYS[mode])
+    );
 }
 
 function describeCell(input: RenderInput, cell: NormalizedCell, profileIndex: number): string {
@@ -404,28 +717,51 @@ function fillFor(theme: Theme, seriesSlot: number): string {
     if (theme.usePatterns && seriesSlot === 1) {
         return "url(#profile-lens-pattern-secondary)";
     }
-    return seriesColor(theme, seriesSlot);
+    return seriesFill(theme, seriesSlot);
 }
 
-function buildPatternDefs(theme: Theme): SVGDefsElement {
-    const defs = element<SVGDefsElement>("defs");
+/**
+ * Texture for the second series.
+ *
+ * High contrast keeps the hard diagonal hatch, which is the strongest available differentiator when
+ * only two host colours exist. The normal theme uses a fine stipple over the luminance separated
+ * fill instead: a diagonal at six rotated arm angles reads as noise, while a dot grid looks the same
+ * whichever way the arm points and still gives a non-colour channel for colour-vision deficiency.
+ */
+function buildSeriesTexture(theme: Theme): SVGPatternElement {
     const pattern = element<SVGPatternElement>("pattern");
     pattern.setAttribute("id", "profile-lens-pattern-secondary");
-    pattern.setAttribute("width", "6");
-    pattern.setAttribute("height", "6");
     pattern.setAttribute("patternUnits", "userSpaceOnUse");
+    if (theme.isHighContrast) {
+        pattern.setAttribute("width", "6");
+        pattern.setAttribute("height", "6");
+        const background = element<SVGRectElement>("rect");
+        background.setAttribute("width", "6");
+        background.setAttribute("height", "6");
+        background.setAttribute("fill", theme.background);
+        const stroke = element<SVGPathElement>("path");
+        stroke.setAttribute("d", "M0,6 L6,0");
+        stroke.setAttribute("stroke", theme.foreground);
+        stroke.setAttribute("stroke-width", "2");
+        pattern.appendChild(background);
+        pattern.appendChild(stroke);
+        return pattern;
+    }
+    pattern.setAttribute("width", "4");
+    pattern.setAttribute("height", "4");
     const background = element<SVGRectElement>("rect");
-    background.setAttribute("width", "6");
-    background.setAttribute("height", "6");
-    background.setAttribute("fill", theme.isHighContrast ? theme.background : theme.seriesColors[1]);
-    const stroke = element<SVGPathElement>("path");
-    stroke.setAttribute("d", "M0,6 L6,0");
-    stroke.setAttribute("stroke", theme.isHighContrast ? theme.foreground : "#FFFFFF");
-    stroke.setAttribute("stroke-width", "2");
+    background.setAttribute("width", "4");
+    background.setAttribute("height", "4");
+    background.setAttribute("fill", theme.seriesFills[1]);
+    const dot = element<SVGCircleElement>("circle");
+    dot.setAttribute("cx", "2");
+    dot.setAttribute("cy", "2");
+    dot.setAttribute("r", "0.9");
+    dot.setAttribute("fill", theme.isDark ? "#FFFFFF" : "#000000");
+    dot.setAttribute("fill-opacity", "0.28");
     pattern.appendChild(background);
-    pattern.appendChild(stroke);
-    defs.appendChild(pattern);
-    return defs;
+    pattern.appendChild(dot);
+    return pattern;
 }
 
 export function rotate(local: Point, angleDegrees: number, origin: Point): Point {

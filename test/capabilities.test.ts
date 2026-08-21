@@ -218,4 +218,49 @@ describe("capabilities contract", () => {
         model.navigation.homeFocus.value = "unsupported";
         expect(resolveSettings(model).homeFocus).toBe("automatic");
     });
+
+    it("declares the chart design properties the format pane needs", () => {
+        const profiles = capabilities.objects.profiles.properties as Record<string, unknown>;
+        expect(profiles.showLensScrim).toBeDefined();
+        expect((profiles.showLensScrim as { type: { bool: boolean } }).type.bool).toBe(true);
+        expect((profiles.showLensScrim as { descriptionKey: string }).descriptionKey)
+            .toBe("Format_ShowLensScrim_Description");
+        expect((profiles.showValueLabels as { descriptionKey: string }).descriptionKey)
+            .toBe("Format_ShowValueLabels_Description");
+    });
+
+    it("keeps changed chart defaults migration safe against persisted reports", () => {
+        const model = new ProfileLensFormattingModel();
+        // A report that never touched the setting gets the new default.
+        expect(resolveSettings(model).showValueLabels).toBe(true);
+        expect(resolveSettings(model).barThickness).toBe(11);
+        expect(resolveSettings(model, {} as powerbi.DataViewObjects).showValueLabels).toBe(true);
+
+        // A report that deliberately turned value labels off keeps them off, even though the
+        // populated card default has moved to true underneath it.
+        const disabled = new ProfileLensFormattingModel();
+        disabled.profiles.showValueLabels.value = false;
+        expect(resolveSettings(disabled, {
+            profiles: { showValueLabels: false }
+        } as unknown as powerbi.DataViewObjects).showValueLabels).toBe(false);
+        expect(resolveSettings(model, {
+            profiles: { showValueLabels: true }
+        } as unknown as powerbi.DataViewObjects).showValueLabels).toBe(true);
+
+        // An authored thickness survives the default change and is still clamped.
+        const thick = new ProfileLensFormattingModel();
+        thick.profiles.barThickness.value = 22;
+        expect(resolveSettings(thick, {
+            profiles: { barThickness: 22 }
+        } as unknown as powerbi.DataViewObjects).barThickness).toBe(22);
+        expect(resolveSettings(model, {
+            profiles: { barThickness: 900 }
+        } as unknown as powerbi.DataViewObjects).barThickness).toBe(64);
+
+        // The lens treatment is a new property, so absent resolves to on and explicit off sticks.
+        expect(resolveSettings(model).showLensScrim).toBe(true);
+        const noScrim = new ProfileLensFormattingModel();
+        noScrim.profiles.showLensScrim.value = false;
+        expect(resolveSettings(noScrim).showLensScrim).toBe(false);
+    });
 });

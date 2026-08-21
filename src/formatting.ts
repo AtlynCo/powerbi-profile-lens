@@ -30,6 +30,17 @@ function numberOptions(min: number, max: number): powerbi.visuals.NumUpDownForma
     };
 }
 
+/**
+ * Defaults that changed after a report could already have persisted the previous ones.
+ *
+ * Both are applied through the same raw-object migration the navigation mode uses: an explicit
+ * persisted value always wins, and only an absent property resolves to the new default. A report
+ * that deliberately turned value labels off keeps them off; a report that never touched the setting
+ * gets numbers on its chart.
+ */
+const DEFAULT_SHOW_VALUE_LABELS = true;
+const DEFAULT_BAR_THICKNESS = 11;
+
 export class DataCard extends Card {
     public override name = "data";
     public override displayNameKey = "Format_Data_Card";
@@ -394,14 +405,15 @@ export class ProfilesCard extends Card {
     public barThickness = new formattingSettings.NumUpDown({
         name: "barThickness",
         displayNameKey: "Format_BarThickness",
-        value: 14,
+        value: DEFAULT_BAR_THICKNESS,
         options: numberOptions(1, 64)
     });
 
     public showValueLabels = new formattingSettings.ToggleSwitch({
         name: "showValueLabels",
         displayNameKey: "Format_ShowValueLabels",
-        value: false
+        descriptionKey: "Format_ShowValueLabels_Description",
+        value: DEFAULT_SHOW_VALUE_LABELS
     });
 
     public showBandLabels = new formattingSettings.ToggleSwitch({
@@ -413,6 +425,13 @@ export class ProfilesCard extends Card {
     public showAxis = new formattingSettings.ToggleSwitch({
         name: "showAxis",
         displayNameKey: "Format_ShowAxis",
+        value: true
+    });
+
+    public showLensScrim = new formattingSettings.ToggleSwitch({
+        name: "showLensScrim",
+        displayNameKey: "Format_ShowLensScrim",
+        descriptionKey: "Format_ShowLensScrim_Description",
         value: true
     });
 
@@ -434,6 +453,7 @@ export class ProfilesCard extends Card {
         this.showValueLabels,
         this.showBandLabels,
         this.showAxis,
+        this.showLensScrim,
         this.fontSize,
         this.labelColor
     ];
@@ -638,6 +658,7 @@ export interface ResolvedSettings {
     readonly showValueLabels: boolean;
     readonly showBandLabels: boolean;
     readonly showAxis: boolean;
+    readonly showLensScrim: boolean;
     readonly fontSize: number;
     readonly labelColor: string;
     readonly primaryColor: string;
@@ -773,10 +794,22 @@ export function resolveSettings(
         bandGap: clamp(model.layout.bandGap.value, 0, 12),
         showEntityList: model.layout.showEntityList.value,
         direction: enumValue(model.layout.direction.value, ["auto", "ltr", "rtl"], "auto"),
-        barThickness: clamp(model.profiles.barThickness.value, 1, 64),
-        showValueLabels: model.profiles.showValueLabels.value,
+        barThickness: clamp(
+            resolveMigratedNumber(
+                model.profiles.barThickness.value,
+                objects?.profiles?.barThickness,
+                DEFAULT_BAR_THICKNESS
+            ),
+            1,
+            64
+        ),
+        showValueLabels: resolveMigratedToggle(
+            objects?.profiles?.showValueLabels,
+            DEFAULT_SHOW_VALUE_LABELS
+        ),
         showBandLabels: model.profiles.showBandLabels.value,
         showAxis: model.profiles.showAxis.value,
+        showLensScrim: model.profiles.showLensScrim.value,
         fontSize: clamp(model.profiles.fontSize.value, 6, 24),
         labelColor: model.profiles.labelColor.value.value,
         primaryColor: model.series.primaryColor.value.value,
@@ -812,6 +845,35 @@ function resolveNavigationMode(
         return raw;
     }
     return enumValue(populatedValue, ["auto", "on", "off"], "auto");
+}
+
+/**
+ * Resolves a toggle whose default changed after release.
+ *
+ * The populated model value cannot distinguish "the author turned this off" from "the author never
+ * touched it", because both arrive as the card default once the default itself moves. Reading the
+ * raw persisted object does distinguish them, which is the whole point.
+ */
+function resolveMigratedToggle(
+    raw: powerbi.DataViewPropertyValue | undefined,
+    migratedDefault: boolean
+): boolean {
+    return typeof raw === "boolean" ? raw : migratedDefault;
+}
+
+/** Numeric counterpart of resolveMigratedToggle. */
+function resolveMigratedNumber(
+    populatedValue: number,
+    raw: powerbi.DataViewPropertyValue | undefined,
+    migratedDefault: number
+): number {
+    if (typeof raw === "number" && Number.isFinite(raw)) {
+        return raw;
+    }
+    if (raw === undefined && Number.isFinite(populatedValue)) {
+        return populatedValue;
+    }
+    return migratedDefault;
 }
 
 export function defaultSettings(): ResolvedSettings {

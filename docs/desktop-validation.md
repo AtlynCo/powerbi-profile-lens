@@ -48,6 +48,16 @@ candidate; record the package name and SHA-256 from `dist/release-manifest.json`
     Confirm the card stays inside the visual at 80x80 and at each intermediate size, that the header
     state, status line, accessible table, and probe announcement are unchanged, and that no host
     selection occurs.
+15. In `focusLens`, confirm the scrim dims the cartography around a clear aperture centered exactly on
+    the fixed center probe, that the aperture and scrim never move with the camera, and that arms are
+    anchored outside the aperture. Confirm the scrim never receives hover, tooltip, context menu, or
+    selection, that the semantic option list is unchanged, and that the treatment stays drawn while
+    the probe crosses empty geography. Confirm it is absent in `split`, `locatorInset`, and
+    `profileOnly`, absent in high contrast, and absent when **Profiles > Dim map around lens** is off.
+16. Confirm band labels appear on every arm beside the bars they name, that no two chart labels
+    overlap or leave the visual at any tile size, that value labels and each arm's `Max` scale
+    annotation appear at the largest tier, and that a report which had value labels turned off before
+    upgrading still has them off.
 
 ## Layout and rendering
 

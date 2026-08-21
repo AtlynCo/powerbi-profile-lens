@@ -878,6 +878,8 @@
         "showValueLabels": {
           "displayName": "Show value labels",
           "displayNameKey": "Format_ShowValueLabels",
+          "description": "Shows the value of each band on the chart. Values appear at the largest size tier only, where there is room to read them.",
+          "descriptionKey": "Format_ShowValueLabels_Description",
           "type": {
             "bool": true
           }
@@ -892,6 +894,15 @@
         "showAxis": {
           "displayName": "Show axis",
           "displayNameKey": "Format_ShowAxis",
+          "type": {
+            "bool": true
+          }
+        },
+        "showLensScrim": {
+          "displayName": "Dim map around lens",
+          "displayNameKey": "Format_ShowLensScrim",
+          "description": "Dims the cartography around a clear circular aperture at the center probe so the chart reads as a lens over the map. Applies to the Focus lens layout only.",
+          "descriptionKey": "Format_ShowLensScrim_Description",
           "type": {
             "bool": true
           }

@@ -53,6 +53,8 @@ export const DEFAULT_STRINGS = {
     Tooltip_Raw: "Raw value",
     Tooltip_Displayed: "Displayed value",
     Aria_Chart: "Profile chart",
+    Chart_ScaleMaximum: "Max {0}",
+    Chart_ScaleMaximumOf: "Max {0} \u00b7 {1}",
     Aria_Segment: "{0}, band {1}, series {2}, {3}",
     Aria_MissingValue: "no value",
     Aria_NonNumericUnsupported: "non-numeric value unsupported",
@@ -172,7 +174,16 @@ export const DEFAULT_STRINGS = {
     Format_Accessibility_Card: "Accessibility",
     Format_ContextPack: "Built-in pack",
     Format_WorldDetail: "World detail",
-    Format_PackKeyMode: "Pack key mode"
+    Format_PackKeyMode: "Pack key mode",
+    Format_ShowValueLabels: "Show value labels",
+    Format_ShowValueLabels_Description: "Shows the value of each band on the chart. Values appear at the largest size tier only, where there is room to read them.",
+    Format_ShowLensScrim: "Dim map around lens",
+    Format_ShowLensScrim_Description: "Dims the cartography around a clear circular aperture at the center probe so the chart reads as a lens over the map. Applies to the Focus lens layout only.",
+    Format_Normalization_Raw: "Raw value",
+    Format_Normalization_ShareOfProfile: "Share of profile",
+    Format_Normalization_ShareWithinSeries: "Share within series",
+    Format_Normalization_IndexToMaximum: "Index to maximum",
+    Format_Normalization_AlreadyPercent: "Already a percentage"
 } as const;
 
 export type ResourceKey = keyof typeof DEFAULT_STRINGS;

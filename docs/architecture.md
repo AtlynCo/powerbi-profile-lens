@@ -65,6 +65,40 @@ The composite layout supports `split`, `focusLens`, `locatorInset`, and `profile
 fall back deterministically. A scene uses SVG only at 500 or fewer features and 20,000 or fewer
 vertices. Otherwise accepted scenes use Canvas. Scene limits apply before renderer selection.
 
+`focusLens` draws a screen-space containment: a translucent scrim over the cartography with a clear
+circular aperture on the fixed center probe, a rim, and every arm anchored outside the aperture. The
+scrim, mask, and rim live in the chart SVG, carry no identity, are `aria-hidden`, and are excluded
+from pointer events, so picking, selection, tooltips, the semantic option list, and the accessible
+table are unchanged, and probe transitions rebuild no provider, scene, reference geometry, base
+raster, or picking index. The treatment is inert for `split`, `locatorInset`, and `profileOnly`, is
+inert in high contrast where the host owns both colors, and can be turned off per report. It stays
+drawn through the designed empty state, so the map never flashes between dimmed and live when the
+probe crosses empty geography.
+
+Chart proportions come from a fixed design box scaled uniformly into the chart rectangle, so bar
+thickness, gaps, label type, and the aperture keep their relative weights as the tile shrinks rather
+than being recomposed at every size. Single-axis layouts spend the whole chart box: the band axis
+length and the perpendicular value budget are solved from the oriented rectangle that fits the box at
+the current arm rotation, and a single-series bilateral arm drops its baseline by half the budget so
+the drawn band is centered instead of leaving a blank half. Radiating arms reach along an inscribed
+ellipse, capped so a wide tile is spent without the star sprawling to the edges. A mirrored arm
+reserves a gutter on its axis, sized to the band label's extent along that arm's perpendicular and
+taken out of the magnitude budget, which is where a population pyramid carries its band scale.
+
+Every chart label — band labels on every arm, arm captions, per-arm scale annotations, and value
+labels — goes through one deterministic placement pass. Candidates are sorted by an explicit priority
+and a stable tiebreak, each tries a bounded list of stagger slots against the occupied rectangles,
+anything that still collides is skipped rather than drawn on top, and an explicit per-tier cap bounds
+the visible count. There is no force simulation and no work after the first settle. Band labels are
+anchored from `bandStart`, `bandThickness`, and `bandGap`, so they sit beside the bars they describe.
+
+Series differentiation never depends on hue alone. The two series fills carry a guaranteed relative
+luminance separation, the two series occupy opposite sides of a mirrored axis, and texture is retained
+for color-vision accessibility: a rotation-invariant stipple in the normal theme, where a diagonal
+hatch read as noise on rotated arms, and the hard diagonal hatch in high contrast. Bars carry rounded
+caps, so each band also carries an invisible rectangle that keeps its interactive area exactly the
+band rectangle.
+
 Both renderers use the same transform, selection identities, hit-test target keys, focus state,
 tooltip content, and accessible descriptions. Canvas is a rendering optimization, not a reduced
 semantic mode.

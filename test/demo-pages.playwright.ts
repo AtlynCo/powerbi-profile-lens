@@ -94,6 +94,19 @@ interface Audit {
     readonly emptyBounds: { x: number; y: number; width: number; height: number } | null;
     readonly chartBounds: { width: number; height: number };
     readonly failed: number;
+    readonly labelCap: number;
+    readonly labelledArms: number;
+    readonly armCount: number;
+    readonly labels: ReadonlyArray<{
+        kind: string;
+        key: string;
+        text: string;
+        x1: number;
+        y1: number;
+        x2: number;
+        y2: number;
+    }>;
+    readonly chartRect: { left: number; top: number; right: number; bottom: number } | null;
 }
 
 const REMOTE_SCHEMES = ["http", "https", "ws", "wss"].map((scheme) => `${scheme}:`);
@@ -199,9 +212,72 @@ async function auditPage(page: Page): Promise<Audit> {
                 width: Number(chart?.getAttribute("width") ?? 0),
                 height: Number(chart?.getAttribute("height") ?? 0)
             },
-            failed: failedEvents.failed
+            failed: failedEvents.failed,
+            labelCap: Number(labelLayer?.getAttribute("data-label-cap") ?? 0),
+            armCount: chartLayer ? chartLayer.querySelectorAll(".profile-lens-arm").length : 0,
+            labelledArms: new Set(
+                [...(labelLayer?.querySelectorAll('[data-label-kind="band"]') ?? [])]
+                    .map((node) => (node.getAttribute("data-label-key") ?? "").split(":")[1])
+            ).size,
+            labels: [...(labelLayer?.querySelectorAll<SVGGraphicsElement>(
+                ".profile-lens-chart-label"
+            ) ?? [])].map((node) => {
+                const rect = node.getBoundingClientRect();
+                return {
+                    kind: node.getAttribute("data-label-kind") ?? "",
+                    key: node.getAttribute("data-label-key") ?? "",
+                    text: node.textContent ?? "",
+                    x1: rect.left,
+                    y1: rect.top,
+                    x2: rect.right,
+                    y2: rect.bottom
+                };
+            }),
+            chartRect: chart
+                ? (() => {
+                    const rect = chart.getBoundingClientRect();
+                    return {
+                        left: rect.left,
+                        top: rect.top,
+                        right: rect.right,
+                        bottom: rect.bottom
+                    };
+                })()
+                : null
         };
     });
+}
+
+/**
+ * Readability assertions applied to every data-bearing demo page.
+ *
+ * The v1.8 audit found band labels on one arm out of six, labels hundreds of pixels from the bars
+ * they named, and an unreadable "Band 5Band 4Band 3Band 2Band 1" run on the 490x390 tile. These
+ * three properties are what make those defects impossible to reintroduce quietly.
+ */
+function assertReadableLabels(audit: Audit, label: string): void {
+    expect(audit.labels.length, `${label} exceeded its label cap`)
+        .toBeLessThanOrEqual(audit.labelCap);
+    for (let left = 0; left < audit.labels.length; left++) {
+        for (let right = left + 1; right < audit.labels.length; right++) {
+            const a = audit.labels[left];
+            const b = audit.labels[right];
+            const overlaps = a.x1 < b.x2 && a.x2 > b.x1 && a.y1 < b.y2 && a.y2 > b.y1;
+            expect(overlaps, `${label}: "${a.text}" overlaps "${b.text}"`).toBe(false);
+        }
+    }
+    if (audit.chartRect) {
+        for (const box of audit.labels) {
+            expect(box.x1, `${label}: "${box.text}" escaped the chart`)
+                .toBeGreaterThanOrEqual(audit.chartRect.left - 1);
+            expect(box.x2, `${label}: "${box.text}" escaped the chart`)
+                .toBeLessThanOrEqual(audit.chartRect.right + 1);
+            expect(box.y1, `${label}: "${box.text}" escaped the chart`)
+                .toBeGreaterThanOrEqual(audit.chartRect.top - 1);
+            expect(box.y2, `${label}: "${box.text}" escaped the chart`)
+                .toBeLessThanOrEqual(audit.chartRect.bottom + 1);
+        }
+    }
 }
 
 const dataVisuals = definition.pages.flatMap((page) =>
@@ -246,6 +322,14 @@ test.describe("packaged demo page audit", () => {
             ).toBeGreaterThan(0);
             expect(audit.chartMarkedEmpty).toBe(false);
             expect(audit.emptyCards).toBe(0);
+            assertReadableLabels(audit, `${samplePage.name}/${visual.name}`);
+            if (audit.labelCap > 0 && audit.armCount > 0) {
+                // v1.8 labelled arm 0 only, so a six-metric page shipped five unlabelled arms.
+                expect(
+                    audit.labelledArms,
+                    `${samplePage.name}/${visual.name} left arms unlabelled`
+                ).toBe(audit.armCount);
+            }
             expect(externalRequests).toEqual([]);
         });
     }
@@ -357,6 +441,28 @@ test.describe("packaged demo page audit", () => {
             ).toBeLessThanOrEqual(audit.chartBounds.height + 0.5);
         }
         expect(emptyTiers, "no tier exercised the designed empty state").toBeGreaterThan(0);
+        expect(externalRequests).toEqual([]);
+    });
+
+    test("every demo page stays readable when the tile is scaled down", async ({ page }) => {
+        const observed: Array<{ page: string; size: string; labels: number }> = [];
+        for (const { page: samplePage, visual } of dataVisuals) {
+            for (const size of [{ width: 490, height: 390 }, { width: 258, height: 198 }]) {
+                await mount(page, mountOptionsFor(visual, size.width, size.height));
+                const audit = await auditPage(page);
+                const label = `${samplePage.name}/${visual.name} at ${size.width}x${size.height}`;
+                expect(audit.failed, `${label} raised a failure`).toBe(0);
+                assertReadableLabels(audit, label);
+                observed.push({
+                    page: `${samplePage.name}/${visual.name}`,
+                    size: `${size.width}x${size.height}`,
+                    labels: audit.labels.length
+                });
+            }
+        }
+        console.log(`Demo page label readability\n${observed
+            .map((entry) => `${entry.page} ${entry.size}: ${entry.labels} labels`)
+            .join("\n")}`);
         expect(externalRequests).toEqual([]);
     });
 

@@ -1,10 +1,14 @@
 import { describe, expect, it } from "vitest";
 import {
     LayoutRequest,
+    bandLabelOffset,
     bandSegment,
     computeProfileLayout,
     densityTier,
+    designScale,
+    ellipseReach,
     layoutKindFor,
+    maxArmReach,
     normalizeAngle
 } from "../src/layout/profileLayout";
 import { estimateTextWidth, fitText } from "../src/layout/textFit";
@@ -86,6 +90,8 @@ describe("profile layout", () => {
             entityList: false,
             bandLabels: false,
             valueLabels: false,
+            armCaptions: false,
+            scaleAnnotation: false,
             axis: false,
             status: false
         });
@@ -163,11 +169,26 @@ describe("profile layout", () => {
         const arm = computeProfileLayout(request({ profileCount: 1, seriesCount: 2 })).arms[0];
         const first = bandSegment(arm, 0, 5, 0, 1);
         const second = bandSegment(arm, 0, 5, 1, 1);
+        const gutter = arm.axisGutter / 2;
+        expect(gutter).toBeGreaterThan(0);
         expect(first.y).toBeLessThan(0);
-        expect(first.y + first.height).toBeCloseTo(0, 6);
-        expect(second.y).toBe(0);
+        // The two series start at the gutter edge, not at the axis, so the band label has a place
+        // to sit adjacent to its own band, exactly as a population pyramid carries its age scale.
+        expect(first.y + first.height).toBeCloseTo(-gutter, 6);
+        expect(second.y).toBeCloseTo(gutter, 6);
         expect(second.height).toBeGreaterThan(0);
         expect(first.x).toBe(second.x);
+        // The gutter is taken out of the magnitude budget, never added to it.
+        expect(Math.abs(first.y)).toBeLessThanOrEqual(arm.valueExtent + 1e-9);
+        expect(second.y + second.height).toBeLessThanOrEqual(arm.valueExtent + 1e-9);
+    });
+
+    it("keeps an unmirrored arm free of a gutter so labels sit against the baseline", () => {
+        const arm = computeProfileLayout(request({ profileCount: 3, seriesCount: 1 })).arms[0];
+        expect(arm.axisGutter).toBe(0);
+        expect(bandLabelOffset(arm, 10)).toBeGreaterThan(0);
+        const segment = bandSegment(arm, 0, 5, 0, 1);
+        expect(segment.y).toBeCloseTo(-arm.valueExtent, 6);
     });
 
     it("stacks panels when the arrangement asks for it", () => {
@@ -177,6 +198,143 @@ describe("profile layout", () => {
         const ys = layout.arms.map((arm) => arm.origin.y);
         expect(ys[0]).toBeLessThan(ys[1]);
         expect(ys[1]).toBeLessThan(ys[2]);
+    });
+});
+
+describe("chart box usage", () => {
+    it("spends the whole width of a wide tile on a single axis", () => {
+        const layout = computeProfileLayout(request({
+            viewport: { width: 1520, height: 560 },
+            profileCount: 1,
+            seriesCount: 2
+        }));
+        const arm = layout.arms[0];
+        // Before this pass the band axis was capped by the inscribed circle, so a 1520 wide tile
+        // used roughly a 560 wide square of itself and left the rest blank.
+        expect(arm.bandExtent).toBeGreaterThan(layout.chart.width * 0.85);
+        expect(arm.bandStart + arm.bandExtent).toBeLessThanOrEqual(layout.chart.width / 2 + 0.001);
+    });
+
+    it("centres a single-series bilateral band instead of leaving the lower half empty", () => {
+        const layout = computeProfileLayout(request({
+            viewport: { width: 1520, height: 560 },
+            profileCount: 1,
+            seriesCount: 1
+        }));
+        const arm = layout.arms[0];
+        const full = bandSegment(arm, 0, 5, 0, 1);
+        const top = arm.origin.y + full.y;
+        const baseline = arm.origin.y;
+        expect(baseline).toBeGreaterThan(layout.center.y);
+        expect(top).toBeLessThan(layout.center.y);
+        // The drawn band straddles the centre of the chart box rather than hugging its top half.
+        expect(Math.abs((top + baseline) / 2 - layout.center.y)).toBeLessThan(2);
+        expect(top).toBeGreaterThanOrEqual(layout.chart.y - 0.001);
+        expect(baseline).toBeLessThanOrEqual(layout.chart.y + layout.chart.height + 0.001);
+    });
+
+    it("lets radial arms reach further along the long side of a wide tile", () => {
+        const wide = computeProfileLayout(request({
+            viewport: { width: 1520, height: 560 },
+            profileCount: 4
+        }));
+        const horizontal = wide.arms.find((arm) => arm.angleDegrees === 0)!;
+        const vertical = wide.arms.find((arm) => arm.angleDegrees === 90)!;
+        expect(horizontal.bandExtent).toBeGreaterThan(vertical.bandExtent);
+        for (const arm of wide.arms) {
+            const radians = (arm.angleDegrees * Math.PI) / 180;
+            const tipX = Math.abs(Math.cos(radians)) * (arm.bandStart + arm.bandExtent)
+                + Math.abs(Math.sin(radians)) * arm.valueExtent;
+            const tipY = Math.abs(Math.sin(radians)) * (arm.bandStart + arm.bandExtent)
+                + Math.abs(Math.cos(radians)) * arm.valueExtent;
+            expect(tipX).toBeLessThanOrEqual(wide.chart.width / 2 + 0.001);
+            expect(tipY).toBeLessThanOrEqual(wide.chart.height / 2 + 0.001);
+        }
+    });
+
+    it("keeps arm proportions stable as the tile shrinks", () => {
+        const sizes = [
+            { width: 1280, height: 620 },
+            { width: 640, height: 460 },
+            { width: 490, height: 390 }
+        ];
+        const ratios = sizes.map((viewport) => {
+            const layout = computeProfileLayout(request({ viewport, profileCount: 3 }));
+            const arm = layout.arms[0];
+            return arm.bandThickness / (arm.bandExtent / layout.bandCount);
+        });
+        for (let index = 1; index < ratios.length; index++) {
+            expect(Math.abs(ratios[index] - ratios[0])).toBeLessThan(0.2);
+        }
+        expect(designScale({ width: 1280, height: 620 })).toBe(1);
+        expect(designScale({ width: 490, height: 390 })).toBeLessThan(1);
+        expect(designScale({ width: 80, height: 80 })).toBeGreaterThanOrEqual(0.45);
+    });
+
+    it("derives label type from the design scale and never below the legible floor", () => {
+        expect(computeProfileLayout(request({ requestedFontSize: 10 })).labelFontSize).toBe(10);
+        const small = computeProfileLayout(request({
+            viewport: { width: 490, height: 390 },
+            requestedFontSize: 10
+        }));
+        expect(small.labelFontSize).toBeLessThan(10);
+        expect(small.labelFontSize).toBeGreaterThanOrEqual(7);
+    });
+
+    it("solves the oriented fit exactly at the axis-aligned angles", () => {
+        expect(ellipseReach(300, 100, 0)).toBeCloseTo(300, 6);
+        expect(ellipseReach(300, 100, 90)).toBeCloseTo(100, 6);
+        expect(maxArmReach(300, 100, 0, 40)).toBeCloseTo(300, 6);
+        expect(maxArmReach(300, 100, 90, 40)).toBeCloseTo(100, 6);
+        expect(maxArmReach(300, 100, 45, 20)).toBeCloseTo((100 - 20 * Math.SQRT1_2) / Math.SQRT1_2, 6);
+    });
+});
+
+describe("lens containment", () => {
+    const lensRequest = (overrides: Partial<LayoutRequest> = {}): LayoutRequest =>
+        request({ lensContainment: true, ...overrides });
+
+    it("stays inert unless the composition asks for it", () => {
+        expect(computeProfileLayout(request()).lens).toBeNull();
+        expect(computeProfileLayout(lensRequest()).lens).not.toBeNull();
+        expect(computeProfileLayout(lensRequest({ arrangement: "stacked" })).lens).toBeNull();
+    });
+
+    it("puts the aperture on the fixed centre probe and covers the whole surface", () => {
+        const layout = computeProfileLayout(lensRequest());
+        const lens = layout.lens!;
+        expect(lens.center).toEqual(layout.center);
+        expect(lens.apertureRadius).toBeGreaterThan(0);
+        expect(lens.apertureRadius).toBeLessThan(layout.radius);
+        expect(lens.scrim.x).toBeLessThan(layout.chart.x);
+        expect(lens.scrim.y).toBeLessThan(layout.chart.y);
+        expect(lens.scrim.x + lens.scrim.width)
+            .toBeGreaterThan(layout.chart.x + layout.chart.width);
+        expect(lens.scrim.y + lens.scrim.height)
+            .toBeGreaterThan(layout.chart.y + layout.chart.height);
+    });
+
+    it("anchors every arm outside the aperture", () => {
+        for (const profileCount of [1, 2, 3, 4, 6]) {
+            const layout = computeProfileLayout(lensRequest({ profileCount }));
+            const lens = layout.lens!;
+            for (const arm of layout.arms) {
+                expect(arm.bandStart, `profileCount ${profileCount}`)
+                    .toBeGreaterThan(lens.apertureRadius);
+                expect(arm.bandExtent).toBeGreaterThan(0);
+            }
+        }
+    });
+
+    it("keeps the aperture and arms inside an 80x80 tile", () => {
+        const layout = computeProfileLayout(lensRequest({ viewport: { width: 80, height: 80 } }));
+        const lens = layout.lens!;
+        expect(lens.apertureRadius).toBeLessThan(layout.radius);
+        for (const arm of layout.arms) {
+            expect(arm.bandStart).toBeGreaterThan(lens.apertureRadius);
+            expect(arm.valueExtent).toBeGreaterThan(0);
+            expect(arm.bandThickness).toBeGreaterThan(0);
+        }
     });
 });
 
