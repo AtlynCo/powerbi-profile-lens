@@ -97,11 +97,11 @@
                       "Entity": "CommunityProfiles"
                     }
                   },
-                  "Property": "Context value"
+                  "Property": "Context value (CommunityProfiles)"
                 }
               },
-              "queryRef": "CommunityProfiles.Context value",
-              "nativeQueryRef": "Context value"
+              "queryRef": "CommunityProfiles.Context value (CommunityProfiles)",
+              "nativeQueryRef": "Context value (CommunityProfiles)"
             }
           ]
         }

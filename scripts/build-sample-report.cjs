@@ -114,20 +114,22 @@ function tableTmdl(tableId) {
     const columns = tableColumns(tableId);
     const rows = tableRows(tableId);
     const measures = MEASURES[tableId].flatMap((measure) => [
-        `\tmeasure '${measure.name}' = ${measure.expression}(${table.name}[${measure.column}])`,
+        `\tmeasure '${measure.name} (${table.name})' = ${measure.expression}(${table.name}[${measure.column}])`,
         ""
     ]);
+    // Measure names must be unique model-wide in Tabular, so every home-table measure carries
+    // the table name; visual projections reference the same table-qualified names.
     const contextMeasures = [
-        `\tmeasure 'Context value' = SUM(${table.name}[${table.measures[0]}])`,
+        `\tmeasure 'Context value (${table.name})' = SUM(${table.name}[${table.measures[0]}])`,
         ""
     ];
     const coordinateMeasures = table.coordinates
         ? [
-            `\tmeasure 'Selected latitude' = SELECTEDVALUE(${table.name}[Latitude])`,
+            `\tmeasure 'Selected latitude (${table.name})' = SELECTEDVALUE(${table.name}[Latitude])`,
             "",
-            `\tmeasure 'Selected longitude' = SELECTEDVALUE(${table.name}[Longitude])`,
+            `\tmeasure 'Selected longitude (${table.name})' = SELECTEDVALUE(${table.name}[Longitude])`,
             "",
-            `\tmeasure 'Selected geometry' = SELECTEDVALUE(${table.name}[Geometry])`,
+            `\tmeasure 'Selected geometry (${table.name})' = SELECTEDVALUE(${table.name}[Geometry])`,
             ""
         ]
         : [];
@@ -213,7 +215,7 @@ function visualJson(visual) {
         Profiles: {
             projections: visual.metrics.map((metric) =>
                 (options.measureProfiles
-                    ? measureProjection(tableName, metric)
+                    ? measureProjection(tableName, `${metric} (${tableName})`)
                     : projection(tableName, metric, true)))
         }
     };
@@ -221,14 +223,22 @@ function visualJson(visual) {
         queryState.Series = { projections: [projection(tableName, "Settlement", false)] };
     }
     if (options.contextValue) {
-        queryState.ContextValue = { projections: [measureProjection(tableName, "Context value")] };
+        queryState.ContextValue = {
+            projections: [measureProjection(tableName, `Context value (${tableName})`)]
+        };
     }
     if (options.coordinates) {
-        queryState.Latitude = { projections: [measureProjection(tableName, "Selected latitude")] };
-        queryState.Longitude = { projections: [measureProjection(tableName, "Selected longitude")] };
+        queryState.Latitude = {
+            projections: [measureProjection(tableName, `Selected latitude (${tableName})`)]
+        };
+        queryState.Longitude = {
+            projections: [measureProjection(tableName, `Selected longitude (${tableName})`)]
+        };
     }
     if (options.geometry) {
-        queryState.Geometry = { projections: [measureProjection(tableName, "Selected geometry")] };
+        queryState.Geometry = {
+            projections: [measureProjection(tableName, `Selected geometry (${tableName})`)]
+        };
     }
     const navigationProperties = {
         minZoom: { expr: {

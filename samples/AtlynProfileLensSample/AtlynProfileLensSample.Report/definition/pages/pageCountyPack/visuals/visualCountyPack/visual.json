@@ -97,11 +97,11 @@
                       "Entity": "CountyProfiles"
                     }
                   },
-                  "Property": "Context value"
+                  "Property": "Context value (CountyProfiles)"
                 }
               },
-              "queryRef": "CountyProfiles.Context value",
-              "nativeQueryRef": "Context value"
+              "queryRef": "CountyProfiles.Context value (CountyProfiles)",
+              "nativeQueryRef": "Context value (CountyProfiles)"
             }
           ]
         }

@@ -97,11 +97,11 @@
                       "Entity": "KeyDiagnostics"
                     }
                   },
-                  "Property": "Context value"
+                  "Property": "Context value (KeyDiagnostics)"
                 }
               },
-              "queryRef": "KeyDiagnostics.Context value",
-              "nativeQueryRef": "Context value"
+              "queryRef": "KeyDiagnostics.Context value (KeyDiagnostics)",
+              "nativeQueryRef": "Context value (KeyDiagnostics)"
             }
           ]
         }

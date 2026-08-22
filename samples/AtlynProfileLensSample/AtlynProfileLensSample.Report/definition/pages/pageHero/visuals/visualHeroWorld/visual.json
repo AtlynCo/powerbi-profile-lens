@@ -69,11 +69,11 @@
                       "Entity": "WorldProfiles"
                     }
                   },
-                  "Property": "Population by age band"
+                  "Property": "Population by age band (WorldProfiles)"
                 }
               },
-              "queryRef": "WorldProfiles.Population by age band",
-              "nativeQueryRef": "Population by age band"
+              "queryRef": "WorldProfiles.Population by age band (WorldProfiles)",
+              "nativeQueryRef": "Population by age band (WorldProfiles)"
             },
             {
               "field": {
@@ -83,11 +83,11 @@
                       "Entity": "WorldProfiles"
                     }
                   },
-                  "Property": "Median income by age"
+                  "Property": "Median income by age (WorldProfiles)"
                 }
               },
-              "queryRef": "WorldProfiles.Median income by age",
-              "nativeQueryRef": "Median income by age"
+              "queryRef": "WorldProfiles.Median income by age (WorldProfiles)",
+              "nativeQueryRef": "Median income by age (WorldProfiles)"
             },
             {
               "field": {
@@ -97,11 +97,11 @@
                       "Entity": "WorldProfiles"
                     }
                   },
-                  "Property": "Degree attainment by age"
+                  "Property": "Degree attainment by age (WorldProfiles)"
                 }
               },
-              "queryRef": "WorldProfiles.Degree attainment by age",
-              "nativeQueryRef": "Degree attainment by age"
+              "queryRef": "WorldProfiles.Degree attainment by age (WorldProfiles)",
+              "nativeQueryRef": "Degree attainment by age (WorldProfiles)"
             }
           ]
         },
@@ -133,11 +133,11 @@
                       "Entity": "WorldProfiles"
                     }
                   },
-                  "Property": "Context value"
+                  "Property": "Context value (WorldProfiles)"
                 }
               },
-              "queryRef": "WorldProfiles.Context value",
-              "nativeQueryRef": "Context value"
+              "queryRef": "WorldProfiles.Context value (WorldProfiles)",
+              "nativeQueryRef": "Context value (WorldProfiles)"
             }
           ]
         }

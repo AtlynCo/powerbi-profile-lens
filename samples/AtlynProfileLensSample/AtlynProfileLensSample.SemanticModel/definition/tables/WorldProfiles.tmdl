@@ -69,13 +69,13 @@ table WorldProfiles
 
 		annotation SummarizationSetBy = Automatic
 
-	measure 'Context value' = SUM(WorldProfiles[Residents])
+	measure 'Context value (WorldProfiles)' = SUM(WorldProfiles[Residents])
 
-	measure 'Population by age band' = SUM(WorldProfiles[Residents])
+	measure 'Population by age band (WorldProfiles)' = SUM(WorldProfiles[Residents])
 
-	measure 'Median income by age' = AVERAGE(WorldProfiles[Median household income])
+	measure 'Median income by age (WorldProfiles)' = AVERAGE(WorldProfiles[Median household income])
 
-	measure 'Degree attainment by age' = AVERAGE(WorldProfiles[Degree attainment rate])
+	measure 'Degree attainment by age (WorldProfiles)' = AVERAGE(WorldProfiles[Degree attainment rate])
 
 	partition WorldProfiles = calculated
 		mode: import

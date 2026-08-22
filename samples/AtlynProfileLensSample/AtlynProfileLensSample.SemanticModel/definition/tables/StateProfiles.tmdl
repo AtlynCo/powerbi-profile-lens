@@ -48,11 +48,11 @@ table StateProfiles
 
 		annotation SummarizationSetBy = Automatic
 
-	measure 'Context value' = SUM(StateProfiles[Residents])
+	measure 'Context value (StateProfiles)' = SUM(StateProfiles[Residents])
 
-	measure 'Population by age band' = SUM(StateProfiles[Residents])
+	measure 'Population by age band (StateProfiles)' = SUM(StateProfiles[Residents])
 
-	measure 'Median income by age' = AVERAGE(StateProfiles[Median household income])
+	measure 'Median income by age (StateProfiles)' = AVERAGE(StateProfiles[Median household income])
 
 	partition StateProfiles = calculated
 		mode: import

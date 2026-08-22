@@ -97,11 +97,11 @@
                       "Entity": "WorldProfiles"
                     }
                   },
-                  "Property": "Context value"
+                  "Property": "Context value (WorldProfiles)"
                 }
               },
-              "queryRef": "WorldProfiles.Context value",
-              "nativeQueryRef": "Context value"
+              "queryRef": "WorldProfiles.Context value (WorldProfiles)",
+              "nativeQueryRef": "Context value (WorldProfiles)"
             }
           ]
         }

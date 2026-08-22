@@ -104,19 +104,19 @@ table CommunityProfiles
 
 		annotation SummarizationSetBy = Automatic
 
-	measure 'Context value' = SUM(CommunityProfiles[Residents])
+	measure 'Context value (CommunityProfiles)' = SUM(CommunityProfiles[Residents])
 
-	measure 'Population by age band' = SUM(CommunityProfiles[Residents])
+	measure 'Population by age band (CommunityProfiles)' = SUM(CommunityProfiles[Residents])
 
-	measure 'Median income by age' = AVERAGE(CommunityProfiles[Median household income])
+	measure 'Median income by age (CommunityProfiles)' = AVERAGE(CommunityProfiles[Median household income])
 
-	measure 'Degree attainment by age' = AVERAGE(CommunityProfiles[Degree attainment rate])
+	measure 'Degree attainment by age (CommunityProfiles)' = AVERAGE(CommunityProfiles[Degree attainment rate])
 
-	measure 'Selected latitude' = SELECTEDVALUE(CommunityProfiles[Latitude])
+	measure 'Selected latitude (CommunityProfiles)' = SELECTEDVALUE(CommunityProfiles[Latitude])
 
-	measure 'Selected longitude' = SELECTEDVALUE(CommunityProfiles[Longitude])
+	measure 'Selected longitude (CommunityProfiles)' = SELECTEDVALUE(CommunityProfiles[Longitude])
 
-	measure 'Selected geometry' = SELECTEDVALUE(CommunityProfiles[Geometry])
+	measure 'Selected geometry (CommunityProfiles)' = SELECTEDVALUE(CommunityProfiles[Geometry])
 
 	partition CommunityProfiles = calculated
 		mode: import

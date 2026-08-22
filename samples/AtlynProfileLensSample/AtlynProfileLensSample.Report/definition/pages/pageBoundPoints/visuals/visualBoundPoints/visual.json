@@ -97,11 +97,11 @@
                       "Entity": "CommunityProfiles"
                     }
                   },
-                  "Property": "Context value"
+                  "Property": "Context value (CommunityProfiles)"
                 }
               },
-              "queryRef": "CommunityProfiles.Context value",
-              "nativeQueryRef": "Context value"
+              "queryRef": "CommunityProfiles.Context value (CommunityProfiles)",
+              "nativeQueryRef": "Context value (CommunityProfiles)"
             }
           ]
         },
@@ -115,11 +115,11 @@
                       "Entity": "CommunityProfiles"
                     }
                   },
-                  "Property": "Selected latitude"
+                  "Property": "Selected latitude (CommunityProfiles)"
                 }
               },
-              "queryRef": "CommunityProfiles.Selected latitude",
-              "nativeQueryRef": "Selected latitude"
+              "queryRef": "CommunityProfiles.Selected latitude (CommunityProfiles)",
+              "nativeQueryRef": "Selected latitude (CommunityProfiles)"
             }
           ]
         },
@@ -133,11 +133,11 @@
                       "Entity": "CommunityProfiles"
                     }
                   },
-                  "Property": "Selected longitude"
+                  "Property": "Selected longitude (CommunityProfiles)"
                 }
               },
-              "queryRef": "CommunityProfiles.Selected longitude",
-              "nativeQueryRef": "Selected longitude"
+              "queryRef": "CommunityProfiles.Selected longitude (CommunityProfiles)",
+              "nativeQueryRef": "Selected longitude (CommunityProfiles)"
             }
           ]
         }

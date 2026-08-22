@@ -48,11 +48,11 @@ table KeyDiagnostics
 
 		annotation SummarizationSetBy = Automatic
 
-	measure 'Context value' = SUM(KeyDiagnostics[Residents])
+	measure 'Context value (KeyDiagnostics)' = SUM(KeyDiagnostics[Residents])
 
-	measure 'Population by age band' = SUM(KeyDiagnostics[Residents])
+	measure 'Population by age band (KeyDiagnostics)' = SUM(KeyDiagnostics[Residents])
 
-	measure 'Median income by age' = AVERAGE(KeyDiagnostics[Median household income])
+	measure 'Median income by age (KeyDiagnostics)' = AVERAGE(KeyDiagnostics[Median household income])
 
 	partition KeyDiagnostics = calculated
 		mode: import

@@ -97,11 +97,11 @@
                       "Entity": "StateProfiles"
                     }
                   },
-                  "Property": "Context value"
+                  "Property": "Context value (StateProfiles)"
                 }
               },
-              "queryRef": "StateProfiles.Context value",
-              "nativeQueryRef": "Context value"
+              "queryRef": "StateProfiles.Context value (StateProfiles)",
+              "nativeQueryRef": "Context value (StateProfiles)"
             }
           ]
         }

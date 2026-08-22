@@ -97,11 +97,11 @@
                       "Entity": "CommunityProfiles"
                     }
                   },
-                  "Property": "Context value"
+                  "Property": "Context value (CommunityProfiles)"
                 }
               },
-              "queryRef": "CommunityProfiles.Context value",
-              "nativeQueryRef": "Context value"
+              "queryRef": "CommunityProfiles.Context value (CommunityProfiles)",
+              "nativeQueryRef": "Context value (CommunityProfiles)"
             }
           ]
         },
@@ -115,11 +115,11 @@
                       "Entity": "CommunityProfiles"
                     }
                   },
-                  "Property": "Selected geometry"
+                  "Property": "Selected geometry (CommunityProfiles)"
                 }
               },
-              "queryRef": "CommunityProfiles.Selected geometry",
-              "nativeQueryRef": "Selected geometry"
+              "queryRef": "CommunityProfiles.Selected geometry (CommunityProfiles)",
+              "nativeQueryRef": "Selected geometry (CommunityProfiles)"
             }
           ]
         }
