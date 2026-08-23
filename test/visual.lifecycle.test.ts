@@ -2609,6 +2609,67 @@ describe("interaction", () => {
         }
     });
 
+    it("releases clamped-direction wheel ticks to the page mid-gesture", () => {
+        vi.useFakeTimers();
+        try {
+            const { mock, visual } = mount();
+            visual.update(updateOptions(buildMatrixDataView({
+                entities: ["Entity A", "Entity B", "Entity C", "Entity D"],
+                bands: ["Band 1"],
+                profiles: ["Metric A"],
+                objects: {
+                    context: { mode: "grid" },
+                    navigation: { enabled: true, maxZoom: 1.2 },
+                    interaction: { mode: "reportSelection" }
+                }
+            })));
+            const surface = mock.element.querySelector<HTMLElement>(".profile-lens-context")!;
+            setSurfaceBounds(surface, 320, 300);
+            let handled = 0;
+            let released = 0;
+            // Observed on the surface itself: same-node listeners still run after
+            // stopPropagation(), so prevented (effective) ticks are visible here too.
+            surface.addEventListener("wheel", (event) => {
+                if ((event as WheelEvent).defaultPrevented) {
+                    handled++;
+                } else {
+                    released++;
+                }
+            });
+            const wheelAt = (deltaY: number) => surface.dispatchEvent(pointer("wheel", {
+                deltaY,
+                deltaMode: 0,
+                clientX: 160,
+                clientY: 150
+            }));
+            const before = contextMetrics(surface).moveEnds;
+            // Zoom in until the camera hits its ceiling: the first clamped tick arrives
+            // un-prevented while the previous ticks were all handled.
+            let guard = 0;
+            while (guard++ < 60 && released === 0) {
+                wheelAt(-120);
+            }
+            expect(handled).toBeGreaterThan(0);
+            const framesAtClamp = contextMetrics(surface).cameraFrames;
+            // Momentum-style burst past the ceiling: every tick must stay un-prevented and none
+            // may nudge the camera further.
+            for (let index = 0; index < 8; index++) {
+                wheelAt(-120);
+            }
+            expect(contextMetrics(surface).cameraFrames).toBe(framesAtClamp);
+            expect(released).toBe(9);
+            expect(handled + released).toBeLessThanOrEqual(68);
+            // The first clamped tick ends the gesture synchronously: the settle commit lands
+            // before any timer advances, so later clamped ticks reach the page immediately.
+            expect(contextMetrics(surface).moveEnds - before).toBe(1);
+            vi.advanceTimersByTime(500);
+            expect(mock.selection.select).toHaveBeenCalledTimes(1);
+            expect(vi.getTimerCount()).toBe(0);
+        } finally {
+            vi.useRealTimers();
+        }
+    });
+
     it.each([
         ["drag", 1, 1],
         ["click", 0, 1],

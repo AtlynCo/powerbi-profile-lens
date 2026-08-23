@@ -585,34 +585,27 @@ export class InteractionController {
             return;
         }
         this.hideTooltip();
-        const priorChanged = this.wheelSettleTimer !== null && this.wheelCameraChanged;
-        // Default scrolling is suppressed only when the camera actually moves. A wheel event that
-        // lands on a clamped camera (zoom limits reached) stays unhandled so the report page keeps
-        // scrolling instead of feeling blocked over the map.
+        // Default scrolling is suppressed only when this tick actually moves the camera. A wheel
+        // tick that lands on a clamped camera (zoom limits reached) stays unhandled so the report
+        // page keeps scrolling instead of feeling blocked over the map.
         const changed = navigation.zoomAt(
             wheelZoomFactor(delta, navigation.wheelSensitivity),
             event.clientX - bounds.left,
             event.clientY - bounds.top
-        ) || priorChanged;
-        if (!changed && !priorChanged) {
+        );
+        if (!changed) {
+            // Release any pending gesture settle right away so later clamped ticks reach the
+            // page immediately instead of being swallowed until the settle window lapses.
+            this.completeWheelSettle();
             return;
         }
         event.preventDefault();
         event.stopPropagation();
         this.cancelWheelSettle(false);
-        this.wheelCameraChanged = Boolean(changed);
-        const generation = this.wheelSettleGeneration;
+        this.wheelCameraChanged = true;
         this.wheelNavigation = navigation;
         this.wheelSettleTimer = setTimeout(() => {
-            if (generation !== this.wheelSettleGeneration) {
-                return;
-            }
-            this.wheelSettleTimer = null;
-            this.wheelNavigation = null;
-            const changed = this.wheelCameraChanged;
-            this.wheelCameraChanged = false;
-            this.wheelSettleGeneration++;
-            navigation.moveEnd(!changed);
+            this.completeWheelSettle();
         }, WHEEL_SETTLE_MS);
     }
 
@@ -745,6 +738,20 @@ export class InteractionController {
         if (notify && hadTimer) {
             navigation?.moveEnd(true);
         }
+    }
+
+    private completeWheelSettle(): void {
+        if (this.wheelSettleTimer === null) {
+            return;
+        }
+        clearTimeout(this.wheelSettleTimer);
+        this.wheelSettleTimer = null;
+        const navigation = this.wheelNavigation;
+        this.wheelNavigation = null;
+        const changed = this.wheelCameraChanged;
+        this.wheelCameraChanged = false;
+        this.wheelSettleGeneration++;
+        navigation?.moveEnd(!changed);
     }
 
     private handleKeyDown(target: InteractionTarget, event: KeyboardEvent): void {

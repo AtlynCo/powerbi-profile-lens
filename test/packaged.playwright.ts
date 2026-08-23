@@ -901,12 +901,17 @@ test.describe("packaged visual in a real browser", () => {
             (bounds?.x ?? 0) + (bounds?.width ?? 0) / 2,
             (bounds?.y ?? 0) + (bounds?.height ?? 0) / 2
         );
+        // Each clamped tick is released to the page. Chromium latches the first tick of an
+        // opposite-direction pair (the second tick only cancels the first's animation), so
+        // verify the released up-tick lands by pausing between direction changes.
         await page.mouse.wheel(0, -120);
+        await page.waitForTimeout(150);
+        const scrolledUp = await page.evaluate(() => window.scrollY);
+        expect(scrolledUp).toBeLessThan(200);
         await page.mouse.wheel(0, 120);
         await page.waitForTimeout(150);
-        const scrolled = await page.evaluate(() => window.scrollY);
-        // Both wheel events land on the clamped camera, so the page must absorb them.
-        expect(scrolled).toBeGreaterThan(200);
+        const scrolledBack = await page.evaluate(() => window.scrollY);
+        expect(scrolledBack).toBeGreaterThan(scrolledUp);
         // A zoomable camera still claims the wheel for map zooming.
         await mount(page, {
             contextMode: "grid",
@@ -939,6 +944,57 @@ test.describe("packaged visual in a real browser", () => {
         }));
         expect(heldScroll.scrollY).toBe(200);
         expect(heldScroll.frames).toBeGreaterThan(0);
+    });
+
+    test("passes momentum wheel ticks through to the page after crossing a zoom limit mid-gesture", async ({ page }) => {
+        await mount(page, {
+            contextMode: "grid",
+            navigationEnabled: true,
+            periods: [],
+            bands: ["Band 1"],
+            series: [],
+            profiles: ["Metric A"]
+        });
+        const surface = page.locator(".profile-lens-context");
+        await surface.evaluate((node) => {
+            const container = document.getElementById("visual-root")!;
+            container.style.position = "fixed";
+            container.style.inset = "0 auto auto 0";
+            document.body.style.height = "6000px";
+            window.scrollTo(0, 200);
+        });
+        const bounds = await surface.boundingBox();
+        expect(bounds).not.toBeNull();
+        await page.mouse.move(
+            (bounds?.x ?? 0) + (bounds?.width ?? 0) / 2,
+            (bounds?.y ?? 0) + (bounds?.height ?? 0) / 2
+        );
+        // Momentum-style burst: effective zoom ticks carry the camera to its ceiling while the
+        // page must not move; every tick stays handled until the limit is crossed.
+        for (let index = 0; index < 24; index++) {
+            await page.mouse.wheel(0, -40);
+        }
+        const heldScroll = await surface.evaluate((node) => ({
+            frames: (node as HTMLElement & {
+                __profileLensContextMetrics: { cameraFrames: number };
+            }).__profileLensContextMetrics.cameraFrames
+        }));
+        expect(heldScroll.frames).toBeGreaterThan(0);
+        // Re-center the viewport so released ticks have room to scroll upward, then keep spinning
+        // the same direction without pausing longer than the settle window.
+        await page.evaluate(() => window.scrollTo(0, 300));
+        for (let index = 0; index < 5; index++) {
+            await page.mouse.wheel(0, -40);
+        }
+        const scrolled = await page.evaluate(() => window.scrollY);
+        expect(scrolled).toBeLessThan(300);
+        // Exactly one settle commit covers the entire gesture despite ~29 physical ticks.
+        await page.waitForTimeout(250);
+        const moveEnds = await surface.evaluate((node) =>
+            (node as HTMLElement & {
+                __profileLensContextMetrics: { moveEnds: number };
+            }).__profileLensContextMetrics.moveEnds);
+        expect(moveEnds).toBe(1);
     });
 
     test("cancels stale wheel settles across physical input ownership changes", async ({ page }) => {
