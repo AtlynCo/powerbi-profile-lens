@@ -584,15 +584,21 @@ export class InteractionController {
         if (delta === 0) {
             return;
         }
-        event.preventDefault();
-        event.stopPropagation();
         this.hideTooltip();
         const priorChanged = this.wheelSettleTimer !== null && this.wheelCameraChanged;
+        // Default scrolling is suppressed only when the camera actually moves. A wheel event that
+        // lands on a clamped camera (zoom limits reached) stays unhandled so the report page keeps
+        // scrolling instead of feeling blocked over the map.
         const changed = navigation.zoomAt(
             wheelZoomFactor(delta, navigation.wheelSensitivity),
             event.clientX - bounds.left,
             event.clientY - bounds.top
         ) || priorChanged;
+        if (!changed && !priorChanged) {
+            return;
+        }
+        event.preventDefault();
+        event.stopPropagation();
         this.cancelWheelSettle(false);
         this.wheelCameraChanged = Boolean(changed);
         const generation = this.wheelSettleGeneration;

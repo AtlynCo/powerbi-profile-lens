@@ -864,8 +864,8 @@ test.describe("packaged visual in a real browser", () => {
         });
         expect(result.cameraFrames - before.cameraFrames).toBeLessThanOrEqual(1);
         expect(result.moveEnds - before.moveEnds).toBe(0);
-        expect(result.defaults).toEqual([true, true, false, false]);
-        expect(result.bubbled).toBe(2);
+        expect(result.defaults).toEqual([false, false, false, false]);
+        expect(result.bubbled).toBe(4);
         expect(result.windowScrollAfter).toBe(result.windowScrollBefore);
         expect(result.rootScrollAfter).toBe(result.rootScrollBefore);
         expect(result.zeroPrevented).toBe(false);
@@ -874,6 +874,71 @@ test.describe("packaged visual in a real browser", () => {
             profileLensHost: { calls: { select: number; filter: number } };
         }).profileLensHost.calls);
         expect(calls).toMatchObject({ select: 0, filter: 0 });
+    });
+
+    test("releases physical wheel input to page scroll at zoom limits", async ({ page }) => {
+        await mount(page, {
+            contextMode: "grid",
+            navigationEnabled: true,
+            minZoom: 7.3,
+            maxZoom: 7.3,
+            periods: [],
+            bands: ["Band 1"],
+            series: [],
+            profiles: ["Metric A"]
+        });
+        const surface = page.locator(".profile-lens-context");
+        await surface.evaluate((node) => {
+            const container = document.getElementById("visual-root")!;
+            container.style.position = "fixed";
+            container.style.inset = "0 auto auto 0";
+            document.body.style.height = "3000px";
+            window.scrollTo(0, 200);
+        });
+        const bounds = await surface.boundingBox();
+        expect(bounds).not.toBeNull();
+        await page.mouse.move(
+            (bounds?.x ?? 0) + (bounds?.width ?? 0) / 2,
+            (bounds?.y ?? 0) + (bounds?.height ?? 0) / 2
+        );
+        await page.mouse.wheel(0, -120);
+        await page.mouse.wheel(0, 120);
+        await page.waitForTimeout(150);
+        const scrolled = await page.evaluate(() => window.scrollY);
+        // Both wheel events land on the clamped camera, so the page must absorb them.
+        expect(scrolled).toBeGreaterThan(200);
+        // A zoomable camera still claims the wheel for map zooming.
+        await mount(page, {
+            contextMode: "grid",
+            navigationEnabled: true,
+            periods: [],
+            bands: ["Band 1"],
+            series: [],
+            profiles: ["Metric A"]
+        });
+        const freeBounds = await surface.boundingBox();
+        expect(freeBounds).not.toBeNull();
+        await surface.evaluate((node) => {
+            const container = document.getElementById("visual-root")!;
+            container.style.position = "fixed";
+            container.style.inset = "0 auto auto 0";
+            document.body.style.height = "3000px";
+            window.scrollTo(0, 200);
+        });
+        await page.mouse.move(
+            (freeBounds?.x ?? 0) + (freeBounds?.width ?? 0) / 2,
+            (freeBounds?.y ?? 0) + (freeBounds?.height ?? 0) / 2
+        );
+        await page.mouse.wheel(0, -120);
+        await page.waitForTimeout(150);
+        const heldScroll = await surface.evaluate((node) => ({
+            scrollY: window.scrollY,
+            frames: (node as HTMLElement & {
+                __profileLensContextMetrics: { cameraFrames: number };
+            }).__profileLensContextMetrics.cameraFrames
+        }));
+        expect(heldScroll.scrollY).toBe(200);
+        expect(heldScroll.frames).toBeGreaterThan(0);
     });
 
     test("cancels stale wheel settles across physical input ownership changes", async ({ page }) => {

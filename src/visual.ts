@@ -228,6 +228,7 @@ export class Visual implements IVisual {
     private focusedRenderSession: FocusedRenderSession | null = null;
     private contextRenderRequest: ContextRenderRequest | null = null;
     private lastProbeGeometryKey: string | null = null;
+    private zoomProbeDeferred = false;
     private selectionSequence = 0;
     private selectionGeneration = 0;
     private selectionInFlight: LocalSelectionOperation | null = null;
@@ -1298,14 +1299,22 @@ export class Visual implements IVisual {
         if (!session || !this.canNavigateContext()) {
             return false;
         }
-        return this.applyContextCamera(zoomCameraAt(
-            session.camera,
-            factor,
-            { x, y },
-            this.cameraLimits(session.viewport),
-            session.baseBounds,
-            session.viewport
-        ));
+        // The wheel settle timer is armed only after this call returns, so resolving the probe
+        // synchronously here would rebuild targets mid-gesture. Zoom gestures resolve probe focus
+        // at moveEnd (handleContextMoveEnd) instead.
+        this.zoomProbeDeferred = true;
+        try {
+            return this.applyContextCamera(zoomCameraAt(
+                session.camera,
+                factor,
+                { x, y },
+                this.cameraLimits(session.viewport),
+                session.baseBounds,
+                session.viewport
+            ));
+        } finally {
+            this.zoomProbeDeferred = false;
+        }
     }
 
     private resetContextCamera(): boolean {
@@ -1361,7 +1370,9 @@ export class Visual implements IVisual {
             return false;
         }
         this.viewportSession = { ...session, camera };
-        this.resolveProbeFocus();
+        if (!this.zoomProbeDeferred) {
+            this.resolveProbeFocus();
+        }
         return true;
     }
 

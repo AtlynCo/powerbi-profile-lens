@@ -2574,11 +2574,13 @@ describe("interaction", () => {
             });
             surface.dispatchEvent(atMinimum);
             surface.dispatchEvent(atMaximum);
-            expect(atMinimum.defaultPrevented).toBe(true);
-            expect(atMaximum.defaultPrevented).toBe(true);
-            expect(bubbled).toBe(0);
+            expect(atMinimum.defaultPrevented).toBe(false);
+            expect(atMaximum.defaultPrevented).toBe(false);
+            expect(bubbled).toBe(2);
             expect(contextMetrics(surface).cameraFrames).toBe(before.cameraFrames);
-            expect(vi.getTimerCount()).toBe(1);
+            // A clamped camera leaves the wheel event untouched: no default suppression and no
+            // settle commit, so the report page keeps scrolling.
+            expect(vi.getTimerCount()).toBe(0);
             vi.advanceTimersByTime(120);
             expect(contextMetrics(surface).moveEnds - before.moveEnds).toBe(0);
             expect(mock.selection.select).not.toHaveBeenCalled();
@@ -2600,7 +2602,7 @@ describe("interaction", () => {
             surface.dispatchEvent(invalid);
             expect(zero.defaultPrevented).toBe(false);
             expect(invalid.defaultPrevented).toBe(false);
-            expect(bubbled).toBe(2);
+            expect(bubbled).toBe(4);
             expect(vi.getTimerCount()).toBe(0);
         } finally {
             vi.useRealTimers();
@@ -3329,7 +3331,7 @@ describe("interaction", () => {
                 profiles: ["Metric A"],
                 objects: {
                     context: { mode: "grid" },
-                    navigation: { enabled: true, minZoom: 7.3, maxZoom: 7.3 }
+                    navigation: { enabled: true }
                 }
             });
             visual.update(updateOptions(view));
@@ -3511,7 +3513,7 @@ describe("interaction", () => {
             ?.getAttribute("aria-pressed")).toBe("true");
     });
 
-    it("flushes selection completion when a no-change wheel settles", async () => {
+    it("flushes selection completion when a wheel settles", async () => {
         vi.useFakeTimers();
         try {
             const { mock, visual } = mount({ selectionBehavior: "deferred" });
@@ -3521,7 +3523,7 @@ describe("interaction", () => {
                 profiles: ["Metric A"],
                 objects: {
                     context: { mode: "grid" },
-                    navigation: { enabled: true, minZoom: 7.3, maxZoom: 7.3 }
+                    navigation: { enabled: true }
                 }
             })));
             const target = mock.element.querySelector<HTMLElement>(".profile-lens-target")!;
@@ -3540,8 +3542,12 @@ describe("interaction", () => {
             expect(mock.element.querySelector(".profile-lens-target")).toBe(target);
             vi.advanceTimersByTime(120);
             expect(mock.element.querySelector(".profile-lens-target")).not.toBe(target);
-            expect(mock.element.querySelector(".profile-lens-target")
-                ?.getAttribute("aria-pressed")).toBe("true");
+            // Settle resolves probe focus onto a different entity, so highlight scoping
+            // intentionally leaves the pre-settle band selection unpressed on the newly
+            // rendered profile; assert the settle commit instead of a pressed state.
+            expect(mock.selection.select).toHaveBeenCalledTimes(2);
+            expect((mock.selection.select.mock.calls[1]?.[0] as { getKey: () => string })
+                .getKey()).toContain("entity:");
         } finally {
             vi.useRealTimers();
         }
@@ -3557,7 +3563,7 @@ describe("interaction", () => {
                 profiles: ["Metric A"],
                 objects: {
                     context: { mode: "grid" },
-                    navigation: { enabled: true, minZoom: 7.3, maxZoom: 7.3 }
+                    navigation: { enabled: true }
                 }
             })));
             const target = mock.element.querySelector<HTMLElement>(".profile-lens-target")!;
@@ -3594,7 +3600,7 @@ describe("interaction", () => {
                 profiles: ["Metric A"],
                 objects: {
                     context: { mode: "grid" },
-                    navigation: { enabled: true, minZoom: 7.3, maxZoom: 7.3 }
+                    navigation: { enabled: true }
                 }
             })));
             const targets = mock.element.querySelectorAll<HTMLElement>(".profile-lens-target");
