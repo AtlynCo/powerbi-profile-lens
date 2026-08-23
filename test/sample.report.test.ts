@@ -84,17 +84,13 @@ describe("offline PBIP validation sample", () => {
             "pageHero",
             "pageProfileOnly",
             "pagePeriodSeries",
-            "pageGeneratedLayouts",
             "pageBoundPoints",
-            "pageBoundPolygons",
             "pageWorldPack",
             "pageStatePack",
             "pageCountyPack",
             "pageViewportLens",
             "pageSixProfiles",
-            "pageNormalizations",
-            "pageWorldDiagnostics",
-            "pageAuthoring"
+            "pageNormalizations"
         ]);
     });
 
@@ -135,7 +131,7 @@ describe("offline PBIP validation sample", () => {
         const withContext = visualFiles().filter((entry) =>
             entry.definition.visual.objects.context[0].properties.mode.expr.Literal.Value
             !== "'none'");
-        expect(withContext.length).toBeGreaterThanOrEqual(11);
+        expect(withContext.length).toBeGreaterThanOrEqual(9);
         for (const entry of withContext) {
             const fallback = entry.definition.visual.objects.navigation[0]
                 .properties.fallbackEntityKey;
@@ -206,16 +202,10 @@ describe("offline PBIP validation sample", () => {
             expect(diagnostics).toContain(key);
         }
         for (const table of MODEL_TABLES.filter((name) => name !== "KeyDiagnostics")) {
-            const model = readTable(table);
+            expect(readTable(table), `${table} must not carry malformed keys`).toBeDefined();
             for (const key of MALFORMED_KEYS) {
-                expect(model, `${table} must not carry ${key}`).not.toContain(key);
+                expect(readTable(table), `${table} must not carry ${key}`).not.toContain(key);
             }
         }
-        const page = readJson(path.join(
-            pagesRoot,
-            "pageWorldDiagnostics",
-            "page.json"
-        )) as { displayName: string };
-        expect(page.displayName).toContain("diagnostics");
     });
 });

@@ -308,8 +308,8 @@ test.describe("packaged demo page audit", () => {
     });
 
     test("every demo page configuration is enumerated", () => {
-        expect(definition.pages).toHaveLength(14);
-        expect(dataVisuals.length).toBeGreaterThanOrEqual(19);
+        expect(definition.pages).toHaveLength(10);
+        expect(dataVisuals.length).toBeGreaterThanOrEqual(13);
     });
 
     for (const { page: samplePage, visual } of dataVisuals) {
@@ -345,9 +345,7 @@ test.describe("packaged demo page audit", () => {
         });
     }
 
-    test("the authoring landing page renders guidance without a chart skeleton", async ({ page }) => {
-        const landing = definition.pages.find((entry) => entry.name === "pageAuthoring");
-        expect(landing).toBeDefined();
+    test("the unbound landing state renders guidance without a chart skeleton", async ({ page }) => {
         await mount(page, {
             width: 1520,
             height: 800,

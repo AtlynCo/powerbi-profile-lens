@@ -1,7 +1,7 @@
 {
   "$schema": "https://developer.microsoft.com/json-schemas/fabric/item/report/definition/page/2.1.0/schema.json",
   "name": "pageStatePack",
-  "displayName": "8 - Regional demographics: US states and equivalents",
+  "displayName": "6 - Regional demographics: US states and equivalents",
   "displayOption": "FitToPage",
   "height": 900,
   "width": 1600

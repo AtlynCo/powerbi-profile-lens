@@ -284,40 +284,8 @@ const pages = [
         }]
     },
     {
-        name: "pageGeneratedLayouts",
-        displayName: "4 - Nongeographic grid and hex community matrices",
-        visuals: [
-            {
-                name: "visualGrid",
-                table: "community",
-                hierarchy: ["Community", "AgeBand"],
-                series: false,
-                metrics: ["Residents", "Median household income"],
-                options: {
-                    contextMode: "grid",
-                    contextValue: true,
-                    fallbackEntityKey: COMMUNITY_FALLBACK,
-                    position: { x: 40, y: 40, z: 0, height: 800, width: 740, tabOrder: 0 }
-                }
-            },
-            {
-                name: "visualHex",
-                table: "community",
-                hierarchy: ["Community", "AgeBand"],
-                series: false,
-                metrics: ["Residents", "Median household income"],
-                options: {
-                    contextMode: "hex",
-                    contextValue: true,
-                    fallbackEntityKey: COMMUNITY_FALLBACK,
-                    position: { x: 820, y: 40, z: 1, height: 800, width: 740, tabOrder: 1 }
-                }
-            }
-        ]
-    },
-    {
         name: "pageBoundPoints",
-        displayName: "5 - Bound WGS84 community points",
+        displayName: "4 - Bound WGS84 community points",
         visuals: [{
             name: "visualBoundPoints",
             table: "community",
@@ -334,26 +302,8 @@ const pages = [
         }]
     },
     {
-        name: "pageBoundPolygons",
-        displayName: "6 - Bound district boundary polygons (WKT)",
-        visuals: [{
-            name: "visualBoundPolygons",
-            table: "community",
-            hierarchy: ["Community", "AgeBand"],
-            series: false,
-            metrics: ["Residents", "Median household income"],
-            options: {
-                contextMode: "boundGeometry",
-                contextValue: true,
-                geometry: true,
-                contextLayout: "focusLens",
-                fallbackEntityKey: COMMUNITY_FALLBACK
-            }
-        }]
-    },
-    {
         name: "pageWorldPack",
-        displayName: "7 - Global demographics: world countries (110m)",
+        displayName: "5 - Global demographics: world countries (110m)",
         visuals: [{
             name: "visualWorldPack",
             table: "world",
@@ -372,7 +322,7 @@ const pages = [
     },
     {
         name: "pageStatePack",
-        displayName: "8 - Regional demographics: US states and equivalents",
+        displayName: "6 - Regional demographics: US states and equivalents",
         visuals: [{
             name: "visualStatePack",
             table: "state",
@@ -394,7 +344,7 @@ const pages = [
     },
     {
         name: "pageCountyPack",
-        displayName: "9 - Local demographics: US counties and equivalents",
+        displayName: "7 - Local demographics: US counties and equivalents",
         visuals: [{
             name: "visualCountyPack",
             table: "county",
@@ -416,7 +366,7 @@ const pages = [
     },
     {
         name: "pageViewportLens",
-        displayName: "10 - Viewport lens navigation (world 50m probe)",
+        displayName: "8 - Viewport lens navigation (world 50m probe)",
         visuals: [
             {
                 name: "visualViewportLocal",
@@ -456,7 +406,7 @@ const pages = [
     },
     {
         name: "pageSixProfiles",
-        displayName: "11 - Six community indicators at once",
+        displayName: "9 - Six community indicators at once",
         visuals: [
             {
                 name: "visualSixProfiles",
@@ -489,7 +439,7 @@ const pages = [
     },
     {
         name: "pageNormalizations",
-        displayName: "12 - Normalization modes side by side",
+        displayName: "10 - Normalization modes side by side",
         visuals: [
             ["Raw", "raw", "fraction"],
             ["Profile share", "shareOfProfile", "fraction"],
@@ -516,39 +466,6 @@ const pages = [
                 }
             }
         }))
-    },
-    {
-        name: "pageWorldDiagnostics",
-        displayName: "13 - Engineering diagnostics: malformed and duplicate keys",
-        visuals: [{
-            name: "visualWorldDiagnostics",
-            table: "diagnostics",
-            hierarchy: ["SuppliedKey", "AgeBand"],
-            series: false,
-            metrics: ["Residents", "Median household income"],
-            options: {
-                contextMode: "builtInPack",
-                contextPack: "worldCountries",
-                worldDetail: "50m",
-                packKeyMode: "isoAlpha3CaseFold",
-                contextValue: true,
-                fallbackEntityKey: WORLD_FALLBACK
-            }
-        }]
-    },
-    {
-        name: "pageAuthoring",
-        displayName: "14 - Progressive authoring landing",
-        visuals: [{
-            name: "visualProgressiveAuthoring",
-            table: "community",
-            hierarchy: [],
-            series: false,
-            metrics: [],
-            options: {
-                contextLayout: "profileOnly"
-            }
-        }]
     }
 ];
 
