@@ -1,5 +1,19 @@
 # Partner Center release handoff
 
+## Repository preparation state (2026-08-26)
+
+| Control | Observed state |
+|---|---|
+| GitHub repository | Public `garrett-hamers/powerbi-profile-lens`; default branch `main` |
+| Lowercase certification branch | **Not present on `origin`**; no branch was created or modified by this preparation |
+| Partner Center | Owner-observed **publish-in-progress**; not independently verifiable from this repository |
+| Microsoft certification | **Not claimed**; the reviewed commit and submitted package are not established here |
+| GitHub visibility transition | **Not performed**; owner/admin action remains outstanding |
+
+The public offer and the exact lowercase `certification` branch/package relationship are Microsoft
+requirements. Do not infer either one from this document, create a guessed certification branch, or
+change Partner Center visibility during repository preparation.
+
 Nothing in this document claims Microsoft certification, approval, submission, or listing.
 
 | Requirement | Release value | Status |
@@ -7,8 +21,9 @@ Nothing in this document claims Microsoft certification, approval, submission, o
 | Visual | Atlyn Profile Lens, GUID `atlynProfileLens`, version `1.9.1.0` | Packaged |
 | API | `5.11.0` | Packaged |
 | Listing price | Free | Owner decision |
-| Support | <https://atlyn.io/contact> | Recorded in `pbiviz.json` |
-| Privacy | <https://atlyn.io/legal/privacy> | Use for the Partner Center form |
+| Support | <https://www.atlynco.com/docs/faq> | Recorded in `pbiviz.json` |
+| Privacy | <https://www.atlynco.com/legal/privacy> | Use for the Partner Center form |
+| Terms | <https://www.atlynco.com/legal/terms> | Use for the Partner Center form |
 | EULA | `EULA.md` | Present |
 | Third-party notices | `THIRD_PARTY_NOTICES.md` | Present and package-audited |
 | Visualization icon | `assets/icon.png`, 20x20 PNG | Present and package-audited |
@@ -31,9 +46,11 @@ The offline PBIP sample (`samples/AtlynProfileLensSample/AtlynProfileLensSample.
 
 ## Source and artifact parity
 
-Build from the tagged release commit on the certification branch with the committed lockfile and
-run `npm run validate:certification`. The release manifest must name the same commit, GUID, version,
-API version, PBIVIZ SHA-256, context-pack hashes, and sample resources used for native validation.
+After Microsoft identifies the reviewed commit and package, promote that exact commit to a lowercase
+`certification` branch without rewriting it. Build from that reviewed commit with the committed
+lockfile and run `npm run validate:certification`. The release manifest must name the same commit,
+GUID, version, API version, PBIVIZ SHA-256, context-pack hashes, and sample resources used for native
+validation. This preparation branch does not establish the reviewed commit or create that branch.
 Two package builds under `Etc/GMT+12` and `Etc/GMT-14` must remain byte-identical.
 
 Do not submit until Power BI Desktop has produced the versioned PBIX from the exact PBIP, the PBIX
