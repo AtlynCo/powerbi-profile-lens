@@ -109,16 +109,19 @@ native window after the run; do not submit Chromium mockups.
 
 ## 6. Submission mechanics (owner-controlled)
 
-1. Push `main` and the lowercase `certification` branch; tag the release commit
-   (`v1.9.1` suggested; no tags exist yet anywhere in this repository).
-2. Confirm `docs/partner-center-submission.md` values: support `https://atlyn.io/contact`,
-   privacy `https://atlyn.io/legal/privacy`, EULA.md, THIRD_PARTY_NOTICES.md,
+1. Confirm the exact reviewed commit and submitted `.pbiviz` in Microsoft's certification record.
+2. Push `main` and promote that exact reviewed commit to the lowercase `certification` branch.
+   No such remote branch existed when this runbook was prepared; do not create a guessed branch or
+   rewrite one as part of source preparation.
+3. Confirm `docs/partner-center-submission.md` values: support
+   `https://www.atlynco.com/docs/faq`, privacy `https://www.atlynco.com/legal/privacy`, terms
+   `https://www.atlynco.com/legal/terms`, EULA.md, THIRD_PARTY_NOTICES.md,
    `assets/partner-center-logo-300x300.png`.
-3. In Partner Center: create the Power BI visual offer, upload
+4. In Partner Center: create or update the Power BI visual offer, upload
    `dist/atlynProfileLens.1.9.1.0.pbiviz`, the sample PBIX, and the screenshots; paste the package
    SHA-256 and source commit into the certification notes; declare zero external network usage
    (empty privileges, audited).
-4. Expect review within days-to-two-weeks; if certification fails on reviewer-side rendering, use
+5. Expect review within days-to-two-weeks; if certification fails on reviewer-side rendering, use
    the private `pbicvsupport` repository to share the package with Microsoft under NDA-friendly
    terms.
 

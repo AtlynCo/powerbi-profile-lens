@@ -293,3 +293,21 @@ Certification and Partner Center submission readiness are not claimed; Microsoft
 ## License
 
 MIT. See [LICENSE](LICENSE) and [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
+
+## Repository privacy and public support
+
+The source repository is currently public at
+<https://github.com/garrett-hamers/powerbi-profile-lens>. A future private-source transition is an
+owner/admin operation and must not change the public Marketplace offer, the visual package identity,
+or the exact lowercase `certification` branch and reviewed artifact required by Microsoft. No such
+transition or certification-branch update is performed by this repository preparation.
+
+Use the public product endpoints for listing support and legal links:
+
+- **Support:** <https://www.atlynco.com/docs/faq>
+- **Privacy:** <https://www.atlynco.com/legal/privacy>
+- **Terms:** <https://www.atlynco.com/legal/terms>
+
+See [PRIVATE_REPOSITORY_OPERATIONS.md](PRIVATE_REPOSITORY_OPERATIONS.md) for the owner/admin checklist
+and [docs/partner-center-submission.md](docs/partner-center-submission.md) for the truthful
+submission boundary.
