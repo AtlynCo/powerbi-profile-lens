@@ -13,3 +13,11 @@ made here. The final owner handoff requires the exact source commit, determinist
 genuine Power BI Desktop Save As/reopen PBIX hash, and truthful automated/native notes; if the
 pattern-gated UI Automation harness cannot complete Save As, the owner must perform that step
 manually without editing PBIX internals or fabricating evidence.
+
+The attempted Desktop 2.157.879.0 (26.08) run reached the owned Save As dialog and stopped with
+`The owned Save As dialog exposes no safe bound Pane control for ''`; controls `1001` (file name)
+and `1` (Save) had no safe ValuePattern/InvokePattern. The exact owner-manual fallback is to open
+the generated PBIP, import `dist\atlynProfileLens.1.9.1.0.pbiviz`, use **File > Save as** to write
+`dist\release\AtlynProfileLensSample-1.9.1.0.pbix`, close and reopen it offline, then record its
+hash and embedded-resource parity. That manual result must remain clearly identified as owner
+evidence and cannot be substituted with SendKeys, coordinate input, Win32 messages, or PBIX edits.

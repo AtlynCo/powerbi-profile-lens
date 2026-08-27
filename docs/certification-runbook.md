@@ -66,16 +66,20 @@ offline, re-walks all pages, asserts byte stability across reopen, seals observa
 evidence, and atomically persists success output to
 `dist/release/native-evidence/native-run.json` (or `native-failure.json` on any block).
 
-Known blocker to expect on Desktop 2.157 (`docs/native-validation/atlynProfileLens-1.7.0.0-attempt-3.json`):
-the embedded common-file dialog exposes controls `1001`/`1` as Pane elements with **no** ValuePattern
-or InvokePattern, so the pattern-required guards refuse to set the path or invoke Save. The repo
-policy explicitly prohibits SendKeys, coordinate clicks, Win32 messages, and PBIX editing as
-workarounds. Resolution paths, in preference order:
+The exact run on Desktop 2.157.879.0 (26.08) was blocked at Save As: `The owned Save As dialog
+exposes no safe bound Pane control for ''`. The embedded common-file dialog exposes controls `1001`/`1`
+as Pane elements with **no** ValuePattern or InvokePattern, so the pattern-required guards refuse to
+set the path or invoke Save. The repo policy explicitly prohibits SendKeys, coordinate clicks, Win32
+messages, and PBIX editing as workarounds. Resolution paths, in preference order:
 
 1. Retry after a Desktop update that restores UIA patterns on those controls.
-2. Owner-approved policy amendment introducing a separately-trusted manual Save As step with its own
-   weaker evidence class (requires changing `Invoke-SaveAs` gating and the finalize assertions —
-   not a silent bypass).
+2. The owner performs a separately recorded manual step: open
+   `samples\AtlynProfileLensSample\AtlynProfileLensSample.pbip` in Desktop, import the exact
+   `dist\atlynProfileLens.1.9.1.0.pbiviz`, choose **File > Save as**, enter
+   `dist\release\AtlynProfileLensSample-1.9.1.0.pbix`, save, close Desktop, reopen that PBIX offline,
+   and record the PBIX SHA-256 plus embedded-resource parity. This is not native-run evidence unless
+   the owner also records the required native checklist observations; it must never edit PBIX
+   internals or bypass the pattern guards.
 3. Ship without native evidence and keep the listing claims limited to the automated boundary
    (current documented posture).
 

@@ -50,10 +50,12 @@ The offline PBIP sample (`samples/AtlynProfileLensSample/AtlynProfileLensSample.
 1. Use the final source URL and reviewed commit from `https://github.com/AtlynCo/powerbi-profile-lens`.
 2. Run `npm run validate:certification` from a clean checkout and retain the generated PBIVIZ path,
    byte count, SHA-256, GUID, version, API version, and release manifest.
-3. Open the generated PBIP in Power BI Desktop, import the exact PBIVIZ, use Save As to create
-   `dist/release/AtlynProfileLensSample-1.9.1.0.pbix`, close and reopen it offline, and record the
-   PBIX hash plus the native pass/fail boundary. If UI Automation cannot safely complete Save As,
-   the owner must perform that manual step; no OSM-enabled or fabricated artifact may be submitted.
+3. Open the generated PBIP in Power BI Desktop, import the exact PBIVIZ, use **File > Save as** to
+   create `dist/release/AtlynProfileLensSample-1.9.1.0.pbix`, close and reopen it offline, and record
+   the PBIX hash plus the native pass/fail boundary. The guarded run on Desktop 2.157.879.0 was
+   blocked because Save As controls `1001` and `1` exposed no safe UI Automation patterns, so the
+   owner must perform and label this manual step; no OSM-enabled or fabricated artifact may be
+   submitted.
 4. Put the source commit, PBIVIZ/PBIX hashes, automated results, native limitations, and the
    zero-privilege/no-external-request statement in the certification notes. The owner then replaces
    the failed Partner Center materials; this repository does not upload or edit the offer.
