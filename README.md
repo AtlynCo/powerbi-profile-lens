@@ -47,10 +47,8 @@ tooltips, focus state, labels, and semantic descriptions.
 `Navigation > Viewport navigation` is `Automatic` by default. Automatic mode activates for an
 interactive, non-profile-only Context scene with multiple navigable features. Persisted legacy
 `false`/`true` values migrate to explicit `Off`/`On`, so reports that explicitly disabled navigation
-remain static. When active, left-drag and one-finger drag pan; at a geographic `Fill` Home view,
-wheel/trackpad scroll pans (including horizontal deltas, or `Shift`+wheel), while `Ctrl`+wheel and
-scrolling after zooming zoom; two-pointer pinch also zooms; Shift+Arrow pans; and `+`/`-` zooms.
-`Navigation > Home view` defaults to `Automatic`: multi-feature
+remain static. When active, left-drag and one-finger drag pan; wheel, trackpad, and two-pointer pinch zoom;
+Shift+Arrow pans; and `+`/`-` zooms. `Navigation > Home view` defaults to `Automatic`: multi-feature
 built-in maps, points, and bound geometry start and reset to `Fill`, while grid, hex, and
 non-navigable contexts use `Fit`. Explicit `Fit` and `Fill` remain author-controlled.
 `Navigation > Home focus` also defaults to `Automatic`, which centers Home on a bound Entity that has
@@ -70,9 +68,9 @@ unless the camera is still at Home, in which case the resized Home view is recom
 
 Pinch uses one gesture-start camera snapshot: zoom and midpoint translation are solved together and
 clamped once, so reaching an edge or zoom limit does not introduce an incremental jump. While
-navigation is active, finite nonzero wheel input is contained inside the viewport only while it changes
-the camera: default geographic Home scroll pans, and clamped input is left to the host. Zero, invalid,
-disabled, and navigation-off input is left to the host. A pending wheel settle is generation-checked and cancelled when pointer, pinch, click, spatial
+navigation is active, finite nonzero wheel input is contained inside the viewport even when the camera
+is already at minimum or maximum zoom; zero, invalid, disabled, and navigation-off input is left to the
+host. A pending wheel settle is generation-checked and cancelled when pointer, pinch, click, spatial
 keyboard, reset, rebind, disable, or destroy takes ownership, so a stale timer cannot refocus or
 select. A host-authoritative external selection also cancels pending wheel and current drag/pinch
 settle ownership without rolling back the camera. High-contrast probe, help, focus, and reset chrome use the host foreground, background, and
@@ -239,10 +237,10 @@ writes the source project. Generation does not produce or commit a PBIX.
 This artifact is not Partner Center submission-ready or certification-complete. Release 1.9.1.2
 starts from merge commit `eeb191325ac67de8db281fbb777bffcae1116846` and changes only the
 four-part certification version plus complete-map navigation at the geographic Fill/Home zoom. The
-deterministic PBIVIZ is 725497 bytes with SHA-256
-`33386d5d1e94bf6f6d7f5a13c718a536531bde9d840960b9e4bf715272fb012f`; its embedded
-payload is 3318675 bytes with SHA-256
-`b0adb515d43f57af97893cb2b2fc0019be2d882fc496d7913ffb27597cf8edf3`.
+deterministic PBIVIZ is 725242 bytes with SHA-256
+`f19ca452c28a8e6aa3e42b27f24b8939938f1350aa58dd46de2936034c6b89c3`; its embedded
+payload is 3317638 bytes with SHA-256
+`b1e574a2eb3afa41f0672082d8169074d2f5ff4f486d197fe9d407bab043451c`.
 The PBIP resource and active `atlynProfileLens` PBIR references pass exact parity checks. No matching
 1.9.1.2 PBIX, native checklist, offline-reopen observation, screenshots, Microsoft certification, or
 Partner Center submission is claimed; the prior-version PBIX must not be reused or relabeled.

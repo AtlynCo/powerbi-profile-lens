@@ -14,10 +14,10 @@ version required by Partner Center. The older package and its owner-created PBIX
 1.9.1.0 and 1.9.1.1 artifacts that must not be reused or represented as 1.9.1.2 evidence. This
 repository makes no certification claim and does not touch Partner Center.
 
-The deterministic 1.9.1.2 package is `dist/atlynProfileLens.1.9.1.2.pbiviz` (725497 bytes,
-SHA-256 `33386d5d1e94bf6f6d7f5a13c718a536531bde9d840960b9e4bf715272fb012f`).
-Its embedded `atlynProfileLens` payload is 3318675 bytes with SHA-256
-`b0adb515d43f57af97893cb2b2fc0019be2d882fc496d7913ffb27597cf8edf3`.
+The deterministic 1.9.1.2 package is `dist/atlynProfileLens.1.9.1.2.pbiviz` (725242 bytes,
+SHA-256 `f19ca452c28a8e6aa3e42b27f24b8939938f1350aa58dd46de2936034c6b89c3`).
+Its embedded `atlynProfileLens` payload is 3317638 bytes with SHA-256
+`b1e574a2eb3afa41f0672082d8169074d2f5ff4f486d197fe9d407bab043451c`.
 The generated PBIP embeds that exact payload and resolves active visual references through canonical
 PBIR `Report/definition/pages/**/visuals/**/visual.json` definitions. No matching 1.9.1.2 PBIX,
 offline-reopen observation, native checklist, screenshots, Microsoft certification, or Partner Center

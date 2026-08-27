@@ -48,9 +48,7 @@ export interface SurfaceNavigation {
     readonly resetElement: HTMLButtonElement;
     readonly wheelSensitivity: number;
     readonly rtl: boolean;
-    readonly isAtDefaultZoom: () => boolean;
     readonly panBy: (deltaX: number, deltaY: number) => boolean;
-    readonly panAtDefaultZoom: (deltaX: number, deltaY: number) => boolean;
     readonly zoomAt: (factor: number, x: number, y: number) => boolean;
     readonly beginPinch: (midpointX: number, midpointY: number) =>
         ContextPinchSnapshot | null;
@@ -572,55 +570,26 @@ export class InteractionController {
             return;
         }
         const bounds = surface.element.getBoundingClientRect();
-        const rawDeltaX = event.deltaX ?? 0;
         if (
-            !Number.isFinite(rawDeltaX)
-            || !Number.isFinite(event.deltaY)
+            !Number.isFinite(event.deltaY)
             || !Number.isFinite(event.deltaMode)
             || !Number.isFinite(event.clientX)
             || !Number.isFinite(event.clientY)
-            || !Number.isFinite(bounds.width)
             || !Number.isFinite(bounds.height)
-            || bounds.width <= 0
             || bounds.height <= 0
         ) {
             return;
         }
-        const deltaX = normalizeWheelDelta(rawDeltaX, event.deltaMode, bounds.width);
-        const deltaY = normalizeWheelDelta(event.deltaY, event.deltaMode, bounds.height);
-        if (deltaX === 0 && deltaY === 0) {
+        const delta = normalizeWheelDelta(event.deltaY, event.deltaMode, bounds.height);
+        if (delta === 0) {
             return;
         }
         this.hideTooltip();
-        if (navigation.isAtDefaultZoom() && !event.ctrlKey) {
-            const panX = deltaX !== 0 ? -deltaX : event.shiftKey ? -deltaY : 0;
-            const panY = event.shiftKey ? 0 : -deltaY;
-            if (panX === 0 && panY === 0) {
-                return;
-            }
-            const changed = navigation.panAtDefaultZoom(panX, panY);
-            if (!changed) {
-                this.completeWheelSettle();
-                return;
-            }
-            event.preventDefault();
-            event.stopPropagation();
-            this.cancelWheelSettle(false);
-            this.wheelCameraChanged = true;
-            this.wheelNavigation = navigation;
-            this.wheelSettleTimer = setTimeout(() => {
-                this.completeWheelSettle();
-            }, WHEEL_SETTLE_MS);
-            return;
-        }
-        if (deltaY === 0) {
-            return;
-        }
         // Default scrolling is suppressed only when this tick actually moves the camera. A wheel
-        // tick that lands on a clamped camera (zoom or pan limits reached) stays unhandled so the
-        // report page keeps scrolling instead of feeling blocked over the map.
+        // tick that lands on a clamped camera (zoom limits reached) stays unhandled so the report
+        // page keeps scrolling instead of feeling blocked over the map.
         const changed = navigation.zoomAt(
-            wheelZoomFactor(deltaY, navigation.wheelSensitivity),
+            wheelZoomFactor(delta, navigation.wheelSensitivity),
             event.clientX - bounds.left,
             event.clientY - bounds.top
         );

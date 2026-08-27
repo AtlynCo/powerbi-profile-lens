@@ -20,7 +20,7 @@ Partner Center package, PBIX, and listing were OSM-enabled and must be replaced 
 | Requirement | Release value | Status |
 |---|---|---|
 | Visual | Atlyn Profile Lens, GUID `atlynProfileLens`, version `1.9.1.2` | Packaged |
-| PBIVIZ | `dist/atlynProfileLens.1.9.1.2.pbiviz`; 725497 bytes; SHA-256 `33386d5d1e94bf6f6d7f5a13c718a536531bde9d840960b9e4bf715272fb012f` | Deterministic release artifact |
+| PBIVIZ | `dist/atlynProfileLens.1.9.1.2.pbiviz`; 725242 bytes; SHA-256 `f19ca452c28a8e6aa3e42b27f24b8939938f1350aa58dd46de2936034c6b89c3` | Deterministic release artifact |
 | API | `5.11.0` | Packaged |
 | Listing price | Free | Owner decision |
 | Support | <https://www.atlynco.com/docs/faq> | Recorded in `pbiviz.json` |
@@ -33,7 +33,7 @@ Partner Center package, PBIX, and listing were OSM-enabled and must be replaced 
 | Screenshots | 1-5 native release screenshots | **Blocked: no safe native capture was completed** |
 | Offline sample project | `samples/AtlynProfileLensSample/AtlynProfileLensSample.pbip` | Present (Demographics & Community Profile Demo) |
 | Owner-created PBIX | No matching 1.9.1.2 PBIX | Prior-version PBIX must not be reused or relabeled |
-| Embedded payload | 3318675 bytes; SHA-256 `b0adb515d43f57af97893cb2b2fc0019be2d882fc496d7913ffb27597cf8edf3` | PBIP resource exactly matches the release PBIVIZ payload |
+| Embedded payload | 3317638 bytes; SHA-256 `b1e574a2eb3afa41f0672082d8169074d2f5ff4f486d197fe9d407bab043451c` | PBIP resource exactly matches the release PBIVIZ payload |
 | Native evidence | No 1.9.1.2 native record | **Unavailable; manual Save As is not native checklist or offline-reopen evidence** |
 
 ## Demographics & Community Profile Sample (v1.9.1.2)
