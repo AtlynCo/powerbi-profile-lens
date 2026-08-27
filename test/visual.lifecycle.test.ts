@@ -650,7 +650,8 @@ describe("interaction", () => {
             profiles: ["Metric A"],
             objects
         })));
-        expect(mock.element.querySelector(".profile-lens-header-title")?.textContent).toBe("USA");
+        expect(mock.element.querySelector(".profile-lens-header-title")?.textContent)
+            .toBe("United States of America");
         visual.update(updateOptions(buildMatrixDataView({
             entities: [],
             bands: ["Band 1"],

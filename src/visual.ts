@@ -660,13 +660,22 @@ export class Visual implements IVisual {
         if (!this.measure) {
             this.measure = createSvgTextMeasurer(this.svg);
         }
+        const fullFocus = this.fullRenderRepresentsFocus(
+            this.activeContextFocus,
+            entityIndex,
+            periodIndex
+        )
+            ? this.activeContextFocus
+            : null;
+        const fullPresentation = fullFocus ? this.focusPresentation(fullFocus) : null;
 
         renderHeader(this.headerElement, {
             model,
             settings: this.settings,
             localization: this.localization,
             entityIndex,
-            periodIndex
+            periodIndex,
+            titleOverride: fullPresentation?.title
         });
         if (!layout.chrome.header) {
             this.headerElement.setAttribute("hidden", "hidden");
@@ -728,7 +737,8 @@ export class Visual implements IVisual {
             localization: this.localization,
             entityIndex,
             periodIndex,
-            visible: this.settings.tableVisibility === "visible"
+            visible: this.settings.tableVisibility === "visible",
+            entityLabelOverride: fullPresentation?.title
         });
 
         const connectorTarget = composite.context && composite.effectiveMode === "focusLens"
@@ -762,14 +772,14 @@ export class Visual implements IVisual {
         this.controller.bind(this.pendingProfileTargets, contextInteraction);
         this.controller.restoreFocus(hadProfileFocus);
 
-        const baseSummary = model.segments.partial
+        const baseSummary = fullPresentation?.summary ?? (model.segments.partial
             ? this.localization.get("Status_Partial")
             : this.localization.format(
                 "Status_Ready",
                 model.bands.length,
                 model.profiles.length,
                 model.entities[entityIndex]?.label ?? ""
-            );
+            ));
         const rejectionAnnouncement = this.runtimeSelectionRejectionNeedsAnnouncement
             ? ` ${this.localization.get("Context_SelectionRejected")}`
             : "";
@@ -2414,26 +2424,27 @@ export class Visual implements IVisual {
         readonly message?: string;
         readonly summary: string;
     } {
+        const displayLabel = this.focusDisplayLabel(focus);
         switch (focus.kind) {
             case "loadedEntity":
                 return {
-                    title: focus.entityLabel,
+                    title: displayLabel,
                     summary: this.localization.format(
                         "Status_Ready",
                         this.model?.bands.length ?? 0,
                         this.model?.profiles.length ?? 0,
-                        focus.entityLabel
+                        displayLabel
                     )
                 };
             case "fallbackEntity":
                 return {
-                    title: focus.entityLabel,
+                    title: displayLabel,
                     message: this.localization.get("Context_Fallback"),
                     summary: `${this.localization.format(
                         "Status_Ready",
                         this.model?.bands.length ?? 0,
                         this.model?.profiles.length ?? 0,
-                        focus.entityLabel
+                        displayLabel
                     )} ${this.localization.get("Context_Fallback")}.`
                 };
             case "unboundFeature":
@@ -2456,6 +2467,20 @@ export class Visual implements IVisual {
                     summary: `${this.localization.get("Context_NoFeature")}.`
                 };
         }
+    }
+
+    private focusDisplayLabel(focus: ContextFocusState): string {
+        if (focus.feature) {
+            return focus.feature.label;
+        }
+        if (focus.kind !== "fallbackEntity") {
+            return "entityLabel" in focus ? focus.entityLabel : "";
+        }
+        const scene = this.focusedRenderSession?.scene;
+        const featureKey = scene?.entities.featureKeyByEntityKey.get(focus.entityKey);
+        return featureKey
+            ? scene?.backdrop.featureByKey.get(featureKey)?.label ?? focus.entityLabel
+            : focus.entityLabel;
     }
 
     private contextFeatureDescriptions(
@@ -2524,7 +2549,7 @@ export class Visual implements IVisual {
             case "loadedEntity":
                 message = this.localization.format(
                     "Context_AnnouncementLoaded",
-                    focus.entityLabel
+                    this.focusDisplayLabel(focus)
                 );
                 break;
             case "unboundFeature":
@@ -2542,7 +2567,7 @@ export class Visual implements IVisual {
             case "fallbackEntity":
                 message = this.localization.format(
                     "Context_AnnouncementFallback",
-                    focus.entityLabel
+                    this.focusDisplayLabel(focus)
                 );
                 break;
             case "noFeature":

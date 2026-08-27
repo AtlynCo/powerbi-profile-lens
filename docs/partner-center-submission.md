@@ -20,7 +20,7 @@ Partner Center package, PBIX, and listing were OSM-enabled and must be replaced 
 | Requirement | Release value | Status |
 |---|---|---|
 | Visual | Atlyn Profile Lens, GUID `atlynProfileLens`, version `1.9.1.2` | Packaged |
-| PBIVIZ | `dist/atlynProfileLens.1.9.1.2.pbiviz`; 725245 bytes; SHA-256 `154668a778085dcbfa0a4bb6b239dcc715933e0bec5740755d493ed6a884ee95` | Deterministic release artifact |
+| PBIVIZ | `dist/atlynProfileLens.1.9.1.2.pbiviz`; 725365 bytes; SHA-256 `fa863438a272a54c4dd070b2e51668537cf38d4279b50e573114512f7321acf0` | Deterministic release artifact |
 | API | `5.11.0` | Packaged |
 | Listing price | Free | Owner decision |
 | Support | <https://www.atlynco.com/docs/faq> | Recorded in `pbiviz.json` |
@@ -33,16 +33,16 @@ Partner Center package, PBIX, and listing were OSM-enabled and must be replaced 
 | Screenshots | 1-5 native release screenshots | **Blocked: no safe native capture was completed** |
 | Offline sample project | `samples/AtlynProfileLensSample/AtlynProfileLensSample.pbip` | Present (Demographics & Community Profile Demo) |
 | Owner-created PBIX | No matching 1.9.1.2 PBIX | Prior-version PBIX must not be reused or relabeled |
-| Embedded payload | 3317696 bytes; SHA-256 `a9f83c31b950ab1d7bdbde5c66446e96b8d680bb7c401b6497f93a75ba715ae7` | PBIP resource exactly matches the release PBIVIZ payload |
+| Embedded payload | 3318253 bytes; SHA-256 `3e4c799b33c3b12d52c45b279584056f70f1a43614da6b015d4c926db723d105` | PBIP resource exactly matches the release PBIVIZ payload |
 | Native evidence | No 1.9.1.2 native record | **Unavailable; manual Save As is not native checklist or offline-reopen evidence** |
 
 ## Demographics & Community Profile Sample (v1.9.1.2)
 
-The offline PBIP sample (`samples/AtlynProfileLensSample/AtlynProfileLensSample.pbip`) showcases 14 comprehensive pages, led by a large local-only World 50m focus-lens hero with Automatic/Fill home, center probe, period slider, and three synthetic demographic profiles. Every data-bearing page opens on a populated profile, proven by a packaged-Chromium demo-page audit that mounts each page configuration and fails the build on zero profile marks:
+The offline PBIP sample (`samples/AtlynProfileLensSample/AtlynProfileLensSample.pbip`) showcases 10 comprehensive pages, led by a large local-only World 50m focus-lens hero with Automatic/Fill home, center probe, period slider, and three synthetic demographic profiles. Every data-bearing page opens on a populated profile, proven by a packaged-Chromium demo-page audit that mounts each page configuration and fails the build on zero profile marks. `npm run sample:focused` also creates a deterministic two-page native-review project under `dist/release`, led by that hero and followed by the USA Counties lens:
 - **Demographic Indicators**: Residents, Median household income, Degree attainment rate, Health coverage rate, Labor force participation, and Housing cost burden, reported across five age bands and an urban/rural series.
-- **Complete Key Coverage**: All 56 Census state and equivalent GEOIDs, a multi-hundred county subset spanning sixteen states and equivalents including every island area, and every country in the packaged 110m and 50m cartography, all read from the shipped context packs so every join is exact by construction.
+- **Complete Key Coverage**: All 56 Census state and equivalent GEOIDs, all 3,235 packaged county and equivalent GEOIDs, and every country in the packaged 110m and 50m cartography, all read from the shipped context packs so every join is exact by construction.
 - **Probe-driven Viewport Navigation**: Camera drag, wheel, pinch, and keyboard controls across Natural Earth 50m / 110m, US States, and US Counties with fixed-center probe interrogation and a data-bearing Home focus.
-- **Bound Geographic Entities & Matrices**: WGS84 point coordinates with locator inset, custom WKT polygon geometries with focus lens, nongeographic grid and hex matrices, and progressive authoring.
+- **Bound Geographic Entities**: WGS84 point coordinates with locator inset plus complete offline world, state, and county context packs.
 - **Isolated Engineering Diagnostics**: Deliberately padded, unmatched, case-folded, and duplicate keys live on one clearly titled diagnostics page, so no customer-facing page carries rejection warnings.
 - **Zero Runtime Dependencies**: The semantic model is five offline DAX `DATATABLE` calculated tables requiring zero external data sources, credentials, or network connections. Values are produced by a deterministic function of the key and reproduce no real statistical source.
 - **Embedded Custom Visual**: Embeds the exact `atlynProfileLens.1.9.1.2.pbiviz` package payload with verified SHA-256 byte parity.

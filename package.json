@@ -31,13 +31,14 @@
     "probe:browser": "npm run package && npm run probe:build && playwright test --config=playwright.config.ts",
     "release:manifest": "node scripts/release-manifest.cjs",
     "sample:pbip": "node scripts/build-sample-report.cjs",
+    "sample:focused": "node scripts/build-focused-sample.cjs",
     "assets:brand": "node scripts/generate-brand-assets.cjs",
     "packs:fetch": "node scripts/context-packs.mjs fetch",
     "packs:build": "node scripts/context-packs.mjs build",
     "packs:validate": "node scripts/context-packs.mjs validate",
     "packs:verify": "node scripts/context-packs.mjs verify",
     "packs:repro": "node scripts/context-packs.mjs repro",
-    "validate:certification": "npm run audit:npm && npm run packs:fetch && npm run packs:validate && npm run packs:verify && npm run packs:repro && npm run lint && npm run typecheck && npm run package && npm run sample:pbip && npm test && npm run audit:certification && npm run probe:browser && npm run audit:reproducible && npm run release:manifest"
+    "validate:certification": "npm run audit:npm && npm run packs:fetch && npm run packs:validate && npm run packs:verify && npm run packs:repro && npm run lint && npm run typecheck && npm run package && npm run sample:pbip && npm run sample:focused && npm test && npm run audit:certification && npm run probe:browser && npm run sample:pbip && npm run sample:focused && npm run audit:reproducible && npm run release:manifest"
   },
   "dependencies": {
     "d3-geo": "3.1.1",
