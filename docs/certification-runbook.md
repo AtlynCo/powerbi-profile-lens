@@ -5,6 +5,15 @@ candidate. This runbook encodes the gates that already exist in the repository; 
 about Microsoft certification, approval, submission, or listing. The submission boundary in
 [partner-center-submission.md](partner-center-submission.md) remains authoritative.
 
+## Current submission status (2026-08-27)
+
+The previous submission failed because Microsoft could not access the repository. The older Partner
+Center package, PBIX, and listing were OSM-enabled and must not be reused. This repository makes no
+certification claim and does not touch Partner Center. The replacement process is to use the final
+AtlynCo source URL, build and hash one deterministic PBIVIZ, create and reopen a genuine offline PBIX
+in Power BI Desktop from the generated PBIP, and carry those hashes plus the truthful limitations into
+the owner-controlled certification notes.
+
 Current release candidate: **1.9.1(.0)**, GUID `atlynProfileLens`, API `5.11.0`
 (`package.json`, `pbiviz.json`). Latest published API is 5.11.1 (BLEU cloud enum addition only);
 the audit pins `5.11.0` exactly (`scripts/certification-audit.cjs:82,165`), so do not bump the API
@@ -117,10 +126,11 @@ native window after the run; do not submit Chromium mockups.
    `https://www.atlynco.com/docs/faq`, privacy `https://www.atlynco.com/legal/privacy`, terms
    `https://www.atlynco.com/legal/terms`, EULA.md, THIRD_PARTY_NOTICES.md,
    `assets/partner-center-logo-300x300.png`.
-4. In Partner Center: create or update the Power BI visual offer, upload
-   `dist/atlynProfileLens.1.9.1.0.pbiviz`, the sample PBIX, and the screenshots; paste the package
-   SHA-256 and source commit into the certification notes; declare zero external network usage
-   (empty privileges, audited).
+4. In Partner Center, replace the failed submission's OSM-enabled package, PBIX, and listing
+   materials with the exact final PBIVIZ and genuinely reopened offline PBIX. Paste the package and
+   PBIX SHA-256 values, source commit, API/GUID/version, and the automated/native evidence boundary
+   into the owner-controlled certification notes; declare zero external network usage (empty
+   privileges, audited). Do not claim certification before Microsoft completes its review.
 5. Expect review within days-to-two-weeks; if certification fails on reviewer-side rendering, use
    the private `pbicvsupport` repository to share the package with Microsoft under NDA-friendly
    terms.

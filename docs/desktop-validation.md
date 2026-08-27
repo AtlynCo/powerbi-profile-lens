@@ -1,5 +1,10 @@
 # Power BI Desktop host-spike checklist
 
+The prior Partner Center submission failed on repository access, and its older OSM-enabled package,
+PBIX, and listing must be replaced. This checklist does not claim certification. Run it only against
+the final source commit and exact PBIVIZ hash; record a genuine PBIX Save As/reopen result or the
+owner-manual Save As limitation without editing PBIX internals or fabricating evidence.
+
 Automated checks do not replace the native host. Run this checklist against the exact release
 candidate; record the package name and SHA-256 from `dist/release-manifest.json`.
 

@@ -234,10 +234,12 @@ or network dependency.
 If `dist` exists, generation embeds the exact packaged visual resource; otherwise it warns and still
 writes the source project. **No PBIX is produced or claimed.**
 
-This artifact is not Partner Center submission-ready or certification-complete. Before submission, a
-native offline PBIX must be created from the PBIP in Power BI Desktop, must embed this exact PBIVIZ
-hash, and must be closed, reopened, and validated with the native checklist. That PBIX must then be
-added to the submission materials. The repository never fabricates a PBIX.
+This artifact is not Partner Center submission-ready or certification-complete. A previous submission
+failed because Microsoft could not access the repository, and its older Partner Center package, PBIX,
+and listing used an OSM-enabled artifact. Those materials must be replaced; this repository does not
+claim certification or alter Partner Center. Before a new submission, build the exact source commit,
+create a native offline PBIX from this PBIP in Power BI Desktop, embed this exact PBIVIZ hash, close
+and reopen it offline, and record the final hashes and notes. The repository never fabricates a PBIX.
 
 ## Development
 
@@ -296,11 +298,10 @@ MIT. See [LICENSE](LICENSE) and [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)
 
 ## Repository privacy and public support
 
-The source repository is currently public at
-<https://github.com/garrett-hamers/powerbi-profile-lens>. A future private-source transition is an
-owner/admin operation and must not change the public Marketplace offer, the visual package identity,
-or the exact lowercase `certification` branch and reviewed artifact required by Microsoft. No such
-transition or certification-branch update is performed by this repository preparation.
+The certification source URL is
+<https://github.com/AtlynCo/powerbi-profile-lens>. Repository visibility, Partner Center replacement,
+and any certification-branch operation are owner/admin actions. This repository preparation does not
+change visibility, collaborators, Partner Center, or a certification branch.
 
 Use the public product endpoints for listing support and legal links:
 
@@ -308,6 +309,6 @@ Use the public product endpoints for listing support and legal links:
 - **Privacy:** <https://www.atlynco.com/legal/privacy>
 - **Terms:** <https://www.atlynco.com/legal/terms>
 
-See [PRIVATE_REPOSITORY_OPERATIONS.md](PRIVATE_REPOSITORY_OPERATIONS.md) for the owner/admin checklist
-and [docs/partner-center-submission.md](docs/partner-center-submission.md) for the truthful
-submission boundary.
+See [docs/certification-runbook.md](docs/certification-runbook.md) for the final source/package/PBIX
+and notes process, and [docs/partner-center-submission.md](docs/partner-center-submission.md) for the
+truthful submission boundary.

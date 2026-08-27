@@ -1,12 +1,12 @@
 # Partner Center release handoff
 
-## Repository preparation state (2026-08-26)
+## Repository preparation state (2026-08-27)
 
 | Control | Observed state |
 |---|---|
-| GitHub repository | Public `garrett-hamers/powerbi-profile-lens`; default branch `main` |
+| GitHub repository | Source URL `AtlynCo/powerbi-profile-lens`; default branch `main` |
 | Lowercase certification branch | **Not present on `origin`**; no branch was created or modified by this preparation |
-| Partner Center | Owner-observed **publish-in-progress**; not independently verifiable from this repository |
+| Partner Center | Previous submission **failed: repository access**; replacement is owner-controlled and not performed here |
 | Microsoft certification | **Not claimed**; the reviewed commit and submitted package are not established here |
 | GitHub visibility transition | **Not performed**; owner/admin action remains outstanding |
 
@@ -14,7 +14,8 @@ The public offer and the exact lowercase `certification` branch/package relation
 requirements. Do not infer either one from this document, create a guessed certification branch, or
 change Partner Center visibility during repository preparation.
 
-Nothing in this document claims Microsoft certification, approval, submission, or listing.
+Nothing in this document claims Microsoft certification, approval, submission, or listing. The previous
+Partner Center package, PBIX, and listing were OSM-enabled and must be replaced rather than reused.
 
 | Requirement | Release value | Status |
 |---|---|---|
@@ -44,6 +45,19 @@ The offline PBIP sample (`samples/AtlynProfileLensSample/AtlynProfileLensSample.
 - **Zero Runtime Dependencies**: The semantic model is five offline DAX `DATATABLE` calculated tables requiring zero external data sources, credentials, or network connections. Values are produced by a deterministic function of the key and reproduce no real statistical source.
 - **Embedded Custom Visual**: Embeds the exact `atlynProfileLens.1.9.1.0.pbiviz` package payload with verified SHA-256 byte parity.
 
+## Final source, package, PBIX, and notes process
+
+1. Use the final source URL and reviewed commit from `https://github.com/AtlynCo/powerbi-profile-lens`.
+2. Run `npm run validate:certification` from a clean checkout and retain the generated PBIVIZ path,
+   byte count, SHA-256, GUID, version, API version, and release manifest.
+3. Open the generated PBIP in Power BI Desktop, import the exact PBIVIZ, use Save As to create
+   `dist/release/AtlynProfileLensSample-1.9.1.0.pbix`, close and reopen it offline, and record the
+   PBIX hash plus the native pass/fail boundary. If UI Automation cannot safely complete Save As,
+   the owner must perform that manual step; no OSM-enabled or fabricated artifact may be submitted.
+4. Put the source commit, PBIVIZ/PBIX hashes, automated results, native limitations, and the
+   zero-privilege/no-external-request statement in the certification notes. The owner then replaces
+   the failed Partner Center materials; this repository does not upload or edit the offer.
+
 ## Source and artifact parity
 
 After Microsoft identifies the reviewed commit and package, promote that exact commit to a lowercase
@@ -60,6 +74,6 @@ release PBIVIZ. Record unavailable surfaces as unproven.
 
 ## Submission boundary
 
-The offer remains a free distribution of the visual. Partner Center upload, Microsoft review,
-certification, Service publication, and dashboard pinning are owner-controlled steps and were not
-performed by this release-preparation work.
+The offer remains a free distribution of the visual. Partner Center upload, replacement of the old
+OSM-enabled listing materials, Microsoft review, certification, Service publication, and dashboard
+pinning are owner-controlled steps and were not performed by this release-preparation work.

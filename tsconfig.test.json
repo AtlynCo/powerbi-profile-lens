@@ -4,6 +4,10 @@
         "noEmit": true,
         "declaration": false,
         "sourceMap": false,
+        "typeRoots": [
+            "./node_modules/@types",
+            "./node_modules"
+        ],
         "types": [
             "vitest/globals"
         ]
