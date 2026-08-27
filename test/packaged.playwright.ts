@@ -888,7 +888,7 @@ test.describe("packaged visual in a real browser", () => {
             profiles: ["Metric A"]
         });
         const surface = page.locator(".profile-lens-context");
-        await surface.evaluate((node) => {
+        await surface.evaluate(() => {
             const container = document.getElementById("visual-root")!;
             container.style.position = "fixed";
             container.style.inset = "0 auto auto 0";
@@ -923,7 +923,7 @@ test.describe("packaged visual in a real browser", () => {
         });
         const freeBounds = await surface.boundingBox();
         expect(freeBounds).not.toBeNull();
-        await surface.evaluate((node) => {
+        await surface.evaluate(() => {
             const container = document.getElementById("visual-root")!;
             container.style.position = "fixed";
             container.style.inset = "0 auto auto 0";
@@ -956,7 +956,7 @@ test.describe("packaged visual in a real browser", () => {
             profiles: ["Metric A"]
         });
         const surface = page.locator(".profile-lens-context");
-        await surface.evaluate((node) => {
+        await surface.evaluate(() => {
             const container = document.getElementById("visual-root")!;
             container.style.position = "fixed";
             container.style.inset = "0 auto auto 0";

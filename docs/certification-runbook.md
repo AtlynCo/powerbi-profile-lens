@@ -5,6 +5,15 @@ candidate. This runbook encodes the gates that already exist in the repository; 
 about Microsoft certification, approval, submission, or listing. The submission boundary in
 [partner-center-submission.md](partner-center-submission.md) remains authoritative.
 
+## Current submission status (2026-08-27)
+
+The previous submission failed because Microsoft could not access the repository. The older Partner
+Center package, PBIX, and listing were OSM-enabled and must not be reused. This repository makes no
+certification claim and does not touch Partner Center. The replacement process is to use the final
+AtlynCo source URL, build and hash one deterministic PBIVIZ, create and reopen a genuine offline PBIX
+in Power BI Desktop from the generated PBIP, and carry those hashes plus the truthful limitations into
+the owner-controlled certification notes.
+
 Current release candidate: **1.9.1(.0)**, GUID `atlynProfileLens`, API `5.11.0`
 (`package.json`, `pbiviz.json`). Latest published API is 5.11.1 (BLEU cloud enum addition only);
 the audit pins `5.11.0` exactly (`scripts/certification-audit.cjs:82,165`), so do not bump the API
@@ -57,16 +66,20 @@ offline, re-walks all pages, asserts byte stability across reopen, seals observa
 evidence, and atomically persists success output to
 `dist/release/native-evidence/native-run.json` (or `native-failure.json` on any block).
 
-Known blocker to expect on Desktop 2.157 (`docs/native-validation/atlynProfileLens-1.7.0.0-attempt-3.json`):
-the embedded common-file dialog exposes controls `1001`/`1` as Pane elements with **no** ValuePattern
-or InvokePattern, so the pattern-required guards refuse to set the path or invoke Save. The repo
-policy explicitly prohibits SendKeys, coordinate clicks, Win32 messages, and PBIX editing as
-workarounds. Resolution paths, in preference order:
+The exact run on Desktop 2.157.879.0 (26.08) was blocked at Save As: `The owned Save As dialog
+exposes no safe bound Pane control for ''`. The embedded common-file dialog exposes controls `1001`/`1`
+as Pane elements with **no** ValuePattern or InvokePattern, so the pattern-required guards refuse to
+set the path or invoke Save. The repo policy explicitly prohibits SendKeys, coordinate clicks, Win32
+messages, and PBIX editing as workarounds. Resolution paths, in preference order:
 
 1. Retry after a Desktop update that restores UIA patterns on those controls.
-2. Owner-approved policy amendment introducing a separately-trusted manual Save As step with its own
-   weaker evidence class (requires changing `Invoke-SaveAs` gating and the finalize assertions —
-   not a silent bypass).
+2. The owner performs a separately recorded manual step: open
+   `samples\AtlynProfileLensSample\AtlynProfileLensSample.pbip` in Desktop, import the exact
+   `dist\atlynProfileLens.1.9.1.0.pbiviz`, choose **File > Save as**, enter
+   `dist\release\AtlynProfileLensSample-1.9.1.0.pbix`, save, close Desktop, reopen that PBIX offline,
+   and record the PBIX SHA-256 plus embedded-resource parity. This is not native-run evidence unless
+   the owner also records the required native checklist observations; it must never edit PBIX
+   internals or bypass the pattern guards.
 3. Ship without native evidence and keep the listing claims limited to the automated boundary
    (current documented posture).
 
@@ -117,10 +130,11 @@ native window after the run; do not submit Chromium mockups.
    `https://www.atlynco.com/docs/faq`, privacy `https://www.atlynco.com/legal/privacy`, terms
    `https://www.atlynco.com/legal/terms`, EULA.md, THIRD_PARTY_NOTICES.md,
    `assets/partner-center-logo-300x300.png`.
-4. In Partner Center: create or update the Power BI visual offer, upload
-   `dist/atlynProfileLens.1.9.1.0.pbiviz`, the sample PBIX, and the screenshots; paste the package
-   SHA-256 and source commit into the certification notes; declare zero external network usage
-   (empty privileges, audited).
+4. In Partner Center, replace the failed submission's OSM-enabled package, PBIX, and listing
+   materials with the exact final PBIVIZ and genuinely reopened offline PBIX. Paste the package and
+   PBIX SHA-256 values, source commit, API/GUID/version, and the automated/native evidence boundary
+   into the owner-controlled certification notes; declare zero external network usage (empty
+   privileges, audited). Do not claim certification before Microsoft completes its review.
 5. Expect review within days-to-two-weeks; if certification fails on reviewer-side rendering, use
    the private `pbicvsupport` repository to share the package with Microsoft under NDA-friendly
    terms.

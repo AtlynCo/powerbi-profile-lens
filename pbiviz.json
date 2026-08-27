@@ -7,7 +7,7 @@
     "version": "1.9.1.0",
     "description": "Compare report-bound measures through a fixed-center viewport lens over professional offline world and US cartography, points, strict bound geometry, or generated context. Built-in reference layers remain noninteractive; the visual bundles no observations, makes no external requests, and requests no privileges.",
     "supportUrl": "https://www.atlynco.com/docs/faq",
-    "gitHubUrl": "https://github.com/garrett-hamers/powerbi-profile-lens"
+    "gitHubUrl": "https://github.com/AtlynCo/powerbi-profile-lens"
   },
   "apiVersion": "5.11.0",
   "author": {
