@@ -4,15 +4,15 @@
 
 | Control | Observed state |
 |---|---|
-| GitHub repository | Source URL `AtlynCo/powerbi-profile-lens`; default branch `main` |
-| Lowercase certification branch | **Not present on `origin`**; no branch was created or modified by this preparation |
-| Partner Center | Previous submission **failed: repository access**; replacement is owner-controlled and not performed here |
-| Microsoft certification | **Not claimed**; the reviewed commit and submitted package are not established here |
-| GitHub visibility transition | **Not performed**; owner/admin action remains outstanding |
+| GitHub repository | Public at <https://github.com/AtlynCo/powerbi-profile-lens>; PR #25 merged to `main` as `7b7bebbc52eab6fbf18d55403ab6e90736d30c39` |
+| Lowercase certification branch | Public and fixed at `7b7bebbc52eab6fbf18d55403ab6e90736d30c39` before this follow-up; not modified here |
+| Partner Center | Owner uploaded and hash-verified replacement files separately; submission is paused pending review of this parity follow-up |
+| Microsoft certification | **Not claimed**; no submission is performed here |
+| GitHub visibility | **Public** |
 
-The public offer and the exact lowercase `certification` branch/package relationship are Microsoft
-requirements. Do not infer either one from this document, create a guessed certification branch, or
-change Partner Center visibility during repository preparation.
+The exact lowercase `certification` branch/package relationship remains a Microsoft submission
+requirement. The existing branch records the public-source baseline, not this unreviewed follow-up.
+Do not modify it or change Partner Center during this work.
 
 Nothing in this document claims Microsoft certification, approval, submission, or listing. The previous
 Partner Center package, PBIX, and listing were OSM-enabled and must be replaced rather than reused.
@@ -31,8 +31,9 @@ Partner Center package, PBIX, and listing were OSM-enabled and must be replaced 
 | Listing logo | `assets/partner-center-logo-300x300.png`, 300x300 PNG | Present |
 | Screenshots | 1-5 native release screenshots | **Blocked: no safe native capture was completed** |
 | Offline sample project | `samples/AtlynProfileLensSample/AtlynProfileLensSample.pbip` | Present (Demographics & Community Profile Demo) |
-| Genuine offline PBIX | `dist/release/AtlynProfileLensSample-1.9.1.0.pbix` | **Blocked: not produced** |
-| Native evidence | No 1.9.1.0 native record | **Not run; 1.2.0.0 evidence is historical only** |
+| Owner-created PBIX | External, not committed; 971650 bytes; SHA-256 `a264118f6ea58e83627115e9ceb390b422c164bf992f5ebe2015c3aba6ceb081` | Manually saved; active PBIR resource parity proven |
+| Embedded payload | SHA-256 `cd628cdc8a29a546015a801f743f684848bc756e1468c1cd50f033c15ea153e8` | Exactly matches the release PBIVIZ payload |
+| Native evidence | No 1.9.1.0 native record | **Unavailable; manual Save As is not native checklist or offline-reopen evidence** |
 
 ## Demographics & Community Profile Sample (v1.9.1.0)
 
@@ -50,23 +51,22 @@ The offline PBIP sample (`samples/AtlynProfileLensSample/AtlynProfileLensSample.
 1. Use the final source URL and reviewed commit from `https://github.com/AtlynCo/powerbi-profile-lens`.
 2. Run `npm run validate:certification` from a clean checkout and retain the generated PBIVIZ path,
    byte count, SHA-256, GUID, version, API version, and release manifest.
-3. Open the generated PBIP in Power BI Desktop, import the exact PBIVIZ, use **File > Save as** to
-   create `dist/release/AtlynProfileLensSample-1.9.1.0.pbix`, close and reopen it offline, and record
-   the PBIX hash plus the native pass/fail boundary. The guarded run on Desktop 2.157.879.0 was
-   blocked because Save As controls `1001` and `1` exposed no safe UI Automation patterns, so the
-   owner must perform and label this manual step; no OSM-enabled or fabricated artifact may be
-   submitted.
+3. Retain the owner-created PBIX and its recorded hash. Its exact embedded payload and three active
+   canonical PBIR visual references are proven by `scripts/sample-resource-parity.cjs`. The guarded
+   run on Desktop 2.157.879.0 was blocked because Save As controls `1001` and `1` exposed no safe UI
+   Automation patterns. No offline reopen, native checklist, or screenshots were recorded, so the
+   PBIX remains artifact evidence rather than native validation evidence.
 4. Put the source commit, PBIVIZ/PBIX hashes, automated results, native limitations, and the
    zero-privilege/no-external-request statement in the certification notes. The owner then replaces
    the failed Partner Center materials; this repository does not upload or edit the offer.
 
 ## Source and artifact parity
 
-After Microsoft identifies the reviewed commit and package, promote that exact commit to a lowercase
-`certification` branch without rewriting it. Build from that reviewed commit with the committed
-lockfile and run `npm run validate:certification`. The release manifest must name the same commit,
-GUID, version, API version, PBIVIZ SHA-256, context-pack hashes, and sample resources used for native
-validation. This preparation branch does not establish the reviewed commit or create that branch.
+After Microsoft identifies the reviewed commit and package, promote that exact commit to the existing
+lowercase `certification` branch without rewriting unrelated history. Build from that reviewed commit
+with the committed lockfile and run `npm run validate:certification`. The release manifest must name
+the same commit, GUID, version, API version, PBIVIZ SHA-256, context-pack hashes, and sample resources
+used for validation. This follow-up does not move the existing baseline branch.
 Two package builds under `Etc/GMT+12` and `Etc/GMT-14` must remain byte-identical.
 
 Do not submit until Power BI Desktop has produced the versioned PBIX from the exact PBIP, the PBIX
@@ -76,6 +76,6 @@ release PBIVIZ. Record unavailable surfaces as unproven.
 
 ## Submission boundary
 
-The offer remains a free distribution of the visual. Partner Center upload, replacement of the old
-OSM-enabled listing materials, Microsoft review, certification, Service publication, and dashboard
-pinning are owner-controlled steps and were not performed by this release-preparation work.
+The offer remains a free distribution of the visual. The owner uploaded replacement files separately,
+but did not submit. Microsoft review, certification, Service publication, and dashboard pinning remain
+unperformed and unclaimed.

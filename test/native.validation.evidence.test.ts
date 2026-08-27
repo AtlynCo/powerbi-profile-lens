@@ -50,6 +50,7 @@ const {
     assertUniqueArchiveNames,
     crc32,
     parseExtraFields,
+    requireCanonicalPbirVisualDefinitions,
     requireCanonicalPbixResource,
     validateZipPayloads,
     verifyPbixVisualParity
@@ -57,6 +58,7 @@ const {
     assertUniqueArchiveNames(records: Array<{ name: string }>): void;
     crc32(bytes: Buffer): number;
     parseExtraFields(extra: Buffer): void;
+    requireCanonicalPbirVisualDefinitions(names: string[]): string[];
     requireCanonicalPbixResource(names: string[], guid: string): string;
     verifyPbixVisualParity(options: {
         packagePath: string;
@@ -65,7 +67,13 @@ const {
     }): Promise<{
         presenceParity: boolean;
         activeParity: boolean;
-        activePointer: { status: string };
+        activePointer: {
+            status: string;
+            format: string | null;
+            path: string | null;
+            matchedPaths: string[];
+            matchedCount: number;
+        };
     }>;
     validateZipPayloads(bytes: Buffer, records: Array<{
         name: string;
@@ -1336,13 +1344,38 @@ describe("native validation evidence safety", () => {
             canonical,
             `Decoy/CustomVisuals/${guid}/resources/${guid}.pbiviz.json`
         ], guid)).toThrow(/noncanonical|decoy/i);
+        const pbirVisualPath =
+            "Report/definition/pages/pageHero/visuals/visualHeroWorld/visual.json";
+        expect(requireCanonicalPbirVisualDefinitions([pbirVisualPath]))
+            .toEqual([pbirVisualPath]);
+        expect(() => requireCanonicalPbirVisualDefinitions([
+            pbirVisualPath,
+            pbirVisualPath
+        ])).toThrow(/duplicate/i);
+        expect(() => requireCanonicalPbirVisualDefinitions([
+            pbirVisualPath,
+            "Report/definition/pages/pageHero/visuals/visualHeroWorld/Visual.json"
+        ])).toThrow(/case-ambiguous/i);
+        expect(() => requireCanonicalPbirVisualDefinitions([
+            "report/definition/pages/pageHero/visuals/visualHeroWorld/visual.json"
+        ])).toThrow(/noncanonical/i);
+        expect(() => requireCanonicalPbirVisualDefinitions([
+            "Decoy/Report/definition/pages/pageHero/visuals/visualHeroWorld/visual.json"
+        ])).toThrow(/noncanonical/i);
+        expect(() => requireCanonicalPbirVisualDefinitions([
+            "Report/definition/pages/pageHero/visuals/../visualHeroWorld/visual.json"
+        ])).toThrow(/noncanonical/i);
 
         const packagePath = currentPackagePath;
         const packageZip = await JSZip.loadAsync(fs.readFileSync(packagePath));
         const payload = await packageZip.files[`resources/${guid}.pbiviz.json`]?.async("nodebuffer");
         expect(payload).toBeDefined();
         const temp = fs.mkdtempSync(path.join(os.tmpdir(), "profile-lens-pbix-"));
-        async function writePbix(name: string, layout?: string): Promise<string> {
+        async function writePbix(
+            name: string,
+            layout?: string,
+            definitions: ReadonlyArray<readonly [string, string]> = []
+        ): Promise<string> {
             const Zip = require("jszip") as new () => {
                 file(entry: string, value: string | Buffer): unknown;
                 generateAsync(options: { type: string }): Promise<Buffer>;
@@ -1350,6 +1383,9 @@ describe("native validation evidence safety", () => {
             const zip = new Zip();
             zip.file(canonical, payload as Buffer);
             if (layout !== undefined) zip.file("Report/Layout", layout);
+            for (const [definitionPath, definition] of definitions) {
+                zip.file(definitionPath, definition);
+            }
             const target = path.join(temp, name);
             fs.writeFileSync(target, await zip.generateAsync({ type: "nodebuffer" }));
             return target;
@@ -1378,7 +1414,106 @@ describe("native validation evidence safety", () => {
             });
             expect(resolved.presenceParity).toBe(true);
             expect(resolved.activeParity).toBe(true);
-            expect(resolved.activePointer.status).toBe("resolved");
+            expect(resolved.activePointer).toEqual({
+                status: "resolved",
+                format: "legacy-layout",
+                path: canonical,
+                matchedPaths: ["Report/Layout"],
+                matchedCount: 1
+            });
+
+            const secondPbirVisualPath =
+                "Report/definition/pages/pageProfile/visuals/visualProfile/visual.json";
+            const pbirResolved = await verifyPbixVisualParity({
+                packagePath,
+                pbixPath: await writePbix("pbir-resolved.pbix", activeLayout, [
+                    [pbirVisualPath, JSON.stringify({
+                        name: "visualHeroWorld",
+                        visual: { visualType: guid }
+                    })],
+                    [secondPbirVisualPath, JSON.stringify({
+                        name: "visualProfile",
+                        visual: { visualType: "columnChart" }
+                    })]
+                ]),
+                guid
+            });
+            expect(pbirResolved.activeParity).toBe(true);
+            expect(pbirResolved.activePointer).toEqual({
+                status: "resolved",
+                format: "pbir",
+                path: canonical,
+                matchedPaths: [pbirVisualPath],
+                matchedCount: 1
+            });
+
+            const pbirMissing = await verifyPbixVisualParity({
+                packagePath,
+                pbixPath: await writePbix("pbir-missing.pbix", undefined, [[
+                    pbirVisualPath,
+                    JSON.stringify({ name: "visualHeroWorld", visual: {} })
+                ]]),
+                guid
+            });
+            expect(pbirMissing.activeParity).toBe(false);
+            expect(pbirMissing.activePointer).toEqual({
+                status: "wrong-or-missing",
+                format: "pbir",
+                path: null,
+                matchedPaths: [],
+                matchedCount: 0
+            });
+
+            const pbirWrongGuid = await verifyPbixVisualParity({
+                packagePath,
+                pbixPath: await writePbix("pbir-wrong-guid.pbix", undefined, [[
+                    pbirVisualPath,
+                    JSON.stringify({
+                        name: "visualHeroWorld",
+                        visual: { visualType: `${guid}Other` }
+                    })
+                ]]),
+                guid
+            });
+            expect(pbirWrongGuid.activeParity).toBe(false);
+            expect(pbirWrongGuid.activePointer.format).toBe("pbir");
+            expect(pbirWrongGuid.activePointer.matchedCount).toBe(0);
+
+            await expect(verifyPbixVisualParity({
+                packagePath,
+                pbixPath: await writePbix("pbir-malformed.pbix", undefined, [[
+                    pbirVisualPath,
+                    "{\"visual\":"
+                ]]),
+                guid
+            })).rejects.toThrow(/not valid JSON/i);
+            await expect(verifyPbixVisualParity({
+                packagePath,
+                pbixPath: await writePbix("pbir-array.pbix", undefined, [[
+                    pbirVisualPath,
+                    "[]"
+                ]]),
+                guid
+            })).rejects.toThrow(/must be a JSON object/i);
+            await expect(verifyPbixVisualParity({
+                packagePath,
+                pbixPath: await writePbix("pbir-noncanonical.pbix", undefined, [[
+                    "Report/definition/pages/pageHero/visuals/visualHeroWorld/Visual.json",
+                    JSON.stringify({ visual: { visualType: guid } })
+                ]]),
+                guid
+            })).rejects.toThrow(/noncanonical PBIR visual definition path/i);
+            await expect(verifyPbixVisualParity({
+                packagePath,
+                pbixPath: await writePbix("pbir-case-collision.pbix", undefined, [
+                    [pbirVisualPath, JSON.stringify({ visual: { visualType: guid } })],
+                    [
+                        "Report/definition/pages/pageHero/visuals/visualHeroWorld/Visual.json",
+                        JSON.stringify({ visual: { visualType: guid } })
+                    ]
+                ]),
+                guid
+            })).rejects.toThrow(/case-ambiguous/i);
 
             const splitBytes = fs.readFileSync(await writePbix("split.pbix", activeLayout));
             const localSignature = splitBytes.indexOf(Buffer.from([0x50, 0x4b, 0x03, 0x04]));

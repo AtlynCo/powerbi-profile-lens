@@ -169,15 +169,15 @@ candidate; record the package name and SHA-256 from `dist/release-manifest.json`
 
 1. Open the generated PBIP sample and verify all fourteen pages offline, starting with the large
    Automatic/Fill local-only World 50m hero and then the report-selection and engineering pages.
-2. Use Power BI Desktop to create a native offline PBIX that embeds the exact release-candidate
-   PBIVIZ hash. Close and reopen it, repeat the checklist, and add that PBIX to the submission
-   materials. This repository produces, fabricates, and claims no PBIX.
+2. The owner-created PBIX embeds the exact release-candidate payload and passes active PBIR resource
+   parity, but it has no recorded offline reopen or checklist observations. Close and reopen it,
+   repeat this checklist, and record those observations separately. The PBIX remains outside git.
 3. Test PDF/PowerPoint export, service publication, dashboard pinning, and bookmarks separately.
 4. Record Desktop/service versions, modes tested, package SHA-256, pass/fail evidence, and deviations.
 
 Native results establish only the tested host/package combination. They do not constitute Microsoft
-certification. Until the exact native PBIX above exists and passes, the artifact is not Partner Center
-submission-ready or certification-complete.
+certification. The PBIX exists, but until it passes the native checklist and recorded offline reopen,
+the artifact is not certification-complete.
 
 Packaged Chromium mouse/wheel and synthetic pinch evidence does not prove Power BI Desktop mouse,
 trackpad, touch hardware, focus routing, export, or reopen behavior. Record those surfaces as unproven
