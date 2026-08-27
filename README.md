@@ -232,14 +232,20 @@ progressive authoring. Its semantic model is only a synthetic DAX
 or network dependency.
 
 If `dist` exists, generation embeds the exact packaged visual resource; otherwise it warns and still
-writes the source project. **No PBIX is produced or claimed.**
+writes the source project. Generation does not produce or commit a PBIX.
 
-This artifact is not Partner Center submission-ready or certification-complete. A previous submission
-failed because Microsoft could not access the repository, and its older Partner Center package, PBIX,
-and listing used an OSM-enabled artifact. Those materials must be replaced; this repository does not
-claim certification or alter Partner Center. Before a new submission, build the exact source commit,
-create a native offline PBIX from this PBIP in Power BI Desktop, embed this exact PBIVIZ hash, close
-and reopen it offline, and record the final hashes and notes. The repository never fabricates a PBIX.
+This artifact is not Partner Center submission-ready or certification-complete. PR
+[#25](https://github.com/AtlynCo/powerbi-profile-lens/pull/25) made the repository public and was
+merged as `7b7bebbc52eab6fbf18d55403ab6e90736d30c39`; the public lowercase `certification`
+branch was created at that commit before the PBIR parity follow-up. Full automated certification
+validation passed there with 393 tests and 93 packaged-browser probes. The owner then manually saved
+a genuine PBIX (971650 bytes, SHA-256
+`a264118f6ea58e83627115e9ceb390b422c164bf992f5ebe2015c3aba6ceb081`) whose embedded
+custom-visual payload is byte-identical (SHA-256
+`cd628cdc8a29a546015a801f743f684848bc756e1468c1cd50f033c15ea153e8`). The parity
+proof resolves active `atlynProfileLens` references from canonical PBIR visual definitions. The PBIX
+is not committed, and no native checklist, offline-reopen observation, screenshots, Microsoft
+certification, or Partner Center submission is claimed.
 
 ## Development
 
@@ -296,12 +302,12 @@ Certification and Partner Center submission readiness are not claimed; Microsoft
 
 MIT. See [LICENSE](LICENSE) and [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
 
-## Repository privacy and public support
+## Public repository and support
 
 The certification source URL is
-<https://github.com/AtlynCo/powerbi-profile-lens>. Repository visibility, Partner Center replacement,
-and any certification-branch operation are owner/admin actions. This repository preparation does not
-change visibility, collaborators, Partner Center, or a certification branch.
+<https://github.com/AtlynCo/powerbi-profile-lens>. It is public. The lowercase `certification`
+branch records the `7b7bebbc52eab6fbf18d55403ab6e90736d30c39` baseline; this follow-up does not
+modify it. Partner Center remains owner-controlled.
 
 Use the public product endpoints for listing support and legal links:
 

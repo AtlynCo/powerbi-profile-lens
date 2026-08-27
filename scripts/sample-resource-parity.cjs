@@ -250,20 +250,34 @@ function decodeMetadata(bytes) {
         .replace(/^\uFEFF/, "");
 }
 
+function activePointerResult(status, format, canonical, matchedPaths, matchedCount) {
+    return {
+        status,
+        format,
+        path: status === "resolved" ? canonical : null,
+        matchedPaths,
+        matchedCount
+    };
+}
+
 function resolveActiveResourcePointer(metadataText, guid, canonical) {
     let layout;
     try {
         layout = JSON.parse(metadataText);
     } catch {
-        return { status: "unavailable", path: null };
+        return activePointerResult("unavailable", "legacy-layout", canonical, [], 0);
     }
     const resourcePackages = Array.isArray(layout.resourcePackages) ? layout.resourcePackages : null;
     const sections = Array.isArray(layout.sections) ? layout.sections : null;
-    if (!resourcePackages || !sections) return { status: "unavailable", path: null };
+    if (!resourcePackages || !sections) {
+        return activePointerResult("unavailable", "legacy-layout", canonical, [], 0);
+    }
     const packages = resourcePackages.filter((entry) =>
         entry?.name === guid && entry?.type === "CustomVisual"
     );
-    if (packages.length !== 1) return { status: "wrong-or-missing", path: null };
+    if (packages.length !== 1) {
+        return activePointerResult("wrong-or-missing", "legacy-layout", canonical, [], 0);
+    }
     const expectedItem = `${guid}.pbiviz.json`;
     const items = Array.isArray(packages[0].items) ? packages[0].items : [];
     const matchingItems = items.filter((item) =>
@@ -271,7 +285,9 @@ function resolveActiveResourcePointer(metadataText, guid, canonical) {
         item?.path === expectedItem &&
         item?.type === "CustomVisualMetadata"
     );
-    if (matchingItems.length !== 1) return { status: "wrong-or-missing", path: null };
+    if (matchingItems.length !== 1) {
+        return activePointerResult("wrong-or-missing", "legacy-layout", canonical, [], 0);
+    }
     let activeVisuals = 0;
     for (const section of sections) {
         for (const container of section?.visualContainers ?? []) {
@@ -283,8 +299,58 @@ function resolveActiveResourcePointer(metadataText, guid, canonical) {
         }
     }
     return activeVisuals > 0
-        ? { status: "resolved", path: canonical }
-        : { status: "wrong-or-missing", path: null };
+        ? activePointerResult("resolved", "legacy-layout", canonical, ["Report/Layout"], activeVisuals)
+        : activePointerResult("wrong-or-missing", "legacy-layout", canonical, [], 0);
+}
+
+function requireCanonicalPbirVisualDefinitions(rawNames) {
+    for (const name of rawNames) assertCanonicalArchiveName(name);
+    assertUniqueArchiveNames(rawNames.map((name) => ({ name })));
+    const canonicalPattern =
+        /^Report\/definition\/pages\/[^/]+\/visuals\/[^/]+\/visual\.json$/;
+    const visualDefinitionLike = rawNames.filter((name) => {
+        const lower = name.toLowerCase();
+        return lower.includes("report/definition/pages/") &&
+            lower.includes("/visuals/") &&
+            (lower.endsWith("/visual.json") || lower.includes("/visual.json/"));
+    });
+    if (visualDefinitionLike.some((name) => !canonicalPattern.test(name))) {
+        throw new Error("PBIX contains a noncanonical PBIR visual definition path.");
+    }
+    return visualDefinitionLike.sort();
+}
+
+function parseJsonObject(text, canonicalPath) {
+    let value;
+    try {
+        value = JSON.parse(text);
+    } catch {
+        throw new Error(`PBIR visual definition is not valid JSON: ${canonicalPath}`);
+    }
+    if (value === null || typeof value !== "object" || Array.isArray(value)) {
+        throw new Error(`PBIR visual definition must be a JSON object: ${canonicalPath}`);
+    }
+    return value;
+}
+
+async function resolvePbirActiveResourcePointer(pbix, rawNames, guid, canonical) {
+    const definitionPaths = requireCanonicalPbirVisualDefinitions(rawNames);
+    if (definitionPaths.length === 0) return null;
+    const matchedPaths = [];
+    for (const definitionPath of definitionPaths) {
+        const entry = pbix.files[definitionPath];
+        if (!entry || entry.dir) {
+            throw new Error(`Canonical PBIR visual definition is missing: ${definitionPath}`);
+        }
+        const definition = parseJsonObject(
+            strictUtf8.decode(await entry.async("nodebuffer")).replace(/^\uFEFF/, ""),
+            definitionPath
+        );
+        if (definition.visual?.visualType === guid) matchedPaths.push(definitionPath);
+    }
+    return matchedPaths.length > 0
+        ? activePointerResult("resolved", "pbir", canonical, matchedPaths, matchedPaths.length)
+        : activePointerResult("wrong-or-missing", "pbir", canonical, [], 0);
 }
 
 function requireCanonicalPbixResource(rawNames, guid) {
@@ -385,11 +451,14 @@ async function verifyPbixVisualParity({ packagePath, pbixPath, guid }) {
     if (!bytes.equals(payload)) {
         throw new Error("PBIX embedded custom visual differs from the final PBIVIZ payload.");
     }
-    const metadataEntry = pbix.files["Report/Layout"];
-    let activePointer = { status: "unavailable", path: null };
-    if (metadataEntry && !metadataEntry.dir) {
-        const metadata = decodeMetadata(await metadataEntry.async("nodebuffer"));
-        activePointer = resolveActiveResourcePointer(metadata, guid, canonical);
+    let activePointer = await resolvePbirActiveResourcePointer(pbix, rawNames, guid, canonical);
+    if (!activePointer) {
+        const metadataEntry = pbix.files["Report/Layout"];
+        activePointer = activePointerResult("unavailable", null, canonical, [], 0);
+        if (metadataEntry && !metadataEntry.dir) {
+            const metadata = decodeMetadata(await metadataEntry.async("nodebuffer"));
+            activePointer = resolveActiveResourcePointer(metadata, guid, canonical);
+        }
     }
     const embedded = [];
     embedded.push({ path: canonical, bytes: bytes.length, sha256: sha256(bytes) });
@@ -410,6 +479,7 @@ module.exports = {
     parseExtraFields,
     validateZipPayloads,
     requireCanonicalPbixResource,
+    requireCanonicalPbirVisualDefinitions,
     parseCanonicalZipRecords,
     resolveActiveResourcePointer,
     verifyPbixVisualParity,

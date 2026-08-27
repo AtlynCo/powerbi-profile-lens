@@ -15,5 +15,5 @@
   lines appear with zoom, fixed-width state/coast outlines remain above fills,
   and all seven non-CONUS insets are framed and labeled. Insets are repositioned
   and rescaled, so distance and area are not comparable.
-- No `.pbix` is committed or claimed. Open the `.pbip` in Power BI Desktop and use *Save As* if a
-  `.pbix` is needed.
+- No `.pbix` is committed. The separately owner-created PBIX has exact embedded-payload and active
+  PBIR resource parity, but no recorded offline reopen or native checklist evidence.
