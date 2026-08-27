@@ -19,9 +19,12 @@ SHA-256 `fa863438a272a54c4dd070b2e51668537cf38d4279b50e573114512f7321acf0`).
 Its embedded `atlynProfileLens` payload is 3318253 bytes with SHA-256
 `3e4c799b33c3b12d52c45b279584056f70f1a43614da6b015d4c926db723d105`.
 The generated PBIP embeds that exact payload and resolves active visual references through canonical
-PBIR `Report/definition/pages/**/visuals/**/visual.json` definitions. No matching 1.9.1.2 PBIX,
-offline-reopen observation, native checklist, screenshots, Microsoft certification, or Partner Center
-submission is claimed.
+PBIR `Report/definition/pages/**/visuals/**/visual.json` definitions. The owner-created
+`dist/release/AtlynProfileLensSample-1.9.1.2.pbix` is 1191163 bytes with SHA-256
+`d3e60d8b006f56d43e2b9cdbf101ede5dfb9b82448681c281d007b3db2d4e2bd`; both active PBIR
+visuals resolve to the exact packaged payload. The owner confirmed an offline close/reopen and the
+World lens, county graph-update, and complete-map-panning checks on 2026-08-27. The full native
+checklist, screenshots, Microsoft certification, and Partner Center submission remain unclaimed.
 
 Current release candidate: **1.9.1.2**, GUID `atlynProfileLens`, API `5.11.0`
 (`package.json`, `pbiviz.json`). Latest published API is 5.11.1 (BLEU cloud enum addition only);
@@ -70,7 +73,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts\native-validation\ru
 What the harness does: verifies sample integrity and source binding, snapshots the exact PBIP
 fixture to a content-addressed short root under `%LOCALAPPDATA%\AtlynPBI\<20-char token>`
 (path-limit preflight: 248 dir / 260 file), opens it in a job-owned Desktop process, walks all
-fourteen page tabs, performs Save As through bounded UI Automation (filename control automation ID
+ten page tabs, performs Save As through bounded UI Automation (filename control automation ID
 `1001`, Save control automation ID `1`), closes the writer, snapshots the PBIX, reopens the PBIX
 offline, re-walks all pages, asserts byte stability across reopen, seals observations, sanitizes
 evidence, and atomically persists success output to

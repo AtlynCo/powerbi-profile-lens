@@ -247,9 +247,13 @@ deterministic PBIVIZ is 725365 bytes with SHA-256
 `fa863438a272a54c4dd070b2e51668537cf38d4279b50e573114512f7321acf0`; its embedded
 payload is 3318253 bytes with SHA-256
 `3e4c799b33c3b12d52c45b279584056f70f1a43614da6b015d4c926db723d105`.
-The PBIP resource and active `atlynProfileLens` PBIR references pass exact parity checks. No matching
-1.9.1.2 PBIX, native checklist, offline-reopen observation, screenshots, Microsoft certification, or
-Partner Center submission is claimed; the prior-version PBIX must not be reused or relabeled.
+The PBIP resource and active `atlynProfileLens` PBIR references pass exact parity checks. The
+owner-created `dist/release/AtlynProfileLensSample-1.9.1.2.pbix` is 1191163 bytes with SHA-256
+`d3e60d8b006f56d43e2b9cdbf101ede5dfb9b82448681c281d007b3db2d4e2bd`; both active PBIR visuals
+resolve to the exact packaged payload. On 2026-08-27 the owner confirmed closing and reopening that
+PBIX offline and checking the World lens, county graph updates, and complete-map panning. This limited
+owner observation is not the full native checklist, screenshots, Microsoft certification, or Partner
+Center submission; the prior-version PBIX must not be reused or relabeled.
 
 ## Development
 

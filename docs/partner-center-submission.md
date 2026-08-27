@@ -32,9 +32,9 @@ Partner Center package, PBIX, and listing were OSM-enabled and must be replaced 
 | Listing logo | `assets/partner-center-logo-300x300.png`, 300x300 PNG | Present |
 | Screenshots | 1-5 native release screenshots | **Blocked: no safe native capture was completed** |
 | Offline sample project | `samples/AtlynProfileLensSample/AtlynProfileLensSample.pbip` | Present (Demographics & Community Profile Demo) |
-| Owner-created PBIX | No matching 1.9.1.2 PBIX | Prior-version PBIX must not be reused or relabeled |
+| Owner-created PBIX | `dist/release/AtlynProfileLensSample-1.9.1.2.pbix`; 1191163 bytes; SHA-256 `d3e60d8b006f56d43e2b9cdbf101ede5dfb9b82448681c281d007b3db2d4e2bd` | Exact packaged payload and both active PBIR references verified |
 | Embedded payload | 3318253 bytes; SHA-256 `3e4c799b33c3b12d52c45b279584056f70f1a43614da6b015d4c926db723d105` | PBIP resource exactly matches the release PBIVIZ payload |
-| Native evidence | No 1.9.1.2 native record | **Unavailable; manual Save As is not native checklist or offline-reopen evidence** |
+| Native evidence | Owner-confirmed offline close/reopen on 2026-08-27 | World lens, county graph updates, and complete-map panning confirmed; not a full native checklist or automated run |
 
 ## Demographics & Community Profile Sample (v1.9.1.2)
 
@@ -55,8 +55,9 @@ The offline PBIP sample (`samples/AtlynProfileLensSample/AtlynProfileLensSample.
 3. Create a new matching PBIX from the exact 1.9.1.2 PBIP/package. Its embedded payload and active
    canonical PBIR visual references must be proven by `scripts/sample-resource-parity.cjs`. The prior guarded
    run on Desktop 2.157.879.0 was blocked because Save As controls `1001` and `1` exposed no safe UI
-   Automation patterns. No offline reopen, native checklist, or screenshots were recorded, so the
-   1.9.1.0 PBIX is not evidence for this release.
+   Automation patterns. The owner therefore created the exact 1.9.1.2 PBIX manually and confirmed
+   its offline close/reopen plus the World lens, county graph-update, and complete-map-panning checks.
+   This does not claim the full native checklist or screenshots; the 1.9.1.0 PBIX is not evidence.
 4. Put the source commit, PBIVIZ/PBIX hashes, automated results, native limitations, and the
    zero-privilege/no-external-request statement in the certification notes. The owner then replaces
    the failed Partner Center materials; this repository does not upload or edit the offer.

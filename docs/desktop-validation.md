@@ -167,7 +167,7 @@ candidate; record the package name and SHA-256 from `dist/release-manifest.json`
 
 ## Persistence and service boundary
 
-1. Open the generated PBIP sample and verify all fourteen pages offline, starting with the large
+1. Open the generated PBIP sample and verify all ten pages offline, starting with the large
    Automatic/Fill local-only World 50m hero and then the report-selection and engineering pages.
 2. The owner-created PBIX embeds the exact release-candidate payload and passes active PBIR resource
    parity, but it has no recorded offline reopen or checklist observations. Close and reopen it,
