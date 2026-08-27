@@ -3,7 +3,7 @@
 `atlynProfileLens-1.2.0.0.*` is a historical blocked record only. It is not current fixture,
 automation, package, or release evidence.
 
-Atlyn Profile Lens 1.9.1.0 has no prepared or validated native evidence record. No guarded run
+Atlyn Profile Lens 1.9.1.1 has no prepared or validated native evidence record. No guarded run
 opened the exact 1.9.1 package and fixture, and no 1.9.1 PBIX was created or reopened. Current
 repository, package, sample, Chromium, and release-manifest checks remain automated evidence only.
 
@@ -17,7 +17,7 @@ manually without editing PBIX internals or fabricating evidence.
 The attempted Desktop 2.157.879.0 (26.08) run reached the owned Save As dialog and stopped with
 `The owned Save As dialog exposes no safe bound Pane control for ''`; controls `1001` (file name)
 and `1` (Save) had no safe ValuePattern/InvokePattern. The exact owner-manual fallback is to open
-the generated PBIP, import `dist\atlynProfileLens.1.9.1.0.pbiviz`, use **File > Save as** to write
-`dist\release\AtlynProfileLensSample-1.9.1.0.pbix`, close and reopen it offline, then record its
+the generated PBIP, import `dist\atlynProfileLens.1.9.1.1.pbiviz`, use **File > Save as** to write
+`dist\release\AtlynProfileLensSample-1.9.1.1.pbix`, close and reopen it offline, then record its
 hash and embedded-resource parity. That manual result must remain clearly identified as owner
 evidence and cannot be substituted with SendKeys, coordinate input, Win32 messages, or PBIX edits.
