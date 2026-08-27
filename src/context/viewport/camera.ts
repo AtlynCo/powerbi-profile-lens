@@ -1,6 +1,7 @@
 import type { ContextMode, ScenePoint, SceneTransform, Viewport } from "../contract";
-import { clampCameraToBounds, clampCameraToProbeBounds, FIT_PADDING } from "./bounds";
+import { clampCameraToBoundary, FIT_PADDING } from "./bounds";
 import type {
+    CameraBoundary,
     CameraHomeFocus,
     CameraHomeView,
     CameraLimits,
@@ -75,7 +76,8 @@ export function resetCamera(
     limits: CameraLimits,
     baseBounds: SceneBounds,
     viewport: Viewport,
-    homeAnchor: ScenePoint | null = null
+    homeAnchor: ScenePoint | null = null,
+    boundary: CameraBoundary = "scene"
 ): ContextCamera {
     assertFinite(homeZoom, "Home zoom");
     assertLimits(limits);
@@ -88,11 +90,11 @@ export function resetCamera(
             y: (baseBounds.minY + baseBounds.maxY) / 2
         };
     const zoom = Math.min(Math.max(homeZoom, limits.minZoom), limits.maxZoom);
-    return clampCameraToBounds({
+    return clampCameraToBoundary({
         zoom,
         panX: viewport.width / 2 - anchor.x * zoom,
         panY: viewport.height / 2 - anchor.y * zoom
-    }, baseBounds, viewport, limits.overscroll);
+    }, baseBounds, viewport, limits.overscroll, boundary);
 }
 
 export function resolveCameraHomeFocus(
@@ -205,7 +207,7 @@ export function panCamera(
     limits: CameraLimits,
     baseBounds: SceneBounds,
     viewport: Viewport,
-    boundary: "scene" | "probe" = "scene"
+    boundary: CameraBoundary = "scene"
 ): ContextCamera {
     assertCamera(camera);
     assertFinite(deltaX, "Camera pan delta X");
@@ -216,9 +218,7 @@ export function panCamera(
         panX: camera.panX + deltaX,
         panY: camera.panY + deltaY
     };
-    return boundary === "probe"
-        ? clampCameraToProbeBounds(next, baseBounds, viewport, limits.overscroll)
-        : clampCameraToBounds(next, baseBounds, viewport, limits.overscroll);
+    return clampCameraToBoundary(next, baseBounds, viewport, limits.overscroll, boundary);
 }
 
 export function zoomCameraAt(
@@ -227,7 +227,8 @@ export function zoomCameraAt(
     anchor: ScenePoint,
     limits: CameraLimits,
     baseBounds: SceneBounds,
-    viewport: Viewport
+    viewport: Viewport,
+    boundary: CameraBoundary = "scene"
 ): ContextCamera {
     assertCamera(camera);
     assertFinite(factor, "Camera zoom factor");
@@ -239,13 +240,19 @@ export function zoomCameraAt(
     const baseAnchor = cameraToBasePoint(anchor, camera);
     const zoom = Math.min(Math.max(camera.zoom * factor, limits.minZoom), limits.maxZoom);
     if (zoom === camera.zoom) {
-        return clampCameraToBounds(camera, baseBounds, viewport, limits.overscroll);
+        return clampCameraToBoundary(
+            camera,
+            baseBounds,
+            viewport,
+            limits.overscroll,
+            boundary
+        );
     }
-    return clampCameraToBounds({
+    return clampCameraToBoundary({
         zoom,
         panX: anchor.x - baseAnchor.x * zoom,
         panY: anchor.y - baseAnchor.y * zoom
-    }, baseBounds, viewport, limits.overscroll);
+    }, baseBounds, viewport, limits.overscroll, boundary);
 }
 
 export function cameraForPinch(
@@ -254,18 +261,19 @@ export function cameraForPinch(
     zoom: number,
     limits: CameraLimits,
     baseBounds: SceneBounds,
-    viewport: Viewport
+    viewport: Viewport,
+    boundary: CameraBoundary = "scene"
 ): ContextCamera {
     assertPoint(baseAnchor);
     assertPoint(midpoint);
     assertFinite(zoom, "Pinch zoom");
     assertLimits(limits);
     const clampedZoom = Math.min(Math.max(zoom, limits.minZoom), limits.maxZoom);
-    return clampCameraToBounds({
+    return clampCameraToBoundary({
         zoom: clampedZoom,
         panX: midpoint.x - baseAnchor.x * clampedZoom,
         panY: midpoint.y - baseAnchor.y * clampedZoom
-    }, baseBounds, viewport, limits.overscroll);
+    }, baseBounds, viewport, limits.overscroll, boundary);
 }
 
 export function createPinchSnapshot(
@@ -286,7 +294,8 @@ export function cameraFromPinchSnapshot(
     midpoint: ScenePoint,
     limits: CameraLimits,
     baseBounds: SceneBounds,
-    viewport: Viewport
+    viewport: Viewport,
+    boundary: CameraBoundary = "scene"
 ): ContextCamera {
     assertPoint(snapshot.baseAnchor);
     assertFinite(snapshot.zoom, "Pinch snapshot zoom");
@@ -303,7 +312,8 @@ export function cameraFromPinchSnapshot(
         snapshot.zoom * distanceRatio,
         limits,
         baseBounds,
-        viewport
+        viewport,
+        boundary
     );
 }
 
@@ -314,7 +324,8 @@ export function preserveCameraOnResize(
     oldViewport: Viewport,
     newViewport: Viewport,
     newBaseBounds: SceneBounds,
-    limits: CameraLimits
+    limits: CameraLimits,
+    boundary: CameraBoundary = "scene"
 ): ContextCamera | null {
     if (
         !validCamera(camera)
@@ -341,11 +352,11 @@ export function preserveCameraOnResize(
         return null;
     }
     const zoom = Math.min(Math.max(camera.zoom, limits.minZoom), limits.maxZoom);
-    return clampCameraToBounds({
+    return clampCameraToBoundary({
         zoom,
         panX: newViewport.width / 2 - newBaseCenter.x * zoom,
         panY: newViewport.height / 2 - newBaseCenter.y * zoom
-    }, newBaseBounds, newViewport, limits.overscroll);
+    }, newBaseBounds, newViewport, limits.overscroll, boundary);
 }
 
 export function cameraEquals(left: ContextCamera, right: ContextCamera): boolean {

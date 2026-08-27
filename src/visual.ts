@@ -91,7 +91,7 @@ import {
     RUNTIME_LICENSE_NOTICES_SHA256
 } from "./runtimeLicenses";
 import {
-    clampCameraToBounds,
+    clampCameraToBoundary,
     projectBounds,
     sceneBounds,
     viewportOverscroll
@@ -113,6 +113,7 @@ import {
 } from "./context/viewport/camera";
 import { contextSceneIdentity } from "./context/viewport/identity";
 import type {
+    CameraBoundary,
     CameraLimits,
     ContextCamera,
     ContextPinchSnapshot,
@@ -1140,6 +1141,9 @@ export class Visual implements IVisual {
         );
         const homeFocus = resolveCameraHomeFocus(this.settings.homeFocus, scene.mode);
         const homeZoom = homeZoomForBounds(homeView, limits, baseBounds, viewport);
+        // Boundary policy belongs to the scene, not transient host interaction capability. Keeping
+        // it stable prevents focus/view-mode updates from resetting a deliberately panned map.
+        const boundary: CameraBoundary = scene.mode === "builtInPack" ? "probe" : "scene";
         // Home is a local camera placement only. Nothing here touches the SelectionManager, so an
         // initial render, a restore and a resize can never emit a host selection.
         const homeAnchor = homeFocus === "dataBearing"
@@ -1188,9 +1192,12 @@ export class Visual implements IVisual {
                     existing.viewport,
                     viewport,
                     baseBounds,
-                    limits
+                    limits,
+                    boundary
                 ) ?? resetCamera(homeZoom, limits, baseBounds, viewport, homeAnchor);
         } else if (
+            existing.boundary !== boundary
+            ||
             existing.homeView !== homeView
             || existing.homeZoom !== homeZoom
             || existing.homeFocus !== homeFocus
@@ -1203,11 +1210,12 @@ export class Visual implements IVisual {
                 limits.maxZoom
             );
             camera = zoom === existing.camera.zoom
-                ? clampCameraToBounds(
+                ? clampCameraToBoundary(
                     existing.camera,
                     baseBounds,
                     viewport,
-                    limits.overscroll
+                    limits.overscroll,
+                    boundary
                 )
                 : zoomCameraAt(
                     existing.camera,
@@ -1215,12 +1223,14 @@ export class Visual implements IVisual {
                     { x: viewport.width / 2, y: viewport.height / 2 },
                     limits,
                     baseBounds,
-                    viewport
+                    viewport,
+                    boundary
                 );
         }
         const session = {
             sceneIdentity,
             camera,
+            boundary,
             homeZoom,
             homeView,
             homeFocus,
@@ -1291,15 +1301,8 @@ export class Visual implements IVisual {
             this.cameraLimits(session.viewport),
             session.baseBounds,
             session.viewport,
-            this.isAtDefaultZoom() ? "probe" : "scene"
+            session.boundary
         ));
-    }
-
-    private isAtDefaultZoom(): boolean {
-        const session = this.viewportSession;
-        return session !== null
-            && session.homeView === "fill"
-            && session.camera.zoom === session.homeZoom;
     }
 
     private zoomContextCamera(factor: number, x: number, y: number): boolean {
@@ -1318,7 +1321,8 @@ export class Visual implements IVisual {
                 { x, y },
                 this.cameraLimits(session.viewport),
                 session.baseBounds,
-                session.viewport
+                session.viewport,
+                session.boundary
             ));
         } finally {
             this.zoomProbeDeferred = false;
@@ -1364,7 +1368,8 @@ export class Visual implements IVisual {
             { x, y },
             limits,
             session.baseBounds,
-            session.viewport
+            session.viewport,
+            session.boundary
         ));
     }
 

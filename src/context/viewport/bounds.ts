@@ -1,5 +1,5 @@
 import type { ContextScene, ScenePoint, SceneTransform, Viewport } from "../contract";
-import type { ContextCamera, SceneBounds } from "./contract";
+import type { CameraBoundary, ContextCamera, SceneBounds } from "./contract";
 
 export const FIT_PADDING = 8;
 export const MAX_OVERSCROLL = 24;
@@ -42,6 +42,18 @@ export function viewportOverscroll(viewport: Viewport): number {
     );
 }
 
+export function clampCameraToBoundary(
+    camera: ContextCamera,
+    baseBounds: SceneBounds,
+    viewport: Viewport,
+    overscroll: number,
+    boundary: CameraBoundary
+): ContextCamera {
+    return boundary === "probe"
+        ? clampCameraToProbeBounds(camera, baseBounds, viewport, overscroll)
+        : clampCameraToBounds(camera, baseBounds, viewport, overscroll);
+}
+
 export function clampCameraToBounds(
     camera: ContextCamera,
     baseBounds: SceneBounds,
@@ -78,9 +90,8 @@ export function clampCameraToBounds(
 /**
  * Clamps the camera so every scene edge can be placed beneath the fixed centre probe.
  *
- * This intentionally permits the scene to leave the viewport. It is used only while a geographic
- * map is at its Fill/Home zoom, where keeping the whole scene visible would make distant features
- * unreachable from the probe.
+ * This intentionally permits the scene to leave the viewport. Geographic maps use this boundary
+ * at every zoom so the fixed probe can reach every feature, including at Fit and Fill Home scales.
  */
 export function clampCameraToProbeBounds(
     camera: ContextCamera,

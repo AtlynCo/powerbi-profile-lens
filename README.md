@@ -62,9 +62,10 @@ the camera only on a fresh scene or while the camera is still at Home, and it ne
 deliberate pan or zoom. Home or the
 reset control returns to this resolved home camera; the configured minimum zoom remains reachable
 for the complete fitted extent. Zoom is anchored under the cursor or pinch midpoint. The default
-range is 1 through 8. Geographic Fill/Home panning lets every scene edge reach the fixed probe;
-other camera states keep the scene from being lost. Valid resize preserves the viewed scene center
-unless the camera is still at Home, in which case the resized Home view is recomputed.
+range is 1 through 8. Built-in geographic maps let every scene edge reach the fixed probe at every
+zoom, including Fit and Fill Home scales; other context modes keep the scene from being lost. Valid
+resize preserves the viewed scene center unless the camera is still at Home, in which case the
+resized Home view is recomputed.
 
 Pinch uses one gesture-start camera snapshot: zoom and midpoint translation are solved together and
 clamped once, so reaching an edge or zoom limit does not introduce an incremental jump. While
@@ -236,11 +237,11 @@ writes the source project. Generation does not produce or commit a PBIX.
 
 This artifact is not Partner Center submission-ready or certification-complete. Release 1.9.1.2
 starts from merge commit `eeb191325ac67de8db281fbb777bffcae1116846` and changes only the
-four-part certification version plus complete-map navigation at the geographic Fill/Home zoom. The
-deterministic PBIVIZ is 725242 bytes with SHA-256
-`f19ca452c28a8e6aa3e42b27f24b8939938f1350aa58dd46de2936034c6b89c3`; its embedded
-payload is 3317638 bytes with SHA-256
-`b1e574a2eb3afa41f0672082d8169074d2f5ff4f486d197fe9d407bab043451c`.
+four-part certification version plus complete-map navigation at every geographic map zoom. The
+deterministic PBIVIZ is 725245 bytes with SHA-256
+`154668a778085dcbfa0a4bb6b239dcc715933e0bec5740755d493ed6a884ee95`; its embedded
+payload is 3317696 bytes with SHA-256
+`a9f83c31b950ab1d7bdbde5c66446e96b8d680bb7c401b6497f93a75ba715ae7`.
 The PBIP resource and active `atlynProfileLens` PBIR references pass exact parity checks. No matching
 1.9.1.2 PBIX, native checklist, offline-reopen observation, screenshots, Microsoft certification, or
 Partner Center submission is claimed; the prior-version PBIX must not be reused or relabeled.

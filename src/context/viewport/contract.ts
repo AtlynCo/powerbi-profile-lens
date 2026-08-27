@@ -6,6 +6,8 @@ export interface ContextCamera {
     readonly panY: number;
 }
 
+export type CameraBoundary = "scene" | "probe";
+
 export type CameraHomeView = "automatic" | "fit" | "fill";
 export type ResolvedCameraHomeView = Exclude<CameraHomeView, "automatic">;
 
@@ -45,6 +47,7 @@ export interface ViewportProbe {
 export interface ContextViewportSession {
     readonly sceneIdentity: string;
     readonly camera: ContextCamera;
+    readonly boundary: CameraBoundary;
     readonly homeZoom: number;
     readonly homeView: ResolvedCameraHomeView;
     readonly homeFocus: ResolvedCameraHomeFocus;
