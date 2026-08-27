@@ -7,24 +7,23 @@ about Microsoft certification, approval, submission, or listing. The submission 
 
 ## Current submission status (2026-08-27)
 
-PR [#25](https://github.com/AtlynCo/powerbi-profile-lens/pull/25) was merged as
-`7b7bebbc52eab6fbf18d55403ab6e90736d30c39`, the repository is public at
-<https://github.com/AtlynCo/powerbi-profile-lens>, and the public lowercase `certification`
-branch was created at that commit before this follow-up. Full automated certification validation
-passed with 393 tests and 93 packaged-browser probes. The older Partner Center package, PBIX, and
-listing were OSM-enabled and must not be reused. This repository makes no certification claim and
-does not touch Partner Center.
+PR [#26](https://github.com/AtlynCo/powerbi-profile-lens/pull/26) was merged as
+`7f7b68135fc53762bbbe6c5956b256ce43ca6f30`, the repository is public at
+<https://github.com/AtlynCo/powerbi-profile-lens>, and this release increments only the certification
+version required by Partner Center. The older package and its owner-created PBIX are version
+1.9.1.0 artifacts and must not be reused or represented as 1.9.1.1 evidence. This repository makes no
+certification claim and does not touch Partner Center.
 
-The owner manually saved a PBIX from the generated PBIP: 971650 bytes, SHA-256
-`a264118f6ea58e83627115e9ceb390b422c164bf992f5ebe2015c3aba6ceb081`. Its one
-canonical embedded `atlynProfileLens` resource has payload SHA-256
-`cd628cdc8a29a546015a801f743f684848bc756e1468c1cd50f033c15ea153e8`, exactly
-matching the release PBIVIZ payload. `scripts/sample-resource-parity.cjs` resolves the active visual
-through canonical PBIR `Report/definition/pages/**/visuals/**/visual.json` definitions. The file is
-not committed. No offline-reopen observation, native checklist, screenshots, Microsoft
-certification, or Partner Center submission is claimed.
+The deterministic 1.9.1.1 package is `dist/atlynProfileLens.1.9.1.1.pbiviz` (725104 bytes,
+SHA-256 `6fbf09d949b00ecc2c46b1ca09d6ab2ca691dac9e871a4a6f50eb0998d00d228`).
+Its embedded `atlynProfileLens` payload is 3316936 bytes with SHA-256
+`870994f4d7bacb612212415772353ef0497b392eb1b818174357ce27309b4060`.
+The generated PBIP embeds that exact payload and resolves active visual references through canonical
+PBIR `Report/definition/pages/**/visuals/**/visual.json` definitions. No matching 1.9.1.1 PBIX,
+offline-reopen observation, native checklist, screenshots, Microsoft certification, or Partner Center
+submission is claimed.
 
-Current release candidate: **1.9.1(.0)**, GUID `atlynProfileLens`, API `5.11.0`
+Current release candidate: **1.9.1.1**, GUID `atlynProfileLens`, API `5.11.0`
 (`package.json`, `pbiviz.json`). Latest published API is 5.11.1 (BLEU cloud enum addition only);
 the audit pins `5.11.0` exactly (`scripts/certification-audit.cjs:82,165`), so do not bump the API
 without coordinated changes to `package.json`, `package-lock.json`, `src/runtimeLicenses.ts`, and
@@ -56,8 +55,8 @@ Runs, in order: `audit:npm`, context-pack fetch/validate/verify/repro (including
 PBIVIZ into the sample report), unit tests, packaged-browser probes, `audit:certification`,
 `audit:reproducible`, `release:manifest`. The release manifest at this stage records
 `sampleReport.pbix = null` and refuses to run unlocked if a PBIX appears
-(`scripts/release-manifest.cjs:45-52`). The external owner-created PBIX does not change that field
-without validated native evidence.
+(`scripts/release-manifest.cjs:45-52`). A prior-version PBIX does not change that field and is not
+accepted as evidence.
 
 Gate: exit code 0 and a `dist/release-manifest.json` naming the commit, GUID, version, API version,
 and PBIVIZ SHA-256 intended for release.
@@ -84,9 +83,7 @@ set the path or invoke Save. The repo policy explicitly prohibits SendKeys, coor
 messages, and PBIX editing as workarounds.
 
 1. Retry after a Desktop update that restores UIA patterns on those controls.
-2. Preserve the separately owner-saved PBIX and its active-resource parity as artifact evidence only.
-   It is not native-run evidence because no offline reopen or required native checklist observations
-   were recorded.
+2. Do not reuse the separately owner-saved 1.9.1.0 PBIX; it does not match the 1.9.1.1 package.
 3. Ship without native evidence and keep the listing claims limited to the automated boundary
    (current documented posture).
 

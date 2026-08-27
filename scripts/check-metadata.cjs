@@ -31,8 +31,8 @@ const capabilities = readJson("capabilities.json");
 const resources = readJson(path.join("stringResources", "en-US", "resources.resjson"));
 
 check(
-    manifest.visual.version === `${packageJson.version}.0`,
-    `pbiviz visual version ${manifest.visual.version} must be package version ${packageJson.version} plus ".0".`
+    manifest.visual.version === `${packageJson.version}.1`,
+    `pbiviz visual version ${manifest.visual.version} must be package version ${packageJson.version} plus ".1".`
 );
 check(
     manifest.apiVersion === EXPECTED_API_VERSION,

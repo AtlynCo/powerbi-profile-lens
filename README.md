@@ -234,18 +234,15 @@ or network dependency.
 If `dist` exists, generation embeds the exact packaged visual resource; otherwise it warns and still
 writes the source project. Generation does not produce or commit a PBIX.
 
-This artifact is not Partner Center submission-ready or certification-complete. PR
-[#25](https://github.com/AtlynCo/powerbi-profile-lens/pull/25) made the repository public and was
-merged as `7b7bebbc52eab6fbf18d55403ab6e90736d30c39`; the public lowercase `certification`
-branch was created at that commit before the PBIR parity follow-up. Full automated certification
-validation passed there with 393 tests and 93 packaged-browser probes. The owner then manually saved
-a genuine PBIX (971650 bytes, SHA-256
-`a264118f6ea58e83627115e9ceb390b422c164bf992f5ebe2015c3aba6ceb081`) whose embedded
-custom-visual payload is byte-identical (SHA-256
-`cd628cdc8a29a546015a801f743f684848bc756e1468c1cd50f033c15ea153e8`). The parity
-proof resolves active `atlynProfileLens` references from canonical PBIR visual definitions. The PBIX
-is not committed, and no native checklist, offline-reopen observation, screenshots, Microsoft
-certification, or Partner Center submission is claimed.
+This artifact is not Partner Center submission-ready or certification-complete. Release 1.9.1.1
+starts from merge commit `7f7b68135fc53762bbbe6c5956b256ce43ca6f30` and changes only the
+four-part certification version. The deterministic PBIVIZ is 725104 bytes with SHA-256
+`6fbf09d949b00ecc2c46b1ca09d6ab2ca691dac9e871a4a6f50eb0998d00d228`; its embedded
+payload is 3316936 bytes with SHA-256
+`870994f4d7bacb612212415772353ef0497b392eb1b818174357ce27309b4060`.
+The PBIP resource and active `atlynProfileLens` PBIR references pass exact parity checks. No matching
+1.9.1.1 PBIX, native checklist, offline-reopen observation, screenshots, Microsoft certification, or
+Partner Center submission is claimed; the prior-version PBIX must not be reused or relabeled.
 
 ## Development
 
