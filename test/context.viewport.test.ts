@@ -3,6 +3,7 @@ import type { ContextScene, SceneTransform } from "../src/context/contract";
 import { fitScene } from "../src/context/projection";
 import {
     clampCameraToBounds,
+    clampCameraToProbeBounds,
     projectBounds,
     sceneBounds,
     viewportOverscroll
@@ -291,6 +292,42 @@ describe("context viewport camera", () => {
         expect(transformed.maxY).toBeGreaterThanOrEqual(viewport.height - limits.overscroll);
         expect(clampCameraToBounds(panned, baseBounds, viewport, limits.overscroll))
             .toEqual(panned);
+    });
+
+    it("lets every scene edge reach the fixed probe at probe-traversal zoom", () => {
+        const viewport = { width: 200, height: 120 };
+        const baseBounds = { minX: 8, maxX: 192, minY: 8, maxY: 112 };
+        const limits = { minZoom: 1, maxZoom: 4, overscroll: 12 };
+        const home = resetCamera(2, limits, baseBounds, viewport);
+        const westNorth = clampCameraToProbeBounds(
+            { ...home, panX: -10_000, panY: -10_000 },
+            baseBounds,
+            viewport,
+            limits.overscroll
+        );
+        const eastSouth = clampCameraToProbeBounds(
+            { ...home, panX: 10_000, panY: 10_000 },
+            baseBounds,
+            viewport,
+            limits.overscroll
+        );
+
+        expect(westNorth.panX + baseBounds.maxX * home.zoom)
+            .toBeCloseTo(viewport.width / 2 - limits.overscroll, 12);
+        expect(westNorth.panY + baseBounds.maxY * home.zoom)
+            .toBeCloseTo(viewport.height / 2 - limits.overscroll, 12);
+        expect(eastSouth.panX + baseBounds.minX * home.zoom)
+            .toBeCloseTo(viewport.width / 2 + limits.overscroll, 12);
+        expect(eastSouth.panY + baseBounds.minY * home.zoom)
+            .toBeCloseTo(viewport.height / 2 + limits.overscroll, 12);
+        expect(westNorth.panX).toBeLessThan(
+            clampCameraToBounds(
+                { ...home, panX: -10_000, panY: -10_000 },
+                baseBounds,
+                viewport,
+                limits.overscroll
+            ).panX
+        );
     });
 
     it("does not re-anchor a fractional camera already at either zoom limit", () => {

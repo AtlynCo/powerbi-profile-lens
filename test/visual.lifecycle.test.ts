@@ -2335,6 +2335,61 @@ describe("interaction", () => {
         expect(contextMetrics(surface).cameraZoom).toBeCloseTo(fill.homeZoom, 12);
     });
 
+    it("pans a geographic Home view with both wheel axes without changing zoom", () => {
+        const { mock, visual } = mount();
+        visual.update(updateOptions(buildMatrixDataView({
+            entities: ["USA", "CAN", "MEX"],
+            bands: ["Band 1"],
+            profiles: ["Metric A"],
+            objects: {
+                context: {
+                    mode: "builtInPack",
+                    pack: "worldCountries",
+                    worldDetail: "50m",
+                    packKeyMode: "canonical"
+                },
+                navigation: {
+                    enabled: true,
+                    homeView: "fill",
+                    homeFocus: "sceneCenter"
+                }
+            }
+        }), { width: 1280, height: 620 }));
+        const surface = mock.element.querySelector<HTMLElement>(".profile-lens-context")!;
+        setSurfaceBounds(surface, 320, 300);
+        const before = { ...contextMetrics(surface) };
+        const wheel = pointer("wheel", {
+            deltaX: -80,
+            deltaY: 80,
+            deltaMode: 0,
+            clientX: 160,
+            clientY: 150
+        });
+        surface.dispatchEvent(wheel);
+        const after = { ...contextMetrics(surface) };
+
+        expect(before.homeZoom).toBeGreaterThan(1);
+        expect(after.cameraZoom).toBeCloseTo(before.homeZoom, 12);
+        expect(after.panX).not.toBe(before.panX);
+        expect(after.panY).not.toBe(before.panY);
+        expect(wheel.defaultPrevented).toBe(true);
+
+        const beforeShift = { ...after };
+        const shiftWheel = pointer("wheel", {
+            deltaY: -80,
+            deltaMode: 0,
+            shiftKey: true,
+            clientX: 160,
+            clientY: 150
+        });
+        surface.dispatchEvent(shiftWheel);
+        const afterShift = { ...contextMetrics(surface) };
+        expect(afterShift.cameraZoom).toBeCloseTo(before.homeZoom, 12);
+        expect(afterShift.panX).not.toBe(beforeShift.panX);
+        expect(afterShift.panY).toBe(beforeShift.panY);
+        expect(shiftWheel.defaultPrevented).toBe(true);
+    });
+
     it("zooms by wheel, keyboard, and pinch with probe-driven local focus", () => {
         vi.useFakeTimers();
         try {

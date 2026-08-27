@@ -63,11 +63,11 @@ describe("certification metadata contract", () => {
         for (const metadata of [manifest, sampleResource]) {
             expect(metadata.apiVersion).toBe("5.11.0");
             expect(metadata.visual.guid).toBe("atlynProfileLens");
-            expect(metadata.visual.version).toBe("1.9.1.1");
+            expect(metadata.visual.version).toBe("1.9.1.2");
             expect(metadata.visual.supportUrl).toBe(supportUrl);
             expect(metadata.visual.gitHubUrl).toBe(repositoryUrl);
         }
-        expect(samplePackage.version).toBe("1.9.1.1");
+        expect(samplePackage.version).toBe("1.9.1.2");
         expect(samplePackage.visual.gitHubUrl).toBe(repositoryUrl);
     });
 

@@ -15,5 +15,5 @@
   lines appear with zoom, fixed-width state/coast outlines remain above fills,
   and all seven non-CONUS insets are framed and labeled. Insets are repositioned
   and rescaled, so distance and area are not comparable.
-- No `.pbix` is committed, and no matching 1.9.1.1 PBIX has been produced. The prior-version PBIX
+- No `.pbix` is committed, and no matching 1.9.1.2 PBIX has been produced. The prior-version PBIX
   must not be reused or relabeled for this release.

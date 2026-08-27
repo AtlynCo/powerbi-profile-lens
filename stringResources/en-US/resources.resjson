@@ -184,7 +184,7 @@
   "Context_Label": "Entity context",
   "Navigation_Reset": "Reset view",
   "Navigation_ProbeDescription": "The fixed center probe resolves the Context feature beneath it and updates the local profile while the viewport moves.",
-  "Navigation_GestureHelp": "Drag to pan. Scroll or pinch to zoom (page scrolls when zoom limits are reached). Use Shift plus Arrow to pan, plus or minus to zoom, and Home to reset.",
+  "Navigation_GestureHelp": "Drag to pan. At geographic Home, scroll to pan (Shift plus wheel moves horizontally); use Ctrl plus scroll or pinch to zoom. After leaving Home, scroll zooms. The page scrolls at pan and zoom limits. Use Shift plus Arrow to pan, plus or minus to zoom, and Home to reset.",
   "Period_Label": "Period",
   "Legend_Label": "Series",
   "Legend_SingleSeries": "All values",

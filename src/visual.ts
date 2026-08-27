@@ -1097,7 +1097,10 @@ export class Visual implements IVisual {
                     resetElement: this.contextSurface.resetButton,
                     wheelSensitivity: this.settings.wheelSensitivity,
                     rtl: this.resolveDirection() === "rtl",
+                    isAtDefaultZoom: () => this.isAtDefaultZoom(),
                     panBy: (deltaX, deltaY) => this.panContextCamera(deltaX, deltaY),
+                    panAtDefaultZoom: (deltaX, deltaY) =>
+                        this.panContextCamera(deltaX, deltaY, true),
                     zoomAt: (factor, x, y) => this.zoomContextCamera(factor, x, y),
                     beginPinch: (x, y) => this.beginContextPinch(x, y),
                     pinchTo: (snapshot, ratio, x, y) =>
@@ -1279,19 +1282,37 @@ export class Visual implements IVisual {
         };
     }
 
-    private panContextCamera(deltaX: number, deltaY: number): boolean {
+    private panContextCamera(
+        deltaX: number,
+        deltaY: number,
+        deferProbe = false
+    ): boolean {
         const session = this.viewportSession;
         if (!session || !this.canNavigateContext()) {
             return false;
         }
-        return this.applyContextCamera(panCamera(
-            session.camera,
-            deltaX,
-            deltaY,
-            this.cameraLimits(session.viewport),
-            session.baseBounds,
-            session.viewport
-        ));
+        const previousProbeDeferral = this.zoomProbeDeferred;
+        this.zoomProbeDeferred ||= deferProbe;
+        try {
+            return this.applyContextCamera(panCamera(
+                session.camera,
+                deltaX,
+                deltaY,
+                this.cameraLimits(session.viewport),
+                session.baseBounds,
+                session.viewport,
+                this.isAtDefaultZoom() ? "probe" : "scene"
+            ));
+        } finally {
+            this.zoomProbeDeferred = previousProbeDeferral;
+        }
+    }
+
+    private isAtDefaultZoom(): boolean {
+        const session = this.viewportSession;
+        return session !== null
+            && session.homeView === "fill"
+            && session.camera.zoom === session.homeZoom;
     }
 
     private zoomContextCamera(factor: number, x: number, y: number): boolean {

@@ -75,6 +75,46 @@ export function clampCameraToBounds(
     };
 }
 
+/**
+ * Clamps the camera so every scene edge can be placed beneath the fixed centre probe.
+ *
+ * This intentionally permits the scene to leave the viewport. It is used only while a geographic
+ * map is at its Fill/Home zoom, where keeping the whole scene visible would make distant features
+ * unreachable from the probe.
+ */
+export function clampCameraToProbeBounds(
+    camera: ContextCamera,
+    baseBounds: SceneBounds,
+    viewport: Viewport,
+    overscroll: number
+): ContextCamera {
+    assertCamera(camera);
+    assertBounds(baseBounds);
+    assertViewport(viewport);
+    if (!Number.isFinite(overscroll) || overscroll < 0) {
+        throw new Error("Viewport overscroll must be a finite non-negative number.");
+    }
+    return {
+        ...camera,
+        panX: clampProbeAxis(
+            camera.panX,
+            baseBounds.minX,
+            baseBounds.maxX,
+            camera.zoom,
+            viewport.width,
+            overscroll
+        ),
+        panY: clampProbeAxis(
+            camera.panY,
+            baseBounds.minY,
+            baseBounds.maxY,
+            camera.zoom,
+            viewport.height,
+            overscroll
+        )
+    };
+}
+
 function extendBounds(bounds: SceneBounds | null, point: ScenePoint): SceneBounds {
     if (!Number.isFinite(point.x) || !Number.isFinite(point.y)) {
         throw new Error("Context scene bounds require finite coordinates.");
@@ -110,6 +150,22 @@ function clampAxis(
 ): number {
     const lower = viewportSize - overscroll - max * zoom;
     const upper = overscroll - min * zoom;
+    if (lower <= upper) {
+        return Math.min(Math.max(pan, lower), upper);
+    }
+    return viewportSize / 2 - ((min + max) / 2) * zoom;
+}
+
+function clampProbeAxis(
+    pan: number,
+    min: number,
+    max: number,
+    zoom: number,
+    viewportSize: number,
+    overscroll: number
+): number {
+    const lower = viewportSize / 2 - overscroll - max * zoom;
+    const upper = viewportSize / 2 + overscroll - min * zoom;
     if (lower <= upper) {
         return Math.min(Math.max(pan, lower), upper);
     }

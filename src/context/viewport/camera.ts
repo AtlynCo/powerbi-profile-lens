@@ -1,5 +1,5 @@
 import type { ContextMode, ScenePoint, SceneTransform, Viewport } from "../contract";
-import { clampCameraToBounds, FIT_PADDING } from "./bounds";
+import { clampCameraToBounds, clampCameraToProbeBounds, FIT_PADDING } from "./bounds";
 import type {
     CameraHomeFocus,
     CameraHomeView,
@@ -204,17 +204,21 @@ export function panCamera(
     deltaY: number,
     limits: CameraLimits,
     baseBounds: SceneBounds,
-    viewport: Viewport
+    viewport: Viewport,
+    boundary: "scene" | "probe" = "scene"
 ): ContextCamera {
     assertCamera(camera);
     assertFinite(deltaX, "Camera pan delta X");
     assertFinite(deltaY, "Camera pan delta Y");
     assertLimits(limits);
-    return clampCameraToBounds({
+    const next = {
         ...camera,
         panX: camera.panX + deltaX,
         panY: camera.panY + deltaY
-    }, baseBounds, viewport, limits.overscroll);
+    };
+    return boundary === "probe"
+        ? clampCameraToProbeBounds(next, baseBounds, viewport, limits.overscroll)
+        : clampCameraToBounds(next, baseBounds, viewport, limits.overscroll);
 }
 
 export function zoomCameraAt(
