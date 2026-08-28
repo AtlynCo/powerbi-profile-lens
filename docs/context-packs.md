@@ -189,6 +189,6 @@ silently invents `WLD`.
   unavailable because the visual declares no expand/collapse or drill contract.
 - Automated tests do not prove native Power BI Desktop/Service field wells,
   exports, dashboard pinning, DirectQuery/Direct Lake, or certification.
-- Sample generation does not produce or commit a PBIX. The separately owner-created PBIX passes exact
-  embedded-payload and active PBIR resource parity, but still requires recorded offline reopen and
-  native Desktop checklist evidence.
+- Sample generation does not produce or commit a PBIX. Any separately owner-created PBIX must match
+  the final package payload and active PBIR references, then receive a recorded offline reopen and
+  native Desktop checklist evidence; a PBIX from earlier package bytes is stale.

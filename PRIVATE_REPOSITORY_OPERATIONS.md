@@ -10,7 +10,7 @@ source code and must not be simulated by changing Partner Center plan visibility
   observed by the owner as **publish-in-progress**; repository files do not independently verify that
   state and make no certification claim.
 - Preserve the display name, GUID, four-part version, API version, and package contents for a
-  privacy-only transition: Atlyn Profile Lens, `atlynProfileLens`, `1.9.1.1`, and API `5.11.0`.
+  privacy-only transition: Atlyn Profile Lens, `atlynProfileLens`, `1.9.1.2`, and API `5.11.0`.
 - Microsoft requires a public offer and an exact lowercase `certification` branch matching the
   submitted `.pbiviz`. No remote `certification` branch was present when this checklist was prepared.
   Do not invent, rewrite, force-push, or update that branch as part of this preparation.

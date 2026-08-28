@@ -4,8 +4,8 @@
 
 | Control | Observed state |
 |---|---|
-| GitHub repository | Public at <https://github.com/AtlynCo/powerbi-profile-lens>; release base is merge commit `7f7b68135fc53762bbbe6c5956b256ce43ca6f30` (tree `f14534a751bb05cce789379ad4bc37aa2541852c`) |
-| Lowercase certification branch | Public and fixed at `7b7bebbc52eab6fbf18d55403ab6e90736d30c39` before this follow-up; not modified here |
+| GitHub repository | Public at <https://github.com/AtlynCo/powerbi-profile-lens>; release base is merge commit `eeb191325ac67de8db281fbb777bffcae1116846` (tree `4b2dcb3cfd951eb6ec8565222c52ee793f07b40c`) |
+| Lowercase certification branch | Public and fixed at `eeb191325ac67de8db281fbb777bffcae1116846` before this follow-up; not modified here |
 | Partner Center | Owner uploaded and hash-verified replacement files separately; submission is paused pending review of this parity follow-up |
 | Microsoft certification | **Not claimed**; no submission is performed here |
 | GitHub visibility | **Public** |
@@ -19,8 +19,8 @@ Partner Center package, PBIX, and listing were OSM-enabled and must be replaced 
 
 | Requirement | Release value | Status |
 |---|---|---|
-| Visual | Atlyn Profile Lens, GUID `atlynProfileLens`, version `1.9.1.1` | Packaged |
-| PBIVIZ | `dist/atlynProfileLens.1.9.1.1.pbiviz`; 725104 bytes; SHA-256 `6fbf09d949b00ecc2c46b1ca09d6ab2ca691dac9e871a4a6f50eb0998d00d228` | Deterministic release artifact |
+| Visual | Atlyn Profile Lens, GUID `atlynProfileLens`, version `1.9.1.2` | Packaged |
+| PBIVIZ | `dist/atlynProfileLens.1.9.1.2.pbiviz`; 725371 bytes; SHA-256 `447c985f36407fd044648605b688e0385ea37612c22cfaece4fa35242bd46c23` | Deterministic release artifact |
 | API | `5.11.0` | Packaged |
 | Listing price | Free | Owner decision |
 | Support | <https://www.atlynco.com/docs/faq> | Recorded in `pbiviz.json` |
@@ -32,31 +32,33 @@ Partner Center package, PBIX, and listing were OSM-enabled and must be replaced 
 | Listing logo | `assets/partner-center-logo-300x300.png`, 300x300 PNG | Present |
 | Screenshots | 1-5 native release screenshots | **Blocked: no safe native capture was completed** |
 | Offline sample project | `samples/AtlynProfileLensSample/AtlynProfileLensSample.pbip` | Present (Demographics & Community Profile Demo) |
-| Owner-created PBIX | No matching 1.9.1.1 PBIX | Prior-version PBIX must not be reused or relabeled |
-| Embedded payload | 3316936 bytes; SHA-256 `870994f4d7bacb612212415772353ef0497b392eb1b818174357ce27309b4060` | PBIP resource exactly matches the release PBIVIZ payload |
-| Native evidence | No 1.9.1.1 native record | **Unavailable; manual Save As is not native checklist or offline-reopen evidence** |
+| Owner-created PBIX | No matching PBIX for the corrected package | The prior `d3e60d8b...d4e2bd` PBIX is stale and must not be submitted |
+| Embedded payload | 3318289 bytes; SHA-256 `50139e119669346310e0934cd7acd59cfcdb3fb7b047110053d515922fd75c25` | PBIP resource exactly matches the release PBIVIZ payload |
+| Native evidence | No matching current-package observation | The limited 2026-08-27 owner reopen covered the stale PBIX; a new Save As/reopen is required |
 
-## Demographics & Community Profile Sample (v1.9.1.1)
+## Demographics & Community Profile Sample (v1.9.1.2)
 
-The offline PBIP sample (`samples/AtlynProfileLensSample/AtlynProfileLensSample.pbip`) showcases 14 comprehensive pages, led by a large local-only World 50m focus-lens hero with Automatic/Fill home, center probe, period slider, and three synthetic demographic profiles. Every data-bearing page opens on a populated profile, proven by a packaged-Chromium demo-page audit that mounts each page configuration and fails the build on zero profile marks:
+The offline PBIP sample (`samples/AtlynProfileLensSample/AtlynProfileLensSample.pbip`) showcases 10 comprehensive pages, led by a large local-only World 50m focus-lens hero with Automatic/Fill home, center probe, period slider, and three synthetic demographic profiles. Every data-bearing page opens on a populated profile, proven by a packaged-Chromium demo-page audit that mounts each page configuration and fails the build on zero profile marks. `npm run sample:focused` also creates a deterministic two-page native-review project under `dist/release`, led by that hero and followed by the USA Counties lens:
 - **Demographic Indicators**: Residents, Median household income, Degree attainment rate, Health coverage rate, Labor force participation, and Housing cost burden, reported across five age bands and an urban/rural series.
-- **Complete Key Coverage**: All 56 Census state and equivalent GEOIDs, a multi-hundred county subset spanning sixteen states and equivalents including every island area, and every country in the packaged 110m and 50m cartography, all read from the shipped context packs so every join is exact by construction.
+- **Complete Key Coverage**: All 56 Census state and equivalent GEOIDs, all 3,235 packaged county and equivalent GEOIDs, and every country in the packaged 110m and 50m cartography, all read from the shipped context packs so every join is exact by construction.
 - **Probe-driven Viewport Navigation**: Camera drag, wheel, pinch, and keyboard controls across Natural Earth 50m / 110m, US States, and US Counties with fixed-center probe interrogation and a data-bearing Home focus.
-- **Bound Geographic Entities & Matrices**: WGS84 point coordinates with locator inset, custom WKT polygon geometries with focus lens, nongeographic grid and hex matrices, and progressive authoring.
+- **Bound Geographic Entities**: WGS84 point coordinates with locator inset plus complete offline world, state, and county context packs.
 - **Isolated Engineering Diagnostics**: Deliberately padded, unmatched, case-folded, and duplicate keys live on one clearly titled diagnostics page, so no customer-facing page carries rejection warnings.
 - **Zero Runtime Dependencies**: The semantic model is five offline DAX `DATATABLE` calculated tables requiring zero external data sources, credentials, or network connections. Values are produced by a deterministic function of the key and reproduce no real statistical source.
-- **Embedded Custom Visual**: Embeds the exact `atlynProfileLens.1.9.1.1.pbiviz` package payload with verified SHA-256 byte parity.
+- **Embedded Custom Visual**: Embeds the exact `atlynProfileLens.1.9.1.2.pbiviz` package payload with verified SHA-256 byte parity.
 
 ## Final source, package, PBIX, and notes process
 
 1. Use the final source URL and reviewed commit from `https://github.com/AtlynCo/powerbi-profile-lens`.
 2. Run `npm run validate:certification` from a clean checkout and retain the generated PBIVIZ path,
    byte count, SHA-256, GUID, version, API version, and release manifest.
-3. Create a new matching PBIX from the exact 1.9.1.1 PBIP/package. Its embedded payload and active
+3. Create a new matching PBIX from the exact 1.9.1.2 PBIP/package. Its embedded payload and active
    canonical PBIR visual references must be proven by `scripts/sample-resource-parity.cjs`. The prior guarded
    run on Desktop 2.157.879.0 was blocked because Save As controls `1001` and `1` exposed no safe UI
-   Automation patterns. No offline reopen, native checklist, or screenshots were recorded, so the
-   1.9.1.0 PBIX is not evidence for this release.
+   Automation patterns. The owner-created PBIX and limited reopen checks from 2026-08-27 cover the
+   package before the Home-boundary correction and are now stale. Repeat the manual Save As/reopen
+   against the current focused PBIP. This does not claim the full native checklist or screenshots;
+   neither the stale 1.9.1.2 PBIX nor the 1.9.1.0 PBIX is current evidence.
 4. Put the source commit, PBIVIZ/PBIX hashes, automated results, native limitations, and the
    zero-privilege/no-external-request statement in the certification notes. The owner then replaces
    the failed Partner Center materials; this repository does not upload or edit the offer.

@@ -25,7 +25,7 @@ const RUNTIME_LICENSE_SHA256 = createHash("sha256")
 const generatedPacks = resolve(root, "src", "context", "packs", "generated");
 const cartographyEvidence = resolve(root, "dist", "evidence", "cartography");
 
-function packKeys(filename: string): string[] {
+function packFeatures(filename: string): Array<{ key: string; label: string }> {
     const artifact = JSON.parse(readFileSync(resolve(generatedPacks, filename), "utf8")) as {
         topology: {
             objects: { features: unknown };
@@ -35,14 +35,20 @@ function packKeys(filename: string): string[] {
         artifact.topology as never,
         artifact.topology.objects.features as never
     ) as unknown as {
-        features: Array<{ properties: { canonicalKey: string } }>;
+        features: Array<{ properties: { canonicalKey: string; name: string } }>;
     };
-    return collection.features.map((entry) => entry.properties.canonicalKey);
+    return collection.features.map((entry) => ({
+        key: entry.properties.canonicalKey,
+        label: entry.properties.name
+    }));
 }
 
-const COUNTY_KEYS = packKeys("us-counties-2025-5m.pack.json");
-const STATE_KEYS = packKeys("us-states-2025-5m.pack.json");
-const WORLD_50_KEYS = packKeys("world-countries-50m.pack.json");
+const COUNTY_FEATURES = packFeatures("us-counties-2025-5m.pack.json");
+const STATE_FEATURES = packFeatures("us-states-2025-5m.pack.json");
+const WORLD_50_FEATURES = packFeatures("world-countries-50m.pack.json");
+const COUNTY_KEYS = COUNTY_FEATURES.map((entry) => entry.key);
+const STATE_KEYS = STATE_FEATURES.map((entry) => entry.key);
+const WORLD_50_KEYS = WORLD_50_FEATURES.map((entry) => entry.key);
 
 interface PickingMetrics {
     readonly elapsed: number;
@@ -3185,6 +3191,38 @@ test.describe("packaged visual in a real browser", () => {
         expect(calls).toMatchObject({ select: 0, filter: 0 });
     });
 
+    test("shows geographic names while retaining canonical report-selection identity", async ({ page }) => {
+        await mount(page, {
+            contextMode: "builtInPack",
+            contextPack: "worldCountries",
+            worldDetail: "50m",
+            packKeyMode: "canonical",
+            fallbackEntityKey: "AFG",
+            homeFocus: "sceneCenter",
+            interactionMode: "reportSelection",
+            entities: ["AFG"],
+            periods: [],
+            bands: ["Band 1"],
+            series: [],
+            profiles: ["Metric A"]
+        });
+        await expect(page.locator(".profile-lens-header-title"))
+            .toHaveText("Afghanistan");
+        await expect(page.locator(".profile-lens-target")).toHaveCount(1);
+
+        const feature = await page.locator("[data-context-key='AFG']").boundingBox();
+        expect(feature).not.toBeNull();
+        await page.mouse.click(
+            (feature?.x ?? 0) + (feature?.width ?? 0) / 2,
+            (feature?.y ?? 0) + (feature?.height ?? 0) / 2
+        );
+        await expect(page.locator(".profile-lens-header-title"))
+            .toHaveText("Afghanistan");
+        await expect.poll(async () => page.evaluate(() => (window as unknown as {
+            profileLensHost: { calls: { lastSelectedKey: string | null } };
+        }).profileLensHost.calls.lastSelectedKey)).toContain("entity:0");
+    });
+
     test("keeps overscanned Canvas point pixels and picking aligned after camera movement", async ({ page }) => {
         await mount(page, {
             contextMode: "boundGeometry",
@@ -3244,7 +3282,7 @@ test.describe("packaged visual in a real browser", () => {
         expect(calls.lastSelectedKey).toContain("entity:0");
     });
 
-    test("supports isolated vertical drag from Automatic Fill home for world, state, and county", async ({ page }) => {
+    test("preserves Fit and Fill map traversal across report-selection host updates", async ({ page }) => {
         const cases = [
             {
                 name: "world",
@@ -3252,6 +3290,10 @@ test.describe("packaged visual in a real browser", () => {
                 worldDetail: "50m",
                 packKeyMode: "canonical",
                 entities: WORLD_50_KEYS,
+                labels: new Map(WORLD_50_FEATURES.map((entry) => [entry.key, entry.label])),
+                fallbackEntityKey: "USA",
+                homeView: "automatic",
+                expectedHomeZoom: "fill",
                 svgFeatureThreshold: 500,
                 svgVertexThreshold: 100000
             },
@@ -3260,6 +3302,10 @@ test.describe("packaged visual in a real browser", () => {
                 contextPack: "usStates",
                 packKeyMode: "geoid2",
                 entities: STATE_KEYS,
+                labels: new Map(STATE_FEATURES.map((entry) => [entry.key, entry.label])),
+                fallbackEntityKey: "06",
+                homeView: "fit",
+                expectedHomeZoom: "fit",
                 svgFeatureThreshold: 500,
                 svgVertexThreshold: 100000
             },
@@ -3267,7 +3313,11 @@ test.describe("packaged visual in a real browser", () => {
                 name: "county",
                 contextPack: "usCounties",
                 packKeyMode: "geoid5",
-                entities: COUNTY_KEYS.filter((_key, index) => index % 17 === 0),
+                entities: COUNTY_KEYS,
+                labels: new Map(COUNTY_FEATURES.map((entry) => [entry.key, entry.label])),
+                fallbackEntityKey: "06037",
+                homeView: "fit",
+                expectedHomeZoom: "fit",
                 svgFeatureThreshold: 1,
                 svgVertexThreshold: 100
             }
@@ -3279,18 +3329,20 @@ test.describe("packaged visual in a real browser", () => {
                 contextMode: "builtInPack",
                 contextLayout: "focusLens",
                 navigationMode: "auto",
-                homeView: "automatic",
-                interactionMode: "localOnly",
+                homeView: value.homeView,
+                interactionMode: "reportSelection",
                 contextPack: value.contextPack,
                 worldDetail: value.worldDetail,
                 packKeyMode: value.packKeyMode,
+                fallbackEntityKey: value.fallbackEntityKey,
+                normalization: "raw",
                 svgFeatureThreshold: value.svgFeatureThreshold,
                 svgVertexThreshold: value.svgVertexThreshold,
                 entities: value.entities,
-                periods: ["Period 1", "Period 2"],
-                bands: ["Band 1", "Band 2", "Band 3", "Band 4", "Band 5"],
-                series: ["Series X", "Series Y"],
-                profiles: ["Metric A", "Metric B", "Metric C"]
+                periods: [],
+                bands: ["Band 1"],
+                series: [],
+                profiles: ["Metric A"]
             });
             const surface = page.locator(".profile-lens-context");
             await expect(surface).toHaveCSS("touch-action", "none");
@@ -3304,6 +3356,7 @@ test.describe("packaged visual in a real browser", () => {
                         panX: number;
                         panY: number;
                         moveEnds: number;
+                        probeResolutions: number;
                         probeTransitions: number;
                         providerBuilds: number;
                         sceneBuilds: number;
@@ -3315,7 +3368,11 @@ test.describe("packaged visual in a real browser", () => {
                 }).__profileLensContextMetrics;
                 return { ...metrics };
             });
-            expect(before.homeZoom, value.name).toBeGreaterThan(1);
+            if (value.expectedHomeZoom === "fill") {
+                expect(before.homeZoom, value.name).toBeGreaterThan(1);
+            } else {
+                expect(before.homeZoom, value.name).toBe(1);
+            }
             expect(before.cameraZoom, value.name).toBeCloseTo(before.homeZoom, 10);
             const centerX = (bounds?.x ?? 0) + (bounds?.width ?? 0) / 2;
             const centerY = (bounds?.y ?? 0) + (bounds?.height ?? 0) / 2;
@@ -3323,13 +3380,14 @@ test.describe("packaged visual in a real browser", () => {
             await page.mouse.down();
             await page.mouse.move(centerX, centerY + 120, { steps: 12 });
             await page.mouse.up();
-            const after = await surface.evaluate((node) => {
+            const afterDrag = await surface.evaluate((node) => {
                 const metrics = (node as HTMLElement & {
                     __profileLensContextMetrics: {
                         cameraZoom: number;
                         panX: number;
                         panY: number;
                         moveEnds: number;
+                        probeResolutions: number;
                         probeTransitions: number;
                         providerBuilds: number;
                         sceneBuilds: number;
@@ -3341,20 +3399,107 @@ test.describe("packaged visual in a real browser", () => {
                 }).__profileLensContextMetrics;
                 return { ...metrics };
             });
-            expect(Math.abs(after.panY - before.panY), value.name).toBeGreaterThan(10);
-            expect(Math.abs(after.panX - before.panX), value.name).toBeLessThanOrEqual(0.5);
-            expect(after.probeTransitions - before.probeTransitions, value.name)
+            const graphAfterDrag = await page.evaluate(() => {
+                const surfaceNode = document.querySelector(".profile-lens-context");
+                return {
+                    activeKey: surfaceNode
+                        ?.querySelector<HTMLElement>("[role='option'][aria-selected='true']")
+                        ?.id.replace(/^context:/u, "") ?? null,
+                    title: document.querySelector(".profile-lens-header-title")?.textContent ?? "",
+                    targetCount: document.querySelectorAll(".profile-lens-target").length,
+                    firstTarget: document.querySelector(".profile-lens-target")
+                        ?.getAttribute("aria-label") ?? ""
+                };
+            });
+            const focusedKey = graphAfterDrag.activeKey ?? value.fallbackEntityKey;
+            expect(graphAfterDrag.title, value.name).toBe(value.labels.get(focusedKey));
+            expect(graphAfterDrag.targetCount, value.name).toBe(1);
+            expect(graphAfterDrag.firstTarget, value.name)
+                .toContain(new Intl.NumberFormat("en-US").format(
+                    26 + value.entities.indexOf(focusedKey) * 2
+                ));
+            expect(Math.abs(afterDrag.panY - before.panY), value.name).toBeGreaterThan(10);
+            expect(Math.abs(afterDrag.panX - before.panX), value.name).toBeLessThanOrEqual(0.5);
+            expect(afterDrag.probeResolutions - before.probeResolutions, value.name)
                 .toBeGreaterThan(0);
-            expect(after.moveEnds - before.moveEnds, value.name).toBe(1);
-            expect(after.providerBuilds - before.providerBuilds, value.name).toBe(0);
-            expect(after.sceneBuilds - before.sceneBuilds, value.name).toBe(0);
-            expect(after.sceneIndexBuilds - before.sceneIndexBuilds, value.name).toBe(0);
-            expect(after.svgGeometryBuilds - before.svgGeometryBuilds, value.name).toBe(0);
-            expect(after.canvasRasterBuilds - before.canvasRasterBuilds, value.name).toBe(0);
-            expect(after.canvasPickingBuilds - before.canvasPickingBuilds, value.name).toBe(0);
-            expect(await page.evaluate(() => (window as unknown as {
-                profileLensHost: { calls: { select: number } };
-            }).profileLensHost.calls.select), value.name).toBe(0);
+            expect(afterDrag.moveEnds - before.moveEnds, value.name).toBe(1);
+            await page.evaluate(() => {
+                const scope = window as unknown as {
+                    profileLensDataView: unknown;
+                    profileLensUpdate: (value: unknown) => void;
+                };
+                scope.profileLensUpdate({
+                    width: 1280,
+                    height: 620,
+                    dataViews: [scope.profileLensDataView],
+                    jsonFilters: []
+                });
+            });
+            const afterUpdate = await surface.evaluate((node) => {
+                const metrics = (node as HTMLElement & {
+                    __profileLensContextMetrics: {
+                        panX: number;
+                        panY: number;
+                        providerBuilds: number;
+                        sceneBuilds: number;
+                        sceneIndexBuilds: number;
+                        svgGeometryBuilds: number;
+                        canvasRasterBuilds: number;
+                        canvasPickingBuilds: number;
+                    };
+                }).__profileLensContextMetrics;
+                return { ...metrics };
+            });
+            const graphAfterUpdate = await page.evaluate(() => ({
+                activeKey: document.querySelector(".profile-lens-context")
+                    ?.querySelector<HTMLElement>("[role='option'][aria-selected='true']")
+                    ?.id.replace(/^context:/u, "") ?? null,
+                title: document.querySelector(".profile-lens-header-title")?.textContent ?? "",
+                targetCount: document.querySelectorAll(".profile-lens-target").length,
+                firstTarget: document.querySelector(".profile-lens-target")
+                    ?.getAttribute("aria-label") ?? ""
+            }));
+            expect(afterUpdate.panX, value.name).toBeCloseTo(afterDrag.panX, 10);
+            expect(afterUpdate.panY, value.name).toBeCloseTo(afterDrag.panY, 10);
+            expect(afterUpdate.providerBuilds - before.providerBuilds, value.name).toBe(0);
+            expect(afterUpdate.sceneBuilds - before.sceneBuilds, value.name).toBe(0);
+            expect(afterUpdate.sceneIndexBuilds - before.sceneIndexBuilds, value.name).toBe(0);
+            expect(afterUpdate.svgGeometryBuilds - before.svgGeometryBuilds, value.name).toBe(0);
+            expect(afterUpdate.canvasRasterBuilds - before.canvasRasterBuilds, value.name).toBe(0);
+            expect(afterUpdate.canvasPickingBuilds - before.canvasPickingBuilds, value.name).toBe(0);
+            expect(graphAfterUpdate, value.name).toEqual(graphAfterDrag);
+            await page.evaluate(() => {
+                (window as unknown as {
+                    resizeProfileLens: (width: number, height: number) => boolean;
+                }).resizeProfileLens(1280, 619);
+            });
+            const afterResize = await surface.evaluate((node) => {
+                const metrics = (node as HTMLElement & {
+                    __profileLensContextMetrics: {
+                        panX: number;
+                        panY: number;
+                    };
+                }).__profileLensContextMetrics;
+                return { ...metrics };
+            });
+            const graphAfterResize = await page.evaluate(() => ({
+                activeKey: document.querySelector(".profile-lens-context")
+                    ?.querySelector<HTMLElement>("[role='option'][aria-selected='true']")
+                    ?.id.replace(/^context:/u, "") ?? null,
+                title: document.querySelector(".profile-lens-header-title")?.textContent ?? "",
+                targetCount: document.querySelectorAll(".profile-lens-target").length,
+                firstTarget: document.querySelector(".profile-lens-target")
+                    ?.getAttribute("aria-label") ?? ""
+            }));
+            expect(Math.abs(afterResize.panX - afterUpdate.panX), value.name).toBeLessThan(2);
+            expect(Math.abs(afterResize.panY - afterUpdate.panY), value.name).toBeLessThan(2);
+            const resizedKey = graphAfterResize.activeKey ?? value.fallbackEntityKey;
+            expect(graphAfterResize.title, value.name).toBe(value.labels.get(resizedKey));
+            expect(graphAfterResize.targetCount, value.name).toBe(1);
+            expect(graphAfterResize.firstTarget, value.name)
+                .toContain(new Intl.NumberFormat("en-US").format(
+                    26 + value.entities.indexOf(resizedKey) * 2
+                ));
         }
     });
 
