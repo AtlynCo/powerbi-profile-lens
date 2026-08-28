@@ -3,14 +3,12 @@
 `atlynProfileLens-1.2.0.0.*` is a historical blocked record only. It is not current fixture,
 automation, package, or release evidence.
 
-Atlyn Profile Lens 1.9.1.2 has no completed guarded native evidence record. The owner manually
-created `dist/release/AtlynProfileLensSample-1.9.1.2.pbix` from the focused PBIP in Power BI
-Desktop. It is 1191163 bytes with SHA-256
-`d3e60d8b006f56d43e2b9cdbf101ede5dfb9b82448681c281d007b3db2d4e2bd`. Automated read-only
-inspection verified the exact 1.9.1.2 packaged payload and resolved both active PBIR references.
-On 2026-08-27 the owner confirmed closing and reopening that exact PBIX offline and checking the
-World lens, county graph updates, and complete-map panning. These are limited owner observations,
-not a completed full native checklist or an automated native run.
+Atlyn Profile Lens 1.9.1.2 has no completed guarded native evidence record or matching current PBIX.
+The owner-created 1191163-byte PBIX with SHA-256
+`d3e60d8b006f56d43e2b9cdbf101ede5dfb9b82448681c281d007b3db2d4e2bd` passed exact parity and a
+limited owner-confirmed offline reopen on 2026-08-27, but it embeds the package from before the
+Home-boundary correction. It is retained only as a stale historical artifact and must not be used for
+submission. A new Save As/reopen from the updated focused PBIP is required.
 
 The previous Partner Center submission failed because Microsoft could not access the repository. Its
 older package, PBIX, and listing were OSM-enabled and must be replaced. No certification claim is
@@ -24,6 +22,6 @@ The attempted Desktop 2.157.879.0 (26.08) run reached the owned Save As dialog a
 and `1` (Save) had no safe ValuePattern/InvokePattern. The exact owner-manual fallback is to open
 the generated PBIP, import `dist\atlynProfileLens.1.9.1.2.pbiviz`, use **File > Save as** to write
 `dist\release\AtlynProfileLensSample-1.9.1.2.pbix`, close and reopen it offline, then record its
-hash and embedded-resource parity. The owner completed that fallback on 2026-08-27. The result is
-identified above as owner evidence and was not substituted with SendKeys, coordinate input, Win32
-messages, or PBIX edits.
+hash and embedded-resource parity. The owner completed that fallback on 2026-08-27 for the now-stale
+package. The result is identified above as historical owner evidence and was not substituted with
+SendKeys, coordinate input, Win32 messages, or PBIX edits.

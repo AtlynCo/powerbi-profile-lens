@@ -3356,6 +3356,7 @@ test.describe("packaged visual in a real browser", () => {
                         panX: number;
                         panY: number;
                         moveEnds: number;
+                        probeResolutions: number;
                         probeTransitions: number;
                         providerBuilds: number;
                         sceneBuilds: number;
@@ -3386,6 +3387,7 @@ test.describe("packaged visual in a real browser", () => {
                         panX: number;
                         panY: number;
                         moveEnds: number;
+                        probeResolutions: number;
                         probeTransitions: number;
                         providerBuilds: number;
                         sceneBuilds: number;
@@ -3400,8 +3402,9 @@ test.describe("packaged visual in a real browser", () => {
             const graphAfterDrag = await page.evaluate(() => {
                 const surfaceNode = document.querySelector(".profile-lens-context");
                 return {
-                    activeKey: surfaceNode?.getAttribute("aria-activedescendant")
-                        ?.replace(/^context:/u, "") ?? null,
+                    activeKey: surfaceNode
+                        ?.querySelector<HTMLElement>("[role='option'][aria-selected='true']")
+                        ?.id.replace(/^context:/u, "") ?? null,
                     title: document.querySelector(".profile-lens-header-title")?.textContent ?? "",
                     targetCount: document.querySelectorAll(".profile-lens-target").length,
                     firstTarget: document.querySelector(".profile-lens-target")
@@ -3417,7 +3420,7 @@ test.describe("packaged visual in a real browser", () => {
                 ));
             expect(Math.abs(afterDrag.panY - before.panY), value.name).toBeGreaterThan(10);
             expect(Math.abs(afterDrag.panX - before.panX), value.name).toBeLessThanOrEqual(0.5);
-            expect(afterDrag.probeTransitions - before.probeTransitions, value.name)
+            expect(afterDrag.probeResolutions - before.probeResolutions, value.name)
                 .toBeGreaterThan(0);
             expect(afterDrag.moveEnds - before.moveEnds, value.name).toBe(1);
             await page.evaluate(() => {
@@ -3449,7 +3452,8 @@ test.describe("packaged visual in a real browser", () => {
             });
             const graphAfterUpdate = await page.evaluate(() => ({
                 activeKey: document.querySelector(".profile-lens-context")
-                    ?.getAttribute("aria-activedescendant")?.replace(/^context:/u, "") ?? null,
+                    ?.querySelector<HTMLElement>("[role='option'][aria-selected='true']")
+                    ?.id.replace(/^context:/u, "") ?? null,
                 title: document.querySelector(".profile-lens-header-title")?.textContent ?? "",
                 targetCount: document.querySelectorAll(".profile-lens-target").length,
                 firstTarget: document.querySelector(".profile-lens-target")
@@ -3480,7 +3484,8 @@ test.describe("packaged visual in a real browser", () => {
             });
             const graphAfterResize = await page.evaluate(() => ({
                 activeKey: document.querySelector(".profile-lens-context")
-                    ?.getAttribute("aria-activedescendant")?.replace(/^context:/u, "") ?? null,
+                    ?.querySelector<HTMLElement>("[role='option'][aria-selected='true']")
+                    ?.id.replace(/^context:/u, "") ?? null,
                 title: document.querySelector(".profile-lens-header-title")?.textContent ?? "",
                 targetCount: document.querySelectorAll(".profile-lens-target").length,
                 firstTarget: document.querySelector(".profile-lens-target")

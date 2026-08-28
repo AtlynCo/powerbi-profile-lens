@@ -1025,7 +1025,7 @@ describe("interaction", () => {
                     pack: "worldCountries",
                     packKeyMode: "canonical"
                 },
-                navigation: { enabled: true }
+                navigation: { enabled: true, homeFocus: "sceneCenter" }
             }
         })));
         const surface = mock.element.querySelector<HTMLElement>(".profile-lens-context")!;
@@ -1052,7 +1052,7 @@ describe("interaction", () => {
                     pack: "worldCountries",
                     packKeyMode: "canonical"
                 },
-                navigation: { enabled: true }
+                navigation: { enabled: true, homeFocus: "sceneCenter" }
             }
         })));
         const surface = mock.element.querySelector<HTMLElement>(".profile-lens-context")!;
@@ -1484,7 +1484,8 @@ describe("interaction", () => {
                     mode,
                     pack: "worldCountries",
                     packKeyMode: "canonical"
-                }
+                },
+                navigation: { homeFocus: "sceneCenter" }
             }
         });
         visual.update(updateOptions(build("builtInPack")));
@@ -1538,7 +1539,8 @@ describe("interaction", () => {
                     packKeyMode: "canonical"
                 },
                 navigation: {
-                    fallbackEntityKey: "WLD"
+                    fallbackEntityKey: "WLD",
+                    homeFocus: "sceneCenter"
                 }
             }
         })));
@@ -1567,7 +1569,10 @@ describe("interaction", () => {
                     pack: "worldCountries",
                     packKeyMode: "canonical"
                 },
-                navigation: { fallbackEntityKey: "WLD" },
+                navigation: {
+                    fallbackEntityKey: "WLD",
+                    homeFocus: "sceneCenter"
+                },
                 interaction: { mode: "reportSelection" }
             }
         })));
@@ -2334,6 +2339,65 @@ describe("interaction", () => {
         expect(contextMetrics(surface).cameraZoom).toBeLessThan(fill.homeZoom);
         surface.dispatchEvent(key("keydown", "Home"));
         expect(contextMetrics(surface).cameraZoom).toBeCloseTo(fill.homeZoom, 12);
+    });
+
+    it("preserves probe-bounded data-bearing Fit Home through updates, resize, and reset", () => {
+        const { mock, visual } = mount();
+        const view = (entity: string) => buildMatrixDataView({
+            entities: [entity],
+            bands: ["Band 1"],
+            profiles: ["Metric A"],
+            objects: {
+                context: {
+                    mode: "builtInPack",
+                    pack: "worldCountries",
+                    worldDetail: "50m",
+                    packKeyMode: "canonical"
+                },
+                layout: { contextLayout: "focusLens" },
+                navigation: {
+                    enabled: "auto",
+                    homeView: "fit",
+                    homeFocus: "automatic"
+                },
+                interaction: { mode: "localOnly" }
+            }
+        });
+
+        visual.update(updateOptions(view("USA"), { width: 1280, height: 620 }));
+        const surface = mock.element.querySelector<HTMLElement>(".profile-lens-context")!;
+        expect(contextMetrics(surface).homeZoom).toBe(1);
+        expect(surface.getAttribute("aria-activedescendant")).toBe("context:USA");
+        expect(mock.element.querySelector(".profile-lens-header-title")?.textContent)
+            .toBe("United States of America");
+        expect(mock.element.querySelectorAll(".profile-lens-target")).toHaveLength(1);
+
+        visual.update(updateOptions(view("CAN"), { width: 1280, height: 620 }));
+        expect(surface.getAttribute("aria-activedescendant")).toBe("context:CAN");
+        expect(mock.element.querySelector(".profile-lens-header-title")?.textContent).toBe("Canada");
+        const canadianHome = mock.element.querySelector(".profile-lens-context-camera-layer")
+            ?.getAttribute("transform");
+
+        visual.update(updateOptions(view("CAN"), { width: 900, height: 700 }));
+        expect(surface.getAttribute("aria-activedescendant")).toBe("context:CAN");
+        expect(mock.element.querySelector(".profile-lens-header-title")?.textContent).toBe("Canada");
+        const resizedHome = mock.element.querySelector(".profile-lens-context-camera-layer")
+            ?.getAttribute("transform");
+        expect(resizedHome).not.toBe(canadianHome);
+
+        setSurfaceBounds(surface, 500, 500);
+        surface.dispatchEvent(key("keydown", "ArrowRight", { shiftKey: true }));
+        expect(mock.element.querySelector(".profile-lens-context-camera-layer")
+            ?.getAttribute("transform")).not.toBe(resizedHome);
+        surface.dispatchEvent(key("keydown", "Home"));
+        expect(mock.element.querySelector(".profile-lens-context-camera-layer")
+            ?.getAttribute("transform")).toBe(resizedHome);
+        expect(surface.getAttribute("aria-activedescendant")).toBe("context:CAN");
+
+        mock.element.querySelector<HTMLButtonElement>(".profile-lens-context-reset")?.click();
+        expect(mock.element.querySelector(".profile-lens-context-camera-layer")
+            ?.getAttribute("transform")).toBe(resizedHome);
+        expect(mock.element.querySelector(".profile-lens-header-title")?.textContent).toBe("Canada");
     });
 
     it("zooms by wheel, keyboard, and pinch with probe-driven local focus", () => {

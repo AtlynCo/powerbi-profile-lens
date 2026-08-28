@@ -243,17 +243,15 @@ writes the source project. Generation does not produce or commit a PBIX.
 This artifact is not Partner Center submission-ready or certification-complete. Release 1.9.1.2
 starts from merge commit `eeb191325ac67de8db281fbb777bffcae1116846` and changes only the
 four-part certification version plus complete-map navigation at every geographic map zoom. The
-deterministic PBIVIZ is 725365 bytes with SHA-256
-`fa863438a272a54c4dd070b2e51668537cf38d4279b50e573114512f7321acf0`; its embedded
-payload is 3318253 bytes with SHA-256
-`3e4c799b33c3b12d52c45b279584056f70f1a43614da6b015d4c926db723d105`.
-The PBIP resource and active `atlynProfileLens` PBIR references pass exact parity checks. The
-owner-created `dist/release/AtlynProfileLensSample-1.9.1.2.pbix` is 1191163 bytes with SHA-256
-`d3e60d8b006f56d43e2b9cdbf101ede5dfb9b82448681c281d007b3db2d4e2bd`; both active PBIR visuals
-resolve to the exact packaged payload. On 2026-08-27 the owner confirmed closing and reopening that
-PBIX offline and checking the World lens, county graph updates, and complete-map panning. This limited
-owner observation is not the full native checklist, screenshots, Microsoft certification, or Partner
-Center submission; the prior-version PBIX must not be reused or relabeled.
+deterministic PBIVIZ is 725371 bytes with SHA-256
+`447c985f36407fd044648605b688e0385ea37612c22cfaece4fa35242bd46c23`; its embedded
+payload is 3318289 bytes with SHA-256
+`50139e119669346310e0934cd7acd59cfcdb3fb7b047110053d515922fd75c25`.
+The PBIP resource and active `atlynProfileLens` PBIR references pass exact parity checks. The prior
+owner-created 1191163-byte PBIX (`d3e60d8b...d4e2bd`) and its limited offline-reopen observation
+belong to the preceding 1.9.1.2 package bytes and are now stale. A new owner Save As/reopen from the
+updated focused PBIP is required. No matching PBIX, full native checklist, screenshots, Microsoft
+certification, or Partner Center submission is claimed.
 
 ## Development
 

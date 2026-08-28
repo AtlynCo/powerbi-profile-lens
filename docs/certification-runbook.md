@@ -14,17 +14,16 @@ version required by Partner Center. The older package and its owner-created PBIX
 1.9.1.0 and 1.9.1.1 artifacts that must not be reused or represented as 1.9.1.2 evidence. This
 repository makes no certification claim and does not touch Partner Center.
 
-The deterministic 1.9.1.2 package is `dist/atlynProfileLens.1.9.1.2.pbiviz` (725365 bytes,
-SHA-256 `fa863438a272a54c4dd070b2e51668537cf38d4279b50e573114512f7321acf0`).
-Its embedded `atlynProfileLens` payload is 3318253 bytes with SHA-256
-`3e4c799b33c3b12d52c45b279584056f70f1a43614da6b015d4c926db723d105`.
+The deterministic 1.9.1.2 package is `dist/atlynProfileLens.1.9.1.2.pbiviz` (725371 bytes,
+SHA-256 `447c985f36407fd044648605b688e0385ea37612c22cfaece4fa35242bd46c23`).
+Its embedded `atlynProfileLens` payload is 3318289 bytes with SHA-256
+`50139e119669346310e0934cd7acd59cfcdb3fb7b047110053d515922fd75c25`.
 The generated PBIP embeds that exact payload and resolves active visual references through canonical
-PBIR `Report/definition/pages/**/visuals/**/visual.json` definitions. The owner-created
-`dist/release/AtlynProfileLensSample-1.9.1.2.pbix` is 1191163 bytes with SHA-256
-`d3e60d8b006f56d43e2b9cdbf101ede5dfb9b82448681c281d007b3db2d4e2bd`; both active PBIR
-visuals resolve to the exact packaged payload. The owner confirmed an offline close/reopen and the
-World lens, county graph-update, and complete-map-panning checks on 2026-08-27. The full native
-checklist, screenshots, Microsoft certification, and Partner Center submission remain unclaimed.
+PBIR `Report/definition/pages/**/visuals/**/visual.json` definitions. The previous owner-created PBIX
+(`d3e60d8b...d4e2bd`) and its limited 2026-08-27 offline-reopen observation cover the preceding
+package bytes and are stale after the Home-boundary correction. A new matching PBIX Save As/reopen,
+the full native checklist, screenshots, Microsoft certification, and Partner Center submission remain
+unclaimed.
 
 Current release candidate: **1.9.1.2**, GUID `atlynProfileLens`, API `5.11.0`
 (`package.json`, `pbiviz.json`). Latest published API is 5.11.1 (BLEU cloud enum addition only);

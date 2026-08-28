@@ -167,17 +167,19 @@ candidate; record the package name and SHA-256 from `dist/release-manifest.json`
 
 ## Persistence and service boundary
 
-1. Open the generated PBIP sample and verify all ten pages offline, starting with the large
-   Automatic/Fill local-only World 50m hero and then the report-selection and engineering pages.
-2. The owner-created PBIX embeds the exact release-candidate payload and passes active PBIR resource
-   parity, but it has no recorded offline reopen or checklist observations. Close and reopen it,
-   repeat this checklist, and record those observations separately. The PBIX remains outside git.
+1. Open the canonical generated PBIP sample and verify all ten engineering pages offline, starting
+   with the large Automatic/Fill local-only World 50m hero and then the report-selection pages.
+2. Separately open the current focused two-page PBIP and verify its World hero and USA Counties lens
+   page. The 2026-08-27 owner observation recorded an offline close/reopen plus the World lens, county
+   graph-update, and complete-map-panning checks for a previous two-page PBIX, but that PBIX is stale
+   after the Home-boundary correction. It does not establish current-package parity, this full
+   ten-page checklist, or screenshots. The replacement PBIX remains outside git.
 3. Test PDF/PowerPoint export, service publication, dashboard pinning, and bookmarks separately.
 4. Record Desktop/service versions, modes tested, package SHA-256, pass/fail evidence, and deviations.
 
 Native results establish only the tested host/package combination. They do not constitute Microsoft
-certification. The PBIX exists, but until it passes the native checklist and recorded offline reopen,
-the artifact is not certification-complete.
+certification. A limited offline reopen is recorded, but until a matching PBIX passes the full native
+checklist, the artifact is not certification-complete.
 
 Packaged Chromium mouse/wheel and synthetic pinch evidence does not prove Power BI Desktop mouse,
 trackpad, touch hardware, focus routing, export, or reopen behavior. Record those surfaces as unproven
