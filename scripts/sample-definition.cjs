@@ -21,12 +21,6 @@ function packProperties(id) {
     return artifact.topology.objects.features.geometries.map((geometry) => geometry.properties);
 }
 
-/** Counties are sampled by whole state so the subset stays contiguous and explainable. */
-const COUNTY_STATE_CODES = [
-    "02", "04", "06", "08", "11", "12", "15", "25",
-    "36", "48", "53", "60", "66", "69", "72", "78"
-];
-
 const worldFeatures = (() => {
     const seen = new Map();
     for (const id of ["world-countries-110m", "world-countries-50m"]) {
@@ -45,18 +39,10 @@ const stateFeatures = packProperties("us-states-2025-5m")
     .map((properties) => ({ key: properties.canonicalKey, name: properties.name }))
     .sort((left, right) => (left.key < right.key ? -1 : left.key > right.key ? 1 : 0));
 
-const stateNameByCode = new Map(
-    packProperties("us-states-2025-5m").map((properties) => [
-        properties.canonicalKey,
-        properties.status
-    ])
-);
-
 const countyFeatures = packProperties("us-counties-2025-5m")
-    .filter((properties) => COUNTY_STATE_CODES.includes(properties.stateCode))
     .map((properties) => ({
         key: properties.canonicalKey,
-        name: `${properties.name}, ${stateNameByCode.get(properties.stateCode) ?? properties.status}`
+        name: `${properties.name}, ${properties.status}`
     }))
     .sort((left, right) => (left.key < right.key ? -1 : left.key > right.key ? 1 : 0));
 
@@ -225,6 +211,7 @@ const COMMUNITY_FALLBACK = COMMUNITIES[0];
 const WORLD_FALLBACK = "USA";
 const STATE_FALLBACK = "06";
 const COUNTY_FALLBACK = "06037";
+const FOCUSED_PAGE_NAMES = ["pageHero", "pageCountyPack"];
 
 const pages = [
     {
@@ -508,8 +495,8 @@ function entityKeysFor(visual) {
 module.exports = {
     AGE_BANDS,
     COMMUNITIES,
-    COUNTY_STATE_CODES,
     DIAGNOSTIC_KEYS,
+    FOCUSED_PAGE_NAMES,
     GEOMETRIES,
     LATITUDES,
     LONGITUDES,

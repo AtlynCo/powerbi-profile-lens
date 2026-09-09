@@ -2,7 +2,9 @@ import { describe, expect, it } from "vitest";
 import type { ContextScene, SceneTransform } from "../src/context/contract";
 import { fitScene } from "../src/context/projection";
 import {
+    clampCameraToBoundary,
     clampCameraToBounds,
+    clampCameraToProbeBounds,
     projectBounds,
     sceneBounds,
     viewportOverscroll
@@ -293,6 +295,45 @@ describe("context viewport camera", () => {
             .toEqual(panned);
     });
 
+    it("lets every scene edge reach the fixed probe at every map zoom", () => {
+        const viewport = { width: 200, height: 120 };
+        const baseBounds = { minX: 8, maxX: 192, minY: 8, maxY: 112 };
+        const limits = { minZoom: 1, maxZoom: 4, overscroll: 12 };
+        for (const zoom of [limits.minZoom, 2, limits.maxZoom]) {
+            const camera = resetCamera(zoom, limits, baseBounds, viewport);
+            const westNorth = clampCameraToBoundary(
+                { ...camera, panX: -10_000, panY: -10_000 },
+                baseBounds,
+                viewport,
+                limits.overscroll,
+                "probe"
+            );
+            const eastSouth = clampCameraToProbeBounds(
+                { ...camera, panX: 10_000, panY: 10_000 },
+                baseBounds,
+                viewport,
+                limits.overscroll
+            );
+
+            expect(westNorth.panX + baseBounds.maxX * zoom)
+                .toBeCloseTo(viewport.width / 2 - limits.overscroll, 12);
+            expect(westNorth.panY + baseBounds.maxY * zoom)
+                .toBeCloseTo(viewport.height / 2 - limits.overscroll, 12);
+            expect(eastSouth.panX + baseBounds.minX * zoom)
+                .toBeCloseTo(viewport.width / 2 + limits.overscroll, 12);
+            expect(eastSouth.panY + baseBounds.minY * zoom)
+                .toBeCloseTo(viewport.height / 2 + limits.overscroll, 12);
+            expect(westNorth.panX).toBeLessThan(
+                clampCameraToBounds(
+                    { ...camera, panX: -10_000, panY: -10_000 },
+                    baseBounds,
+                    viewport,
+                    limits.overscroll
+                ).panX
+            );
+        }
+    });
+
     it("does not re-anchor a fractional camera already at either zoom limit", () => {
         const viewport = { width: 320, height: 300 };
         const baseBounds = { minX: 8, maxX: 312, minY: 8, maxY: 292 };
@@ -381,6 +422,62 @@ describe("context viewport camera", () => {
         expect(newCenter.x).toBeCloseTo(oldCenter.x, 10);
         expect(newCenter.y).toBeCloseTo(oldCenter.y, 10);
         expect(resized?.zoom).toBe(oldCamera.zoom);
+    });
+
+    it("preserves a probe-traversable map camera across resize", () => {
+        const scene = polygonScene();
+        const oldViewport = { width: 400, height: 260 };
+        const newViewport = { width: 760, height: 420 };
+        const oldBase = fitScene(scene, oldViewport);
+        const newBase = fitScene(scene, newViewport);
+        const rawBounds = sceneBounds(scene)!;
+        const oldBounds = projectBounds(rawBounds, oldBase);
+        const newBounds = projectBounds(rawBounds, newBase);
+        const oldLimits = {
+            minZoom: 1,
+            maxZoom: 8,
+            overscroll: viewportOverscroll(oldViewport)
+        };
+        const oldCamera = panCamera(
+            resetCamera(
+                oldLimits.minZoom,
+                oldLimits,
+                oldBounds,
+                oldViewport,
+                null,
+                "probe"
+            ),
+            -100_000,
+            100_000,
+            oldLimits,
+            oldBounds,
+            oldViewport,
+            "probe"
+        );
+        const oldCenter = inverseProjectPoint(
+            { x: oldViewport.width / 2, y: oldViewport.height / 2 },
+            composeSceneTransform(oldBase, oldCamera)
+        );
+        const resized = preserveCameraOnResize(
+            oldCamera,
+            oldBase,
+            newBase,
+            oldViewport,
+            newViewport,
+            newBounds,
+            {
+                ...oldLimits,
+                overscroll: viewportOverscroll(newViewport)
+            },
+            "probe"
+        );
+        expect(resized).not.toBeNull();
+        const newCenter = inverseProjectPoint(
+            { x: newViewport.width / 2, y: newViewport.height / 2 },
+            composeSceneTransform(newBase, resized!)
+        );
+        expect(Math.abs(newCenter.x - oldCenter.x)).toBeLessThan(0.5);
+        expect(Math.abs(newCenter.y - oldCenter.y)).toBeLessThan(0.5);
     });
 
     it("rejects invalid resize transitions instead of propagating non-finite state", () => {

@@ -91,7 +91,7 @@ import {
     RUNTIME_LICENSE_NOTICES_SHA256
 } from "./runtimeLicenses";
 import {
-    clampCameraToBounds,
+    clampCameraToBoundary,
     projectBounds,
     sceneBounds,
     viewportOverscroll
@@ -113,6 +113,7 @@ import {
 } from "./context/viewport/camera";
 import { contextSceneIdentity } from "./context/viewport/identity";
 import type {
+    CameraBoundary,
     CameraLimits,
     ContextCamera,
     ContextPinchSnapshot,
@@ -659,13 +660,22 @@ export class Visual implements IVisual {
         if (!this.measure) {
             this.measure = createSvgTextMeasurer(this.svg);
         }
+        const fullFocus = this.fullRenderRepresentsFocus(
+            this.activeContextFocus,
+            entityIndex,
+            periodIndex
+        )
+            ? this.activeContextFocus
+            : null;
+        const fullPresentation = fullFocus ? this.focusPresentation(fullFocus) : null;
 
         renderHeader(this.headerElement, {
             model,
             settings: this.settings,
             localization: this.localization,
             entityIndex,
-            periodIndex
+            periodIndex,
+            titleOverride: fullPresentation?.title
         });
         if (!layout.chrome.header) {
             this.headerElement.setAttribute("hidden", "hidden");
@@ -727,7 +737,8 @@ export class Visual implements IVisual {
             localization: this.localization,
             entityIndex,
             periodIndex,
-            visible: this.settings.tableVisibility === "visible"
+            visible: this.settings.tableVisibility === "visible",
+            entityLabelOverride: fullPresentation?.title
         });
 
         const connectorTarget = composite.context && composite.effectiveMode === "focusLens"
@@ -761,14 +772,14 @@ export class Visual implements IVisual {
         this.controller.bind(this.pendingProfileTargets, contextInteraction);
         this.controller.restoreFocus(hadProfileFocus);
 
-        const baseSummary = model.segments.partial
+        const baseSummary = fullPresentation?.summary ?? (model.segments.partial
             ? this.localization.get("Status_Partial")
             : this.localization.format(
                 "Status_Ready",
                 model.bands.length,
                 model.profiles.length,
                 model.entities[entityIndex]?.label ?? ""
-            );
+            ));
         const rejectionAnnouncement = this.runtimeSelectionRejectionNeedsAnnouncement
             ? ` ${this.localization.get("Context_SelectionRejected")}`
             : "";
@@ -1140,6 +1151,9 @@ export class Visual implements IVisual {
         );
         const homeFocus = resolveCameraHomeFocus(this.settings.homeFocus, scene.mode);
         const homeZoom = homeZoomForBounds(homeView, limits, baseBounds, viewport);
+        // Boundary policy belongs to the scene, not transient host interaction capability. Keeping
+        // it stable prevents focus/view-mode updates from resetting a deliberately panned map.
+        const boundary: CameraBoundary = scene.mode === "builtInPack" ? "probe" : "scene";
         // Home is a local camera placement only. Nothing here touches the SelectionManager, so an
         // initial render, a restore and a resize can never emit a host selection.
         const homeAnchor = homeFocus === "dataBearing"
@@ -1161,7 +1175,8 @@ export class Visual implements IVisual {
                 },
                 existing.baseBounds,
                 existing.viewport,
-                existing.homeAnchor
+                existing.homeAnchor,
+                existing.boundary
             )
         );
         let camera: ContextCamera;
@@ -1170,7 +1185,7 @@ export class Visual implements IVisual {
             || existing.sceneIdentity !== sceneIdentity
             || existing.invalidResize
         ) {
-            camera = resetCamera(homeZoom, limits, baseBounds, viewport, homeAnchor);
+            camera = resetCamera(homeZoom, limits, baseBounds, viewport, homeAnchor, boundary);
         } else if (
             existing.viewport.width !== viewport.width
             || existing.viewport.height !== viewport.height
@@ -1180,7 +1195,7 @@ export class Visual implements IVisual {
             || existing.baseTransform.invertY !== baseTransform.invertY
         ) {
             camera = atPreviousHome
-                ? resetCamera(homeZoom, limits, baseBounds, viewport, homeAnchor)
+                ? resetCamera(homeZoom, limits, baseBounds, viewport, homeAnchor, boundary)
                 : preserveCameraOnResize(
                     existing.camera,
                     existing.baseTransform,
@@ -1188,26 +1203,30 @@ export class Visual implements IVisual {
                     existing.viewport,
                     viewport,
                     baseBounds,
-                    limits
-                ) ?? resetCamera(homeZoom, limits, baseBounds, viewport, homeAnchor);
+                    limits,
+                    boundary
+                ) ?? resetCamera(homeZoom, limits, baseBounds, viewport, homeAnchor, boundary);
         } else if (
+            existing.boundary !== boundary
+            ||
             existing.homeView !== homeView
             || existing.homeZoom !== homeZoom
             || existing.homeFocus !== homeFocus
             || (!anchorEquals(existing.homeAnchor, homeAnchor) && atPreviousHome)
         ) {
-            camera = resetCamera(homeZoom, limits, baseBounds, viewport, homeAnchor);
+            camera = resetCamera(homeZoom, limits, baseBounds, viewport, homeAnchor, boundary);
         } else {
             const zoom = Math.min(
                 Math.max(existing.camera.zoom, limits.minZoom),
                 limits.maxZoom
             );
             camera = zoom === existing.camera.zoom
-                ? clampCameraToBounds(
+                ? clampCameraToBoundary(
                     existing.camera,
                     baseBounds,
                     viewport,
-                    limits.overscroll
+                    limits.overscroll,
+                    boundary
                 )
                 : zoomCameraAt(
                     existing.camera,
@@ -1215,12 +1234,14 @@ export class Visual implements IVisual {
                     { x: viewport.width / 2, y: viewport.height / 2 },
                     limits,
                     baseBounds,
-                    viewport
+                    viewport,
+                    boundary
                 );
         }
         const session = {
             sceneIdentity,
             camera,
+            boundary,
             homeZoom,
             homeView,
             homeFocus,
@@ -1290,7 +1311,8 @@ export class Visual implements IVisual {
             deltaY,
             this.cameraLimits(session.viewport),
             session.baseBounds,
-            session.viewport
+            session.viewport,
+            session.boundary
         ));
     }
 
@@ -1310,7 +1332,8 @@ export class Visual implements IVisual {
                 { x, y },
                 this.cameraLimits(session.viewport),
                 session.baseBounds,
-                session.viewport
+                session.viewport,
+                session.boundary
             ));
         } finally {
             this.zoomProbeDeferred = false;
@@ -1327,7 +1350,8 @@ export class Visual implements IVisual {
             this.cameraLimits(session.viewport),
             session.baseBounds,
             session.viewport,
-            session.homeAnchor
+            session.homeAnchor,
+            session.boundary
         ));
     }
 
@@ -1356,7 +1380,8 @@ export class Visual implements IVisual {
             { x, y },
             limits,
             session.baseBounds,
-            session.viewport
+            session.viewport,
+            session.boundary
         ));
     }
 
@@ -2401,26 +2426,27 @@ export class Visual implements IVisual {
         readonly message?: string;
         readonly summary: string;
     } {
+        const displayLabel = this.focusDisplayLabel(focus);
         switch (focus.kind) {
             case "loadedEntity":
                 return {
-                    title: focus.entityLabel,
+                    title: displayLabel,
                     summary: this.localization.format(
                         "Status_Ready",
                         this.model?.bands.length ?? 0,
                         this.model?.profiles.length ?? 0,
-                        focus.entityLabel
+                        displayLabel
                     )
                 };
             case "fallbackEntity":
                 return {
-                    title: focus.entityLabel,
+                    title: displayLabel,
                     message: this.localization.get("Context_Fallback"),
                     summary: `${this.localization.format(
                         "Status_Ready",
                         this.model?.bands.length ?? 0,
                         this.model?.profiles.length ?? 0,
-                        focus.entityLabel
+                        displayLabel
                     )} ${this.localization.get("Context_Fallback")}.`
                 };
             case "unboundFeature":
@@ -2443,6 +2469,20 @@ export class Visual implements IVisual {
                     summary: `${this.localization.get("Context_NoFeature")}.`
                 };
         }
+    }
+
+    private focusDisplayLabel(focus: ContextFocusState): string {
+        if (focus.feature) {
+            return focus.feature.label;
+        }
+        if (focus.kind !== "fallbackEntity") {
+            return "entityLabel" in focus ? focus.entityLabel : "";
+        }
+        const scene = this.focusedRenderSession?.scene;
+        const featureKey = scene?.entities.featureKeyByEntityKey.get(focus.entityKey);
+        return featureKey
+            ? scene?.backdrop.featureByKey.get(featureKey)?.label ?? focus.entityLabel
+            : focus.entityLabel;
     }
 
     private contextFeatureDescriptions(
@@ -2511,7 +2551,7 @@ export class Visual implements IVisual {
             case "loadedEntity":
                 message = this.localization.format(
                     "Context_AnnouncementLoaded",
-                    focus.entityLabel
+                    this.focusDisplayLabel(focus)
                 );
                 break;
             case "unboundFeature":
@@ -2529,7 +2569,7 @@ export class Visual implements IVisual {
             case "fallbackEntity":
                 message = this.localization.format(
                     "Context_AnnouncementFallback",
-                    focus.entityLabel
+                    this.focusDisplayLabel(focus)
                 );
                 break;
             case "noFeature":

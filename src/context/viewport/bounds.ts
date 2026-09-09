@@ -1,5 +1,5 @@
 import type { ContextScene, ScenePoint, SceneTransform, Viewport } from "../contract";
-import type { ContextCamera, SceneBounds } from "./contract";
+import type { CameraBoundary, ContextCamera, SceneBounds } from "./contract";
 
 export const FIT_PADDING = 8;
 export const MAX_OVERSCROLL = 24;
@@ -42,6 +42,18 @@ export function viewportOverscroll(viewport: Viewport): number {
     );
 }
 
+export function clampCameraToBoundary(
+    camera: ContextCamera,
+    baseBounds: SceneBounds,
+    viewport: Viewport,
+    overscroll: number,
+    boundary: CameraBoundary
+): ContextCamera {
+    return boundary === "probe"
+        ? clampCameraToProbeBounds(camera, baseBounds, viewport, overscroll)
+        : clampCameraToBounds(camera, baseBounds, viewport, overscroll);
+}
+
 export function clampCameraToBounds(
     camera: ContextCamera,
     baseBounds: SceneBounds,
@@ -65,6 +77,45 @@ export function clampCameraToBounds(
             overscroll
         ),
         panY: clampAxis(
+            camera.panY,
+            baseBounds.minY,
+            baseBounds.maxY,
+            camera.zoom,
+            viewport.height,
+            overscroll
+        )
+    };
+}
+
+/**
+ * Clamps the camera so every scene edge can be placed beneath the fixed centre probe.
+ *
+ * This intentionally permits the scene to leave the viewport. Geographic maps use this boundary
+ * at every zoom so the fixed probe can reach every feature, including at Fit and Fill Home scales.
+ */
+export function clampCameraToProbeBounds(
+    camera: ContextCamera,
+    baseBounds: SceneBounds,
+    viewport: Viewport,
+    overscroll: number
+): ContextCamera {
+    assertCamera(camera);
+    assertBounds(baseBounds);
+    assertViewport(viewport);
+    if (!Number.isFinite(overscroll) || overscroll < 0) {
+        throw new Error("Viewport overscroll must be a finite non-negative number.");
+    }
+    return {
+        ...camera,
+        panX: clampProbeAxis(
+            camera.panX,
+            baseBounds.minX,
+            baseBounds.maxX,
+            camera.zoom,
+            viewport.width,
+            overscroll
+        ),
+        panY: clampProbeAxis(
             camera.panY,
             baseBounds.minY,
             baseBounds.maxY,
@@ -110,6 +161,22 @@ function clampAxis(
 ): number {
     const lower = viewportSize - overscroll - max * zoom;
     const upper = overscroll - min * zoom;
+    if (lower <= upper) {
+        return Math.min(Math.max(pan, lower), upper);
+    }
+    return viewportSize / 2 - ((min + max) / 2) * zoom;
+}
+
+function clampProbeAxis(
+    pan: number,
+    min: number,
+    max: number,
+    zoom: number,
+    viewportSize: number,
+    overscroll: number
+): number {
+    const lower = viewportSize / 2 - overscroll - max * zoom;
+    const upper = viewportSize / 2 + overscroll - min * zoom;
     if (lower <= upper) {
         return Math.min(Math.max(pan, lower), upper);
     }

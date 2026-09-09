@@ -142,7 +142,7 @@ describe("offline PBIP validation sample", () => {
         }
     });
 
-    it("binds every packaged state and a multi-hundred county subset", () => {
+    it("binds every packaged state and county", () => {
         const states = readTable("StateProfiles");
         for (const key of ["01", "02", "06", "11", "15", "48", "60", "66", "69", "72", "78"]) {
             expect(states).toContain(`{"${key}", `);
@@ -152,7 +152,11 @@ describe("offline PBIP validation sample", () => {
         const counties = readTable("CountyProfiles");
         const countyRows = counties.match(/\{"\d{5}", /gu) ?? [];
         const countyKeys = new Set(countyRows.map((row) => row.slice(2, 7)));
-        expect(countyKeys.size).toBeGreaterThanOrEqual(500);
+        const countyPack = readJson(
+            path.join(root, "src", "context", "packs", "generated", "us-counties-2025-5m.pack.json")
+        ) as { topology: { objects: { features: { geometries: unknown[] } } } };
+        expect(countyKeys.size).toBe(countyPack.topology.objects.features.geometries.length);
+        expect(countyKeys.size).toBe(3235);
         for (const island of ["60", "66", "69", "72", "78"]) {
             expect(
                 [...countyKeys].some((key) => key.startsWith(island)),
@@ -167,6 +171,21 @@ describe("offline PBIP validation sample", () => {
         const worldKeys = new Set((world.match(/\{"[A-Z][A-Z:0-9]{2,7}", /gu) ?? [])
             .map((row) => row.slice(2, -3)));
         expect(worldKeys.size).toBeGreaterThanOrEqual(150);
+    });
+
+    it("declares the focused showcase as the World hero followed by complete counties", () => {
+        const definition = require("../scripts/sample-definition.cjs") as {
+            FOCUSED_PAGE_NAMES: string[];
+        };
+        expect(definition.FOCUSED_PAGE_NAMES).toEqual(["pageHero", "pageCountyPack"]);
+        const generator = fs.readFileSync(
+            path.join(root, "scripts", "build-focused-sample.cjs"),
+            "utf8"
+        );
+        expect(generator).toContain("pages.activePageName = FOCUSED_PAGE_NAMES[0]");
+        expect(generator).toContain("enableAutoRecovery: false");
+        expect(generator).toContain("writeSampleIntegrity");
+        expect(generator).toContain("verifySampleResourceParity");
     });
 
     it("keeps demo naming demographic and free of placeholders", () => {
