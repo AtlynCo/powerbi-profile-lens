@@ -1,18 +1,18 @@
 # Partner Center release handoff
 
-## Repository preparation state (2026-08-27)
+## Repository preparation state (2026-09-17)
 
 | Control | Observed state |
 |---|---|
-| GitHub repository | Public at <https://github.com/AtlynCo/powerbi-profile-lens>; release base is merge commit `eeb191325ac67de8db281fbb777bffcae1116846` (tree `4b2dcb3cfd951eb6ec8565222c52ee793f07b40c`) |
-| Lowercase certification branch | Public and fixed at `eeb191325ac67de8db281fbb777bffcae1116846` before this follow-up; not modified here |
-| Partner Center | Owner uploaded and hash-verified replacement files separately; submission is paused pending review of this parity follow-up |
+| GitHub repository | Public at <https://github.com/AtlynCo/powerbi-profile-lens>; current release source is `0c5caaa7abc244cc41fd484b27aa5d1157a50c18` |
+| Lowercase certification branch | Public and matched to `main` at `0c5caaa7abc244cc41fd484b27aa5d1157a50c18` before this metadata follow-up |
+| Partner Center | Latest report requires corrections for 100.14.1 Testing Instructions and 100.6.1 Privacy Policy; do not resubmit until the notes and privacy URL below are populated |
 | Microsoft certification | **Not claimed**; no submission is performed here |
 | GitHub visibility | **Public** |
 
 The exact lowercase `certification` branch/package relationship remains a Microsoft submission
-requirement. The existing branch records the public-source baseline, not this unreviewed follow-up.
-Do not modify it or change Partner Center during this work.
+requirement. Promote only the reviewed metadata follow-up to both `main` and `certification`; the
+PBIVIZ and PBIX bytes below must not change.
 
 Nothing in this document claims Microsoft certification, approval, submission, or listing. The previous
 Partner Center package, PBIX, and listing were OSM-enabled and must be replaced rather than reused.
@@ -24,7 +24,8 @@ Partner Center package, PBIX, and listing were OSM-enabled and must be replaced 
 | API | `5.11.0` | Packaged |
 | Listing price | Free | Owner decision |
 | Support | <https://www.atlynco.com/docs/faq> | Recorded in `pbiviz.json` |
-| Privacy | <https://www.atlynco.com/legal/privacy> | Use for the Partner Center form |
+| Product privacy | <https://github.com/AtlynCo/powerbi-profile-lens/blob/certification/PRIVACY.md> | Use for the Partner Center Privacy policy link after the reviewed commit is on `certification` |
+| Corporate privacy | <https://www.atlynco.com/legal/privacy> | Supplementary corporate website policy |
 | Terms | <https://www.atlynco.com/legal/terms> | Use for the Partner Center form |
 | EULA | `EULA.md` | Present |
 | Third-party notices | `THIRD_PARTY_NOTICES.md` | Present and package-audited |
@@ -32,9 +33,13 @@ Partner Center package, PBIX, and listing were OSM-enabled and must be replaced 
 | Listing logo | `assets/partner-center-logo-300x300.png`, 300x300 PNG | Present |
 | Screenshots | 1-5 native release screenshots | **Blocked: no safe native capture was completed** |
 | Offline sample project | `samples/AtlynProfileLensSample/AtlynProfileLensSample.pbip` | Present (Demographics & Community Profile Demo) |
-| Owner-created PBIX | No matching PBIX for the corrected package | The prior `d3e60d8b...d4e2bd` PBIX is stale and must not be submitted |
+| Owner-created PBIX | `AtlynProfileLensSample.pbix`; 1191138 bytes; SHA-256 `af5c8c588592013fe4e03ccfeb0af405bb5f9544a1064d59b09f41c424c01563` | Saved/reopened with stable bytes; exact current payload and two active PBIR references verified |
 | Embedded payload | 3318289 bytes; SHA-256 `50139e119669346310e0934cd7acd59cfcdb3fb7b047110053d515922fd75c25` | PBIP resource exactly matches the release PBIVIZ payload |
-| Native evidence | No matching current-package observation | The limited 2026-08-27 owner reopen covered the stale PBIX; a new Save As/reopen is required |
+| Native evidence | Limited owner Save As/reopen evidence from 2026-09-09 | Stable bytes and two-page parity verified; not the full native checklist or Microsoft certification |
+
+`package.json` remains the valid three-part npm/tooling version `1.9.1`; `pbiviz.json`, the embedded
+sample metadata, the PBIVIZ filename, and Partner Center use the four-part Power BI visual version
+`1.9.1.2`. This is intentional and is enforced by the certification audit.
 
 ## Demographics & Community Profile Sample (v1.9.1.2)
 
@@ -52,16 +57,14 @@ The offline PBIP sample (`samples/AtlynProfileLensSample/AtlynProfileLensSample.
 1. Use the final source URL and reviewed commit from `https://github.com/AtlynCo/powerbi-profile-lens`.
 2. Run `npm run validate:certification` from a clean checkout and retain the generated PBIVIZ path,
    byte count, SHA-256, GUID, version, API version, and release manifest.
-3. Create a new matching PBIX from the exact 1.9.1.2 PBIP/package. Its embedded payload and active
-   canonical PBIR visual references must be proven by `scripts/sample-resource-parity.cjs`. The prior guarded
-   run on Desktop 2.157.879.0 was blocked because Save As controls `1001` and `1` exposed no safe UI
-   Automation patterns. The owner-created PBIX and limited reopen checks from 2026-08-27 cover the
-   package before the Home-boundary correction and are now stale. Repeat the manual Save As/reopen
-   against the current focused PBIP. This does not claim the full native checklist or screenshots;
-   neither the stale 1.9.1.2 PBIX nor the 1.9.1.0 PBIX is current evidence.
-4. Put the source commit, PBIVIZ/PBIX hashes, automated results, native limitations, and the
-   zero-privilege/no-external-request statement in the certification notes. The owner then replaces
-   the failed Partner Center materials; this repository does not upload or edit the offer.
+3. Use only the exact PBIX recorded above. Read-only inspection proves its embedded payload and two
+   active canonical PBIR visual references match the PBIVIZ. It was closed and reopened with stable
+   bytes. This does not claim the full native checklist or screenshots; the stale
+   `d3e60d8b...d4e2bd` PBIX and all 1.9.1.0/1.9.1.1 files remain invalid for resubmission.
+4. Paste [partner-center-testing-instructions.md](partner-center-testing-instructions.md) into the
+   required Notes for certification field. Set the Privacy policy link to the product-specific public
+   statement above. Do not substitute the corporate policy alone because it does not name Atlyn
+   Profile Lens.
 
 ## Source and artifact parity
 

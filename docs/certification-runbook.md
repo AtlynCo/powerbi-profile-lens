@@ -5,25 +5,26 @@ candidate. This runbook encodes the gates that already exist in the repository; 
 about Microsoft certification, approval, submission, or listing. The submission boundary in
 [partner-center-submission.md](partner-center-submission.md) remains authoritative.
 
-## Current submission status (2026-08-27)
+## Current submission status (2026-09-17)
 
-PR [#27](https://github.com/AtlynCo/powerbi-profile-lens/pull/27) was merged as
-`eeb191325ac67de8db281fbb777bffcae1116846`, the repository is public at
-<https://github.com/AtlynCo/powerbi-profile-lens>, and this release increments only the certification
-version required by Partner Center. The older package and its owner-created PBIX are version
-1.9.1.0 and 1.9.1.1 artifacts that must not be reused or represented as 1.9.1.2 evidence. This
-repository makes no certification claim and does not touch Partner Center.
+PR [#28](https://github.com/AtlynCo/powerbi-profile-lens/pull/28) was merged as
+`0c5caaa7abc244cc41fd484b27aa5d1157a50c18`; `main` and the public lowercase
+`certification` branch matched at that release source before this metadata follow-up. The latest
+Partner Center report flags only 100.14.1 Testing Instructions and 100.6.1 Privacy Policy. The
+required certification-notes field was empty, and the corporate privacy page did not explicitly name
+Atlyn Profile Lens. This repository makes no Microsoft certification claim.
 
 The deterministic 1.9.1.2 package is `dist/atlynProfileLens.1.9.1.2.pbiviz` (725371 bytes,
 SHA-256 `447c985f36407fd044648605b688e0385ea37612c22cfaece4fa35242bd46c23`).
 Its embedded `atlynProfileLens` payload is 3318289 bytes with SHA-256
 `50139e119669346310e0934cd7acd59cfcdb3fb7b047110053d515922fd75c25`.
 The generated PBIP embeds that exact payload and resolves active visual references through canonical
-PBIR `Report/definition/pages/**/visuals/**/visual.json` definitions. The previous owner-created PBIX
-(`d3e60d8b...d4e2bd`) and its limited 2026-08-27 offline-reopen observation cover the preceding
-package bytes and are stale after the Home-boundary correction. A new matching PBIX Save As/reopen,
-the full native checklist, screenshots, Microsoft certification, and Partner Center submission remain
-unclaimed.
+PBIR `Report/definition/pages/**/visuals/**/visual.json` definitions. The final owner-created PBIX is
+1191138 bytes with SHA-256
+`af5c8c588592013fe4e03ccfeb0af405bb5f9544a1064d59b09f41c424c01563`. It was
+saved and reopened with unchanged bytes and passes exact payload parity with two active canonical
+PBIR references. The full native checklist, screenshots, Microsoft certification, and successful
+Partner Center publication remain unclaimed.
 
 Current release candidate: **1.9.1.2**, GUID `atlynProfileLens`, API `5.11.0`
 (`package.json`, `pbiviz.json`). Latest published API is 5.11.1 (BLEU cloud enum addition only);
@@ -85,9 +86,9 @@ set the path or invoke Save. The repo policy explicitly prohibits SendKeys, coor
 messages, and PBIX editing as workarounds.
 
 1. Retry after a Desktop update that restores UIA patterns on those controls.
-2. Do not reuse a prior-version PBIX; it does not match the 1.9.1.2 package.
-3. Ship without native evidence and keep the listing claims limited to the automated boundary
-   (current documented posture).
+2. Do not reuse the stale `d3e60d8b...d4e2bd` PBIX; use only the final
+   `af5c8c58...24c01563` PBIX paired with the package above.
+3. Keep native claims limited to the recorded two-page Save As/reopen and parity evidence.
 
 Do not fabricate, hand-edit, or post-hoc assemble `native-run.json`; every observation is hashed,
 sequence-checked, commit-bound, and re-verified by the finalizer.
@@ -129,18 +130,18 @@ native window after the run; do not submit Chromium mockups.
 ## 6. Submission mechanics (owner-controlled)
 
 1. Confirm the exact reviewed commit and submitted `.pbiviz` in Microsoft's certification record.
-2. Push the reviewed follow-up to `main` only after review. The lowercase `certification` branch
-   remains at the public `7b7bebbc52eab6fbf18d55403ab6e90736d30c39` baseline unless an
-   owner later promotes an exact reviewed release commit; do not modify it as part of this follow-up.
+2. After review, promote the same metadata commit to both `main` and lowercase `certification`
+   without rebuilding or replacing the 1.9.1.2 artifacts.
 3. Confirm `docs/partner-center-submission.md` values: support
-   `https://www.atlynco.com/docs/faq`, privacy `https://www.atlynco.com/legal/privacy`, terms
-   `https://www.atlynco.com/legal/terms`, EULA.md, THIRD_PARTY_NOTICES.md,
+   `https://www.atlynco.com/docs/faq`, product privacy
+   `https://github.com/AtlynCo/powerbi-profile-lens/blob/certification/PRIVACY.md`, terms
+   `https://www.atlynco.com/legal/terms`, EULA.md, THIRD_PARTY_NOTICES.md, and
    `assets/partner-center-logo-300x300.png`.
 4. In Partner Center, replace the failed submission's OSM-enabled package, PBIX, and listing
-   materials with the exact final PBIVIZ and genuinely reopened offline PBIX. Paste the package and
-   PBIX SHA-256 values, source commit, API/GUID/version, and the automated/native evidence boundary
-   into the owner-controlled certification notes; declare zero external network usage (empty
-   privileges, audited). Do not claim certification before Microsoft completes its review.
+   materials only if their hashes differ from the exact final pair. Paste
+   `docs/partner-center-testing-instructions.md` into Notes for certification; do not leave it empty.
+   Declare zero external network usage (empty privileges, audited). Do not claim certification before
+   Microsoft completes its review.
 5. Expect review within days-to-two-weeks; if certification fails on reviewer-side rendering, use
    the private `pbicvsupport` repository to share the package with Microsoft under NDA-friendly
    terms.
