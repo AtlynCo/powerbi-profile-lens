@@ -170,10 +170,9 @@ candidate; record the package name and SHA-256 from `dist/release-manifest.json`
 1. Open the canonical generated PBIP sample and verify all ten engineering pages offline, starting
    with the large Automatic/Fill local-only World 50m hero and then the report-selection pages.
 2. Separately open the current focused two-page PBIP and verify its World hero and USA Counties lens
-   page. The 2026-08-27 owner observation recorded an offline close/reopen plus the World lens, county
-   graph-update, and complete-map-panning checks for a previous two-page PBIX, but that PBIX is stale
-   after the Home-boundary correction. It does not establish current-package parity, this full
-   ten-page checklist, or screenshots. The replacement PBIX remains outside git.
+   page. The final 1191138-byte PBIX (`af5c8c58...24c01563`) was saved and reopened with unchanged
+   bytes on 2026-09-09; exact current payload parity and both active PBIR references were verified.
+   This does not establish this full ten-page checklist or screenshots. The PBIX remains outside git.
 3. Test PDF/PowerPoint export, service publication, dashboard pinning, and bookmarks separately.
 4. Record Desktop/service versions, modes tested, package SHA-256, pass/fail evidence, and deviations.
 

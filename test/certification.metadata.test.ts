@@ -5,6 +5,8 @@ import { describe, expect, it } from "vitest";
 const root = resolve(__dirname, "..");
 const repositoryUrl = "https://github.com/AtlynCo/powerbi-profile-lens";
 const supportUrl = "https://www.atlynco.com/docs/faq";
+const privacyUrl =
+    "https://github.com/AtlynCo/powerbi-profile-lens/blob/certification/PRIVACY.md";
 
 interface PackageMetadata {
     readonly repository: { readonly type: string; readonly url: string };
@@ -86,5 +88,26 @@ describe("certification metadata contract", () => {
         expect(source).not.toMatch(/\b(?:OSM|WebAccess)\b/i);
         expect(source).not.toMatch(/\b(?:fetch|XMLHttpRequest|WebSocket|EventSource)\s*\(/);
         expect(source).not.toMatch(/\b(?:eval|applyJsonFilter)\s*\(/);
+    });
+
+    it("keeps Partner Center instructions and product privacy explicit", () => {
+        const privacy = readFileSync(join(root, "PRIVACY.md"), "utf8");
+        const instructions = readFileSync(
+            join(root, "docs", "partner-center-testing-instructions.md"),
+            "utf8"
+        );
+
+        expect(privacy).toContain("Atlyn Profile Lens");
+        expect(privacy).toContain("GUID `atlynProfileLens`");
+        expect(privacy).toMatch(/makes no\s+external network requests/);
+        expect(instructions).toContain(repositoryUrl);
+        expect(instructions).toContain(privacyUrl);
+        expect(instructions).toContain("atlynProfileLens.1.9.1.2.pbiviz");
+        expect(instructions).toContain(
+            "447c985f36407fd044648605b688e0385ea37612c22cfaece4fa35242bd46c23"
+        );
+        expect(instructions).toContain(
+            "af5c8c588592013fe4e03ccfeb0af405bb5f9544a1064d59b09f41c424c01563"
+        );
     });
 });

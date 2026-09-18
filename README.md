@@ -240,18 +240,18 @@ Counties lens page. Its own integrity manifest is generated from the focused fil
 If `dist` exists, generation embeds the exact packaged visual resource; otherwise it warns and still
 writes the source project. Generation does not produce or commit a PBIX.
 
-This artifact is not Partner Center submission-ready or certification-complete. Release 1.9.1.2
-starts from merge commit `eeb191325ac67de8db281fbb777bffcae1116846` and changes only the
-four-part certification version plus complete-map navigation at every geographic map zoom. The
+This artifact is not Microsoft-certified. Release 1.9.1.2 is on public source commit
+`0c5caaa7abc244cc41fd484b27aa5d1157a50c18` and includes the four-part certification
+version plus complete-map navigation at every geographic map zoom. The
 deterministic PBIVIZ is 725371 bytes with SHA-256
 `447c985f36407fd044648605b688e0385ea37612c22cfaece4fa35242bd46c23`; its embedded
 payload is 3318289 bytes with SHA-256
 `50139e119669346310e0934cd7acd59cfcdb3fb7b047110053d515922fd75c25`.
-The PBIP resource and active `atlynProfileLens` PBIR references pass exact parity checks. The prior
-owner-created 1191163-byte PBIX (`d3e60d8b...d4e2bd`) and its limited offline-reopen observation
-belong to the preceding 1.9.1.2 package bytes and are now stale. A new owner Save As/reopen from the
-updated focused PBIP is required. No matching PBIX, full native checklist, screenshots, Microsoft
-certification, or Partner Center submission is claimed.
+The matching owner-created PBIX is 1191138 bytes with SHA-256
+`af5c8c588592013fe4e03ccfeb0af405bb5f9544a1064d59b09f41c424c01563`; it was saved
+and reopened with unchanged bytes, and both active `atlynProfileLens` PBIR references resolve to the
+exact packaged payload. The full native checklist, screenshots, Microsoft certification, and
+successful Partner Center publication are not claimed.
 
 ## Development
 
@@ -313,13 +313,14 @@ MIT. See [LICENSE](LICENSE) and [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)
 
 The certification source URL is
 <https://github.com/AtlynCo/powerbi-profile-lens>. It is public. The lowercase `certification`
-branch records the `7b7bebbc52eab6fbf18d55403ab6e90736d30c39` baseline; this follow-up does not
-modify it. Partner Center remains owner-controlled.
+branch matched `main` at `0c5caaa7abc244cc41fd484b27aa5d1157a50c18` before this metadata
+follow-up. Partner Center remains owner-controlled.
 
 Use the public product endpoints for listing support and legal links:
 
 - **Support:** <https://www.atlynco.com/docs/faq>
-- **Privacy:** <https://www.atlynco.com/legal/privacy>
+- **Product privacy:** [PRIVACY.md](PRIVACY.md)
+- **Corporate privacy:** <https://www.atlynco.com/legal/privacy>
 - **Terms:** <https://www.atlynco.com/legal/terms>
 
 See [docs/certification-runbook.md](docs/certification-runbook.md) for the final source/package/PBIX
