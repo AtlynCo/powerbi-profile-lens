@@ -62,13 +62,14 @@
     "topojson-server": "3.0.1",
     "topojson-simplify": "3.0.3",
     "typescript": "5.9.3",
-    "vitest": "4.1.10",
+    "vitest": "4.1.11",
     "write-file-atomic": "6.0.0"
   },
   "engines": {
     "node": ">=20.10.0"
   },
   "overrides": {
-    "uuid": "11.1.1"
+    "uuid": "11.1.1",
+    "qs": "6.16.0"
   }
 }
