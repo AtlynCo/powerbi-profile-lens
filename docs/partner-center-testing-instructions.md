@@ -1,9 +1,10 @@
 # Partner Center testing instructions
 
-Paste the following text into **Properties > Notes for certification** for Atlyn Profile Lens. Do
-not leave that required field empty.
+Candidate template for a future 1.9.1.3 submission. Do not paste or submit it while the 1.9.1.2
+Microsoft review is active. Replace the PBIX placeholder only after a matching 1.9.1.3 PBIX has been
+created and parity-validated.
 
-> Atlyn Profile Lens 1.9.1.2 is an offline Power BI custom visual. It requires no account, license
+> Atlyn Profile Lens 1.9.1.3 is an offline Power BI custom visual. It requires no account, license
 > key, credentials, subscription check, in-app purchase, gateway, data source, or network access.
 >
 > Public source: https://github.com/AtlynCo/powerbi-profile-lens
@@ -14,12 +15,11 @@ not leave that required field empty.
 > Product-specific privacy statement:
 > https://github.com/AtlynCo/powerbi-profile-lens/blob/certification/PRIVACY.md
 >
-> Upload these exact matching artifacts:
+> Upload the exact matching 1.9.1.3 artifacts recorded by the release validation:
 >
-> - `atlynProfileLens.1.9.1.2.pbiviz` — 725371 bytes — SHA-256
->   `447c985f36407fd044648605b688e0385ea37612c22cfaece4fa35242bd46c23`
-> - `AtlynProfileLensSample.pbix` — 1191138 bytes — SHA-256
->   `af5c8c588592013fe4e03ccfeb0af405bb5f9544a1064d59b09f41c424c01563`
+> - `atlynProfileLens.1.9.1.3.pbiviz` — 725387 bytes — SHA-256
+>   `95376bade4423d9f022419945389554cff049ac082da51165a9f2c2a4d36d724`
+> - matching 1.9.1.3 PBIX — record validated bytes and SHA-256
 >
 > In Power BI Desktop, open `AtlynProfileLensSample.pbix`. The report contains two pages and synthetic
 > data only:
@@ -35,12 +35,11 @@ not leave that required field empty.
 >    **Geometry**, and **Tooltips**. The visual presents an instructional empty state while required
 >    profile bindings are incomplete.
 >
-> The PBIVIZ contains exactly one `atlynProfileLens` payload. The PBIX embeds that exact payload
-> (3318289 bytes; SHA-256
-> `50139e119669346310e0934cd7acd59cfcdb3fb7b047110053d515922fd75c25`) and has two
-> active canonical PBIR references. The package declares empty privileges and makes no external
-> requests.
+> The PBIVIZ contains exactly one `atlynProfileLens` payload (3318314 bytes; SHA-256
+> `bda677602bee6649dca7bb25fe19e556a028c7e398c64534f3075ed04c93a676`). The PBIX must
+> embed that exact payload and have two active canonical PBIR references. The package declares empty
+> privileges and makes no external requests.
 
-The PBIX was saved and reopened in Power BI Desktop with unchanged bytes. This is artifact/parity and
-limited reopen evidence, not a claim of Microsoft certification or completion of every native
-checklist item.
+No matching 1.9.1.3 PBIX or native evidence exists yet. Do not submit this template until the
+candidate has a genuine Desktop-created PBIX with verified resource parity. This repository does not
+claim Microsoft certification or completion of the native checklist.

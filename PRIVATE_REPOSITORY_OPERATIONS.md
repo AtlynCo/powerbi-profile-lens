@@ -10,7 +10,7 @@ source code and must not be simulated by changing Partner Center plan visibility
   observed by the owner as **publish-in-progress**; repository files do not independently verify that
   state and make no certification claim.
 - Preserve the display name, GUID, four-part version, API version, and package contents for a
-  privacy-only transition: Atlyn Profile Lens, `atlynProfileLens`, `1.9.1.2`, and API `5.11.0`.
+  privacy-only transition: Atlyn Profile Lens, `atlynProfileLens`, `1.9.1.3`, and API `5.11.0`.
 - Microsoft requires a public offer and an exact lowercase `certification` branch matching the
   submitted `.pbiviz`. No remote `certification` branch was present when this checklist was prepared.
   Do not invent, rewrite, force-push, or update that branch as part of this preparation.
@@ -33,7 +33,7 @@ source code and must not be simulated by changing Partner Center plan visibility
       future private dependency.
 - [ ] In Partner Center, verify that these public endpoints are reachable without GitHub
       authentication:
-      `https://www.atlynco.com/docs/faq`,
+      `https://atlynco.github.io/atlyn-powerbi-support/docs/faq/`,
       `https://www.atlynco.com/legal/privacy`, and
       `https://www.atlynco.com/legal/terms`.
 - [ ] Test those endpoints from a signed-out or private browser window and confirm that the public

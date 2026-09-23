@@ -14,19 +14,17 @@ Partner Center report flags only 100.14.1 Testing Instructions and 100.6.1 Priva
 required certification-notes field was empty, and the corporate privacy page did not explicitly name
 Atlyn Profile Lens. This repository makes no Microsoft certification claim.
 
-The deterministic 1.9.1.2 package is `dist/atlynProfileLens.1.9.1.2.pbiviz` (725371 bytes,
-SHA-256 `447c985f36407fd044648605b688e0385ea37612c22cfaece4fa35242bd46c23`).
-Its embedded `atlynProfileLens` payload is 3318289 bytes with SHA-256
-`50139e119669346310e0934cd7acd59cfcdb3fb7b047110053d515922fd75c25`.
-The generated PBIP embeds that exact payload and resolves active visual references through canonical
-PBIR `Report/definition/pages/**/visuals/**/visual.json` definitions. The final owner-created PBIX is
-1191138 bytes with SHA-256
-`af5c8c588592013fe4e03ccfeb0af405bb5f9544a1064d59b09f41c424c01563`. It was
-saved and reopened with unchanged bytes and passes exact payload parity with two active canonical
-PBIR references. The full native checklist, screenshots, Microsoft certification, and successful
-Partner Center publication remain unclaimed.
+Microsoft's active review uses the validated 1.9.1.2 package/PBIX pair and must not be changed.
+This separate fallback candidate is **1.9.1.3**, GUID `atlynProfileLens`, API `5.11.0`. Its
+deterministic package is `dist/atlynProfileLens.1.9.1.3.pbiviz` (725387 bytes, SHA-256
+`95376bade4423d9f022419945389554cff049ac082da51165a9f2c2a4d36d724`), and its embedded
+payload is 3318314 bytes with SHA-256
+`bda677602bee6649dca7bb25fe19e556a028c7e398c64534f3075ed04c93a676`.
+The generated PBIP embeds that exact payload. No 1.9.1.3 PBIX or native evidence exists, and the
+validated 1.9.1.2 PBIX must not be reused or relabeled. The full native checklist, screenshots,
+Microsoft certification, and successful Partner Center publication remain unclaimed.
 
-Current release candidate: **1.9.1.2**, GUID `atlynProfileLens`, API `5.11.0`
+Current unsubmitted fallback candidate: **1.9.1.3**, GUID `atlynProfileLens`, API `5.11.0`
 (`package.json`, `pbiviz.json`). Latest published API is 5.11.1 (BLEU cloud enum addition only);
 the audit pins `5.11.0` exactly (`scripts/certification-audit.cjs:82,165`), so do not bump the API
 without coordinated changes to `package.json`, `package-lock.json`, `src/runtimeLicenses.ts`, and
@@ -130,10 +128,11 @@ native window after the run; do not submit Chromium mockups.
 ## 6. Submission mechanics (owner-controlled)
 
 1. Confirm the exact reviewed commit and submitted `.pbiviz` in Microsoft's certification record.
-2. After review, promote the same metadata commit to both `main` and lowercase `certification`
-   without rebuilding or replacing the 1.9.1.2 artifacts.
+2. Do not promote this candidate to `main` or lowercase `certification` while the 1.9.1.2 review is
+   active. After a Microsoft decision, promote only the exact source and matching artifacts selected
+   for the next submission.
 3. Confirm `docs/partner-center-submission.md` values: support
-   `https://www.atlynco.com/docs/faq`, product privacy
+   `https://atlynco.github.io/atlyn-powerbi-support/docs/faq/`, product privacy
    `https://github.com/AtlynCo/powerbi-profile-lens/blob/certification/PRIVACY.md`, terms
    `https://www.atlynco.com/legal/terms`, EULA.md, THIRD_PARTY_NOTICES.md, and
    `assets/partner-center-logo-300x300.png`.

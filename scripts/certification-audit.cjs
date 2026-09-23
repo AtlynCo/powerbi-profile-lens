@@ -76,7 +76,7 @@ function assert(condition, message) {
 }
 
 assert(
-    manifest.visual.version === `${packageJson.version}.2`,
+    manifest.visual.version === `${packageJson.version}.3`,
     "pbiviz version must match the package version and certification release increment"
 );
 assert(manifest.apiVersion === "5.11.0", "apiVersion must be exactly 5.11.0");

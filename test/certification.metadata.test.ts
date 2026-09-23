@@ -4,7 +4,7 @@ import { describe, expect, it } from "vitest";
 
 const root = resolve(__dirname, "..");
 const repositoryUrl = "https://github.com/AtlynCo/powerbi-profile-lens";
-const supportUrl = "https://www.atlynco.com/docs/faq";
+const supportUrl = "https://atlynco.github.io/atlyn-powerbi-support/docs/faq/";
 const privacyUrl =
     "https://github.com/AtlynCo/powerbi-profile-lens/blob/certification/PRIVACY.md";
 
@@ -65,11 +65,11 @@ describe("certification metadata contract", () => {
         for (const metadata of [manifest, sampleResource]) {
             expect(metadata.apiVersion).toBe("5.11.0");
             expect(metadata.visual.guid).toBe("atlynProfileLens");
-            expect(metadata.visual.version).toBe("1.9.1.2");
+            expect(metadata.visual.version).toBe("1.9.1.3");
             expect(metadata.visual.supportUrl).toBe(supportUrl);
             expect(metadata.visual.gitHubUrl).toBe(repositoryUrl);
         }
-        expect(samplePackage.version).toBe("1.9.1.2");
+        expect(samplePackage.version).toBe("1.9.1.3");
         expect(samplePackage.visual.gitHubUrl).toBe(repositoryUrl);
     });
 
@@ -102,12 +102,10 @@ describe("certification metadata contract", () => {
         expect(privacy).toMatch(/makes no\s+external network requests/);
         expect(instructions).toContain(repositoryUrl);
         expect(instructions).toContain(privacyUrl);
-        expect(instructions).toContain("atlynProfileLens.1.9.1.2.pbiviz");
+        expect(instructions).toContain("Atlyn Profile Lens 1.9.1.3");
         expect(instructions).toContain(
-            "447c985f36407fd044648605b688e0385ea37612c22cfaece4fa35242bd46c23"
+            "95376bade4423d9f022419945389554cff049ac082da51165a9f2c2a4d36d724"
         );
-        expect(instructions).toContain(
-            "af5c8c588592013fe4e03ccfeb0af405bb5f9544a1064d59b09f41c424c01563"
-        );
+        expect(instructions).toContain("matching 1.9.1.3 PBIX");
     });
 });

@@ -2,8 +2,8 @@
   "schemaVersion": 1,
   "projectTree": {
     "files": 44,
-    "bytes": 4981752,
-    "sha256": "df4f32fc1513e068e2cc3e9416855c49e22ac98109e6e95f0f3d5134c8930de7"
+    "bytes": 4981802,
+    "sha256": "37f481afbb51a58d654fd97728c5bd5dbbf53b794430ebfc210087932c7ece93"
   },
   "reportDefinitionTree": {
     "files": 29,
@@ -32,7 +32,7 @@
   },
   "embeddedVisualResource": {
     "path": "AtlynProfileLensSample.Report/CustomVisuals/atlynProfileLens/resources/atlynProfileLens.pbiviz.json",
-    "bytes": 3318289,
-    "sha256": "50139e119669346310e0934cd7acd59cfcdb3fb7b047110053d515922fd75c25"
+    "bytes": 3318314,
+    "sha256": "bda677602bee6649dca7bb25fe19e556a028c7e398c64534f3075ed04c93a676"
   }
 }

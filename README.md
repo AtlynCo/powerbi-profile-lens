@@ -233,25 +233,19 @@ semantic model is only a synthetic DAX
 or network dependency.
 
 `npm run sample:focused` creates
-`dist/release/AtlynProfileLensShowcase-1.9.1.2/AtlynProfileLensSample.pbip`, a deterministic
+`dist/release/AtlynProfileLensShowcase-1.9.1.3/AtlynProfileLensSample.pbip`, a deterministic
 two-page native-review project containing the active World 50m lens hero and the fully covered USA
 Counties lens page. Its own integrity manifest is generated from the focused file tree.
 
 If `dist` exists, generation embeds the exact packaged visual resource; otherwise it warns and still
 writes the source project. Generation does not produce or commit a PBIX.
 
-This artifact is not Microsoft-certified. Release 1.9.1.2 is on public source commit
-`0c5caaa7abc244cc41fd484b27aa5d1157a50c18` and includes the four-part certification
-version plus complete-map navigation at every geographic map zoom. The
-deterministic PBIVIZ is 725371 bytes with SHA-256
-`447c985f36407fd044648605b688e0385ea37612c22cfaece4fa35242bd46c23`; its embedded
-payload is 3318289 bytes with SHA-256
-`50139e119669346310e0934cd7acd59cfcdb3fb7b047110053d515922fd75c25`.
-The matching owner-created PBIX is 1191138 bytes with SHA-256
-`af5c8c588592013fe4e03ccfeb0af405bb5f9544a1064d59b09f41c424c01563`; it was saved
-and reopened with unchanged bytes, and both active `atlynProfileLens` PBIR references resolve to the
-exact packaged payload. The full native checklist, screenshots, Microsoft certification, and
-successful Partner Center publication are not claimed.
+This artifact is not Microsoft-certified. Candidate 1.9.1.3 changes only the four-part visual
+version and the dead support URL. It points to Atlyn's public GitHub Pages FAQ, which provides general
+installation help and a visible support contact. No Profile Lens-specific support page was found;
+Profile Lens is a standalone visual and is not one of the eight paid all-access visuals described by
+some FAQ entries. A matching 1.9.1.3 PBIX must be created from the generated focused PBIP after the
+current 1.9.1.2 Microsoft review concludes. The 1.9.1.2 PBIX must not be reused or relabeled.
 
 ## Development
 
@@ -318,7 +312,7 @@ follow-up. Partner Center remains owner-controlled.
 
 Use the public product endpoints for listing support and legal links:
 
-- **Support:** <https://www.atlynco.com/docs/faq>
+- **Support:** <https://atlynco.github.io/atlyn-powerbi-support/docs/faq/>
 - **Product privacy:** [PRIVACY.md](PRIVACY.md)
 - **Corporate privacy:** <https://www.atlynco.com/legal/privacy>
 - **Terms:** <https://www.atlynco.com/legal/terms>
