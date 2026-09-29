@@ -46,7 +46,8 @@ function readTable(name: string): string {
 
 interface VisualDefinition {
     readonly visual: {
-        readonly objects: {
+        readonly visualType: string;
+        readonly objects?: {
             readonly context: Array<{
                 properties: Record<string, { expr: { Literal: { Value: string } } }>;
             }>;
@@ -129,16 +130,56 @@ describe("offline PBIP validation sample", () => {
 
     it("configures an exact fallback Entity key on every context page", () => {
         const withContext = visualFiles().filter((entry) =>
-            entry.definition.visual.objects.context[0].properties.mode.expr.Literal.Value
+            entry.definition.visual.visualType === "atlynProfileLens"
+            && entry.definition.visual.objects?.context[0].properties.mode.expr.Literal.Value
             !== "'none'");
         expect(withContext.length).toBeGreaterThanOrEqual(9);
         for (const entry of withContext) {
-            const fallback = entry.definition.visual.objects.navigation[0]
+            const fallback = entry.definition.visual.objects?.navigation[0]
                 .properties.fallbackEntityKey;
             expect(
                 fallback?.expr.Literal.Value ?? "",
                 `${entry.page}/${entry.name} needs a fallback Entity key`
             ).toMatch(/^'.+'$/u);
+        }
+    });
+
+    it("puts visible product-specific hints and tips on both focused pages", () => {
+        for (const [page, expected] of [
+            ["pageHero", ["Hints & tips — World Lens", "fixed center probe", "Home or Reset view"]],
+            ["pageCountyPack", ["Hints & tips — USA Counties", "compare the two profile measures", "Home or Reset view"]]
+        ] as const) {
+            const file = path.join(
+                pagesRoot,
+                page,
+                "visuals",
+                `guidance${page}`,
+                "visual.json"
+            );
+            const guidance = readJson(file) as {
+                position: { y: number; height: number; tabOrder: number };
+                visual: {
+                    visualType: string;
+                    objects: {
+                        general: Array<{
+                            properties: {
+                                paragraphs: Array<{
+                                    textRuns: Array<{ value: string }>;
+                                }>;
+                            };
+                        }>;
+                    };
+                };
+            };
+            expect(guidance.visual.visualType).toBe("textbox");
+            expect(guidance.position).toMatchObject({ y: 20, height: 76, tabOrder: 0 });
+            const text = guidance.visual.objects.general[0].properties.paragraphs
+                .flatMap((paragraph) => paragraph.textRuns)
+                .map((run) => run.value)
+                .join(" ");
+            for (const phrase of expected) {
+                expect(text).toContain(phrase);
+            }
         }
     });
 
@@ -186,6 +227,7 @@ describe("offline PBIP validation sample", () => {
         expect(generator).toContain("enableAutoRecovery: false");
         expect(generator).toContain("writeSampleIntegrity");
         expect(generator).toContain("verifySampleResourceParity");
+        expect(generator).toContain("two Profile Lens visuals and two guidance textboxes");
     });
 
     it("keeps demo naming demographic and free of placeholders", () => {

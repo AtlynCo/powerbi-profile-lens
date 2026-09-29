@@ -1,8 +1,8 @@
 # Partner Center testing instructions
 
-Candidate template for a future 1.9.1.3 submission. Do not paste or submit it while the 1.9.1.2
-Microsoft review is active. Replace the PBIX placeholder only after a matching 1.9.1.3 PBIX has been
-created and parity-validated.
+Candidate template for a future 1.9.1.3 corrective submission. Version 1.9.1.2 was published after
+certification passed with notes; do not replace it unless Microsoft requests the next submission.
+Replace the PBIX placeholder only after a matching 1.9.1.3 PBIX has been created and parity-validated.
 
 > Atlyn Profile Lens 1.9.1.3 is an offline Power BI custom visual. It requires no account, license
 > key, credentials, subscription check, in-app purchase, gateway, data source, or network access.
@@ -21,8 +21,8 @@ created and parity-validated.
 >   `95376bade4423d9f022419945389554cff049ac082da51165a9f2c2a4d36d724`
 > - matching 1.9.1.3 PBIX — record validated bytes and SHA-256
 >
-> In Power BI Desktop, open `AtlynProfileLensSample.pbix`. The report contains two pages and synthetic
-> data only:
+> In Power BI Desktop, open `AtlynProfileLensSample.pbix`. The report contains two pages, synthetic
+> data only, and a visible Hints & tips banner at the top of each page:
 >
 > 1. On **World Lens**, confirm the profile chart is populated. Drag the map so another country moves
 >    under the fixed center probe; the focused place and profile chart update. Use the Home/reset

@@ -217,6 +217,10 @@ const pages = [
     {
         name: "pageHero",
         displayName: "1 - World community profiles",
+        guidance: {
+            title: "Hints & tips — World Lens",
+            body: "Drag the map until a country is under the fixed center probe. Scroll or pinch to zoom; the profile updates for the focused country. Use Home or Reset view to return. All sample data is synthetic."
+        },
         visuals: [{
             name: "visualHeroWorld",
             table: "world",
@@ -244,7 +248,7 @@ const pages = [
                 homeFocus: "automatic",
                 fallbackEntityKey: WORLD_FALLBACK,
                 interactionMode: "localOnly",
-                position: { x: 24, y: 24, z: 0, height: 852, width: 1552, tabOrder: 0 }
+                position: { x: 24, y: 112, z: 0, height: 764, width: 1552, tabOrder: 1 }
             }
         }]
     },
@@ -332,6 +336,10 @@ const pages = [
     {
         name: "pageCountyPack",
         displayName: "7 - Local demographics: US counties and equivalents",
+        guidance: {
+            title: "Hints & tips — USA Counties",
+            body: "Drag the map until a county is under the fixed center probe. Scroll or pinch to zoom and compare the two profile measures. Use Home or Reset view to restore the full county view. All sample data is synthetic."
+        },
         visuals: [{
             name: "visualCountyPack",
             table: "county",
@@ -347,7 +355,8 @@ const pages = [
                 referenceDetail: "full",
                 labelDensity: "detailed",
                 homeView: "fit",
-                fallbackEntityKey: COUNTY_FALLBACK
+                fallbackEntityKey: COUNTY_FALLBACK,
+                position: { x: 24, y: 112, z: 0, height: 764, width: 1552, tabOrder: 1 }
             }
         }]
     },

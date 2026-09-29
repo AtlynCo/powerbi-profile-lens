@@ -5,14 +5,15 @@
 | Control | Observed state |
 |---|---|
 | GitHub repository | Public at <https://github.com/AtlynCo/powerbi-profile-lens>; this 1.9.1.3 work is an isolated candidate branch |
-| Lowercase certification branch | Public and frozen with `main` at `81c5f6ee00c8c550eda3341414076be17dceddd1` for the active 1.9.1.2 review |
-| Partner Center | 1.9.1.2 is in active pre-processing; do not alter or resubmit it from this candidate |
-| Microsoft certification | **Not claimed**; no submission is performed here |
+| Lowercase certification branch | Public and frozen with `main` at `81c5f6ee00c8c550eda3341414076be17dceddd1` for published 1.9.1.2 |
+| Partner Center | 1.9.1.2 published to Marketplace on 2026-09-29 after certification passed with notes; do not alter it from this candidate |
+| Certification report | Policy 1180.2.3.1 is a soft required fix for the next submission: include sample-file hints and tips |
+| Power BI certification badge | **Not independently verified**; Marketplace publication does not prove the separate badge |
 | GitHub visibility | **Public** |
 
 The exact lowercase `certification` branch/package relationship remains a Microsoft submission
-requirement. Do not promote this candidate or change the active 1.9.1.2 PBIVIZ/PBIX bytes while that
-review is running.
+requirement. Do not promote this candidate or change the published 1.9.1.2 PBIVIZ/PBIX bytes without
+an explicit corrective-release decision.
 
 Nothing in this document claims Microsoft certification, approval, submission, or listing.
 
@@ -32,6 +33,7 @@ Nothing in this document claims Microsoft certification, approval, submission, o
 | Listing logo | `assets/partner-center-logo-300x300.png`, 300x300 PNG | Present |
 | Screenshots | 1-5 native release screenshots | **Blocked: no safe native capture was completed** |
 | Offline sample project | `samples/AtlynProfileLensSample/AtlynProfileLensSample.pbip` | Present (Demographics & Community Profile Demo) |
+| Sample hints and tips | Visible textboxes on the focused World Lens and USA Counties pages | Source/PBIP candidate complete; native PBIX remains pending |
 | Owner-created PBIX | None for 1.9.1.3 | Required before any future submission; never reuse or relabel the 1.9.1.2 PBIX |
 | Embedded payload | 3318314 bytes; SHA-256 `bda677602bee6649dca7bb25fe19e556a028c7e398c64534f3075ed04c93a676` | PBIP resource exactly matches the candidate PBIVIZ payload |
 | Native evidence | None for 1.9.1.3 | Shared Power BI Desktop was not used for this candidate |
@@ -40,10 +42,10 @@ Nothing in this document claims Microsoft certification, approval, submission, o
 sample metadata, the PBIVIZ filename, and Partner Center use the four-part Power BI visual version
 `1.9.1.3`. This is intentional and is enforced by the certification audit.
 
-The active 1.9.1.2 review remains bound to PBIVIZ SHA-256
+The published 1.9.1.2 release remains bound to PBIVIZ SHA-256
 `447c985f36407fd044648605b688e0385ea37612c22cfaece4fa35242bd46c23` and PBIX SHA-256
 `af5c8c588592013fe4e03ccfeb0af405bb5f9544a1064d59b09f41c424c01563`.
-Those artifacts are historical evidence for the active review, not 1.9.1.3 candidate inputs.
+Those artifacts are historical evidence for the published release, not 1.9.1.3 candidate inputs.
 
 ## Demographics & Community Profile Sample (v1.9.1.3)
 
@@ -55,6 +57,8 @@ The offline PBIP sample (`samples/AtlynProfileLensSample/AtlynProfileLensSample.
 - **Isolated Engineering Diagnostics**: Deliberately padded, unmatched, case-folded, and duplicate keys live on one clearly titled diagnostics page, so no customer-facing page carries rejection warnings.
 - **Zero Runtime Dependencies**: The semantic model is five offline DAX `DATATABLE` calculated tables requiring zero external data sources, credentials, or network connections. Values are produced by a deterministic function of the key and reproduce no real statistical source.
 - **Embedded Custom Visual**: Embeds the exact `atlynProfileLens.1.9.1.3.pbiviz` package payload with verified SHA-256 byte parity.
+- **Visible Guidance**: Both focused pages contain product-specific Hints & tips textboxes for probe
+  navigation, zoom, profile reading, and Home/Reset behavior, addressing the Policy 1180.2.3.1 note.
 
 ## Final source, package, PBIX, and notes process
 
@@ -65,7 +69,8 @@ The offline PBIP sample (`samples/AtlynProfileLensSample/AtlynProfileLensSample.
    then verify its GUID, version, embedded payload, active references, reopen stability, and hash.
 4. Only after those checks, finalize
    [partner-center-testing-instructions.md](partner-center-testing-instructions.md) with the PBIX
-   bytes and hash. Set the Privacy policy link to the product-specific public statement above.
+   bytes and hash. Set the Privacy policy link to the product-specific public statement above and
+   replace the separate Partner Center Support property with the verified FAQ URL.
 
 ## Source and artifact parity
 
@@ -83,6 +88,6 @@ release PBIVIZ. Record unavailable surfaces as unproven.
 
 ## Submission boundary
 
-The offer remains a free distribution of the visual. Version 1.9.1.2 is in Microsoft pre-processing;
-this 1.9.1.3 fallback candidate has not been uploaded or submitted. Microsoft certification, Service
-publication, and dashboard pinning remain unperformed and unclaimed.
+The offer remains a free distribution of the visual. Version 1.9.1.2 is published to Marketplace;
+this 1.9.1.3 fallback candidate has not been uploaded or submitted. The separate Power BI
+certification badge remains unverified and unclaimed.

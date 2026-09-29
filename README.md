@@ -240,12 +240,14 @@ Counties lens page. Its own integrity manifest is generated from the focused fil
 If `dist` exists, generation embeds the exact packaged visual resource; otherwise it warns and still
 writes the source project. Generation does not produce or commit a PBIX.
 
-This artifact is not Microsoft-certified. Candidate 1.9.1.3 changes only the four-part visual
-version and the dead support URL. It points to Atlyn's public GitHub Pages FAQ, which provides general
-installation help and a visible support contact. No Profile Lens-specific support page was found;
-Profile Lens is a standalone visual and is not one of the eight paid all-access visuals described by
-some FAQ entries. A matching 1.9.1.3 PBIX must be created from the generated focused PBIP after the
-current 1.9.1.2 Microsoft review concludes. The 1.9.1.2 PBIX must not be reused or relabeled.
+Candidate 1.9.1.3 changes the four-part visual version and dead support URL, and adds visible,
+product-specific Hints & tips banners to both focused sample pages for the next submission. It points
+to Atlyn's public GitHub Pages FAQ, which provides general installation help and a visible support
+contact. No Profile Lens-specific support page was found; Profile Lens is a standalone visual and is
+not one of the eight paid all-access visuals described by some FAQ entries. Marketplace publication
+of 1.9.1.2 does not independently verify the separate Power BI certification badge. A matching
+1.9.1.3 PBIX must be created from the generated focused PBIP before any corrective submission; the
+1.9.1.2 PBIX must not be reused or relabeled.
 
 ## Development
 
