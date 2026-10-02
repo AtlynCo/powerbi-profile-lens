@@ -20,8 +20,8 @@ Nothing in this document claims Microsoft certification, approval, submission, o
 | Requirement | Release value | Status |
 |---|---|---|
 | Visual | Atlyn Profile Lens, GUID `atlynProfileLens`, version `1.9.1.3` | Unsubmitted fallback candidate |
-| PBIVIZ | `dist/atlynProfileLens.1.9.1.3.pbiviz`; 725387 bytes; SHA-256 `95376bade4423d9f022419945389554cff049ac082da51165a9f2c2a4d36d724` | Deterministic candidate artifact |
-| API | `5.11.0` | Packaged |
+| PBIVIZ | `dist/atlynProfileLens.1.9.1.3.pbiviz`; 725389 bytes; SHA-256 `1e680cbc09b5bbab7a5a00e9eab60a6688a3da7f6a65c482791caf0a2c8aff3c` | Deterministic candidate artifact |
+| API metadata | `5.11.0` | Packaged from `powerbi-visuals-api` 5.11.1 |
 | Listing price | Free | Owner decision |
 | Support | <https://atlynco.github.io/atlyn-powerbi-support/docs/faq/> | Public first-party fallback recorded in `pbiviz.json`; no Profile-specific support page was found |
 | Product privacy | <https://github.com/AtlynCo/powerbi-profile-lens/blob/certification/PRIVACY.md> | Use for the Partner Center Privacy policy link after the reviewed commit is on `certification` |
@@ -35,7 +35,7 @@ Nothing in this document claims Microsoft certification, approval, submission, o
 | Offline sample project | `samples/AtlynProfileLensSample/AtlynProfileLensSample.pbip` | Present (Demographics & Community Profile Demo) |
 | Sample hints and tips | Visible textboxes on the focused World Lens and USA Counties pages | Source/PBIP candidate complete; native PBIX remains pending |
 | Owner-created PBIX | None for 1.9.1.3 | Required before any future submission; never reuse or relabel the 1.9.1.2 PBIX |
-| Embedded payload | 3318314 bytes; SHA-256 `bda677602bee6649dca7bb25fe19e556a028c7e398c64534f3075ed04c93a676` | PBIP resource exactly matches the candidate PBIVIZ payload |
+| Embedded payload | 3318314 bytes; SHA-256 `11f7911749da859998d503b865ea26d924fadf6e76afb2d0e1c786164242aa98` | PBIP resource exactly matches the candidate PBIVIZ payload |
 | Native evidence | None for 1.9.1.3 | Shared Power BI Desktop was not used for this candidate |
 
 `package.json` remains the valid three-part npm/tooling version `1.9.1`; `pbiviz.json`, the embedded

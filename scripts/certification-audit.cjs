@@ -48,7 +48,7 @@ const RUNTIME_LICENSE_MARKERS = [
     "d3-array 3.2.4",
     "InternMap 2.0.3",
     "topojson-client 3.1.0",
-    "powerbi-visuals-api 5.11.0",
+    "powerbi-visuals-api 5.11.1",
     "powerbi-visuals-utils-formattingmodel 7.1.0",
     "semver 7.8.5",
     "commander 2.20.3",

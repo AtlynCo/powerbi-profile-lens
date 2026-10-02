@@ -61,7 +61,7 @@ describe("certification metadata contract", () => {
 
         expect(packageJson.repository).toEqual({ type: "git", url: repositoryUrl });
         expect(packageJson.version).toBe("1.9.1");
-        expect(packageJson.dependencies["powerbi-visuals-api"]).toBe("5.11.0");
+        expect(packageJson.dependencies["powerbi-visuals-api"]).toBe("5.11.1");
         for (const metadata of [manifest, sampleResource]) {
             expect(metadata.apiVersion).toBe("5.11.0");
             expect(metadata.visual.guid).toBe("atlynProfileLens");
@@ -104,7 +104,7 @@ describe("certification metadata contract", () => {
         expect(instructions).toContain(privacyUrl);
         expect(instructions).toContain("Atlyn Profile Lens 1.9.1.3");
         expect(instructions).toContain(
-            "95376bade4423d9f022419945389554cff049ac082da51165a9f2c2a4d36d724"
+            "1e680cbc09b5bbab7a5a00e9eab60a6688a3da7f6a65c482791caf0a2c8aff3c"
         );
         expect(instructions).toContain("matching 1.9.1.3 PBIX");
     });

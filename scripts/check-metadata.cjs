@@ -12,6 +12,7 @@ const path = require("node:path");
 
 const root = path.resolve(__dirname, "..");
 const EXPECTED_API_VERSION = "5.11.0";
+const EXPECTED_API_PACKAGE_VERSION = "5.11.1";
 
 const problems = [];
 
@@ -39,13 +40,13 @@ check(
     `pbiviz apiVersion must be exactly ${EXPECTED_API_VERSION}, found ${manifest.apiVersion}.`
 );
 check(
-    packageJson.dependencies["powerbi-visuals-api"] === EXPECTED_API_VERSION,
-    `powerbi-visuals-api must be pinned to exactly ${EXPECTED_API_VERSION}.`
+    packageJson.dependencies["powerbi-visuals-api"] === EXPECTED_API_PACKAGE_VERSION,
+    `powerbi-visuals-api must be pinned to exactly ${EXPECTED_API_PACKAGE_VERSION}.`
 );
 const installedApi = readJson(path.join("node_modules", "powerbi-visuals-api", "package.json"));
 check(
-    installedApi.version === EXPECTED_API_VERSION,
-    `installed powerbi-visuals-api is ${installedApi.version}, expected ${EXPECTED_API_VERSION}.`
+    installedApi.version === EXPECTED_API_PACKAGE_VERSION,
+    `installed powerbi-visuals-api is ${installedApi.version}, expected ${EXPECTED_API_PACKAGE_VERSION}.`
 );
 check(packageJson.license === "MIT", "package.json license must be MIT.");
 check(fs.existsSync(path.join(root, "LICENSE")), "LICENSE file is missing.");

@@ -43,7 +43,7 @@ distance and area are not comparable.
 The PBIVIZ embeds these notices in its runtime JavaScript resource as
 `RUNTIME-LICENSE-NOTICES-BEGIN` through `RUNTIME-LICENSE-NOTICES-END`. The
 canonical notice block SHA-256 is
-`cd3a207300d60fafe2d1e13e2806fec3fbe3da9f0840b05a5041e6f1e74ef6b0`.
+`149ef13368889c1e47228465e17dabfa955c323fa37d8921730a91a52dfb3dfe`.
 
 ### d3-geo 3.1.1
 
@@ -130,7 +130,7 @@ OF USE, DATA OR PROFITS, WHETHER IN AN ACTION OF CONTRACT, NEGLIGENCE OR OTHER
 TORTIOUS ACTION, ARISING OUT OF OR IN CONNECTION WITH THE USE OR PERFORMANCE OF
 THIS SOFTWARE.
 
-### powerbi-visuals-api 5.11.0
+### powerbi-visuals-api 5.11.1
 
 MIT License
 

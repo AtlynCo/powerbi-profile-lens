@@ -16,33 +16,35 @@ required sample file and resubmit with the next submission. The separate Power B
 badge has not been independently verified.
 
 The published release uses the validated 1.9.1.2 package/PBIX pair and must not be changed.
-This separate fallback candidate is **1.9.1.3**, GUID `atlynProfileLens`, API `5.11.0`. Its
-deterministic package is `dist/atlynProfileLens.1.9.1.3.pbiviz` (725387 bytes, SHA-256
-`95376bade4423d9f022419945389554cff049ac082da51165a9f2c2a4d36d724`), and its embedded
+This separate fallback candidate is **1.9.1.3**, GUID `atlynProfileLens`, API metadata `5.11.0`
+from the `powerbi-visuals-api` 5.11.1 package. Its
+deterministic package is `dist/atlynProfileLens.1.9.1.3.pbiviz` (725389 bytes, SHA-256
+`1e680cbc09b5bbab7a5a00e9eab60a6688a3da7f6a65c482791caf0a2c8aff3c`), and its embedded
 payload is 3318314 bytes with SHA-256
-`bda677602bee6649dca7bb25fe19e556a028c7e398c64534f3075ed04c93a676`.
+`11f7911749da859998d503b865ea26d924fadf6e76afb2d0e1c786164242aa98`.
 The generated PBIP embeds that exact payload. No 1.9.1.3 PBIX or native evidence exists, and the
 validated 1.9.1.2 PBIX must not be reused or relabeled. The full native checklist, screenshots,
 and separate Power BI certification badge remain unclaimed.
 
-Current unsubmitted fallback candidate: **1.9.1.3**, GUID `atlynProfileLens`, API `5.11.0`
-(`package.json`, `pbiviz.json`). Latest published API is 5.11.1 (BLEU cloud enum addition only);
-the audit pins `5.11.0` exactly (`scripts/certification-audit.cjs:82,165`), so do not bump the API
-without coordinated changes to `package.json`, `package-lock.json`, `src/runtimeLicenses.ts`, and
-both audit assertions.
+Current unsubmitted fallback candidate: **1.9.1.3**, GUID `atlynProfileLens`, API metadata `5.11.0`
+(`pbiviz.json`) with API package 5.11.1 (`package.json`). The package intentionally exports
+major/minor metadata as `5.11.0`. API package 5.11.1 adds the BLEU sovereign-cloud enum; Profile
+Lens does not use Authentication or licensing APIs, so it requires no cloud-specific runtime branch. The
+official tools 7.2.2 release is not available from the configured npm registry/version list; retain
+the reproducible installable 7.2.1 tool until Microsoft publishes an installable package.
 
 ## 0. Machine prerequisites
 
 | Requirement | Why | Verified 2026-08-22 |
 |---|---|---|
-| Node.js >= 20.10 on PATH | every `scripts/*.cjs`, vitest, Playwright, pbiviz, and the sealing calls inside the PowerShell harness (`scripts/native-validation/run-desktop-validation.ps1:99,111,117,144,149,270,464,…`) | **absent** |
+| Node.js >= 20.19 on PATH | required by Power BI Visual Tools 7.2.1 and used by every `scripts/*.cjs`, Vitest, Playwright, pbiviz, and the sealing calls inside the PowerShell harness | verify on the execution host |
 | npm | `npm ci`, `validate:certification` chain (`package.json:39`) | **absent** |
 | PowerShell 7 (`pwsh`) on PATH | `scripts/pbix-publication-lock.cjs:18` spawns `pwsh` by name; the harness also uses the .NET Core 3-argument `System.IO.File.Move(src, dst, $true)` overload (`run-desktop-validation.ps1:756,805`) that Windows PowerShell 5.1 (.NET Framework) does not have | **absent** |
 | Power BI Desktop at `C:\Program Files\Microsoft Power BI Desktop\bin\PBIDesktop.exe` | hardcoded owned-process path (`desktop-guard.ps1:186`) | present, `2.157.879.0 (26.08)` |
 | Exclusive interactive desktop session | guard refuses input unless the owned window is proven foreground (`desktop-guard.ps1:199-217`); no other app may steal focus mid-run | owner judgement |
 | PBIDesktop not running | startup blocker (`run-desktop-validation.ps1:72-74`) | satisfied |
 
-Install order on a fresh machine: Node LTS >= 20.10 → `npm ci` → PowerShell 7 →
+Install order on a fresh machine: Node LTS >= 20.19 → `npm ci` → PowerShell 7 →
 `npm run validate:certification`.
 
 ## 1. Automated baseline
