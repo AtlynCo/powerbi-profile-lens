@@ -112,7 +112,8 @@ candidate; record the package name and SHA-256 from `dist/release-manifest.json`
 1. Exercise `auto`, `eager`, `segmented`, and `external` in Import, DirectQuery, and Direct Lake where
    available.
 2. For segmented data, record host segment markers, request count, aggregation behavior, completion,
-   and the four-request bound.
+   and the five-segment bound. Confirm a still-partial fifth segment retains the visible partial-data
+   and segment-limit diagnostics.
 3. Confirm `matrixExpand` is unavailable and that no expand/collapse or drilldown affordance appears.
 4. Separately capture real native host evidence before proposing capabilities `expandCollapse` or
    `drilldown`: API/Desktop version, DataView before/after, host calls, identities, filter state,

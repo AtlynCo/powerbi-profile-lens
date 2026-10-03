@@ -104,7 +104,7 @@ describe("certification metadata contract", () => {
         expect(instructions).toContain(privacyUrl);
         expect(instructions).toContain("Atlyn Profile Lens 1.9.1.3");
         expect(instructions).toContain(
-            "1e680cbc09b5bbab7a5a00e9eab60a6688a3da7f6a65c482791caf0a2c8aff3c"
+            "4bf4c8bdb99c6c63bc25f62aeac4395b2970e1cf9949497f0934c590263a6828"
         );
         expect(instructions).toContain("matching 1.9.1.3 PBIX");
     });

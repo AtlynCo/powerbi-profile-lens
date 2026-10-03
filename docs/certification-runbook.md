@@ -18,13 +18,14 @@ badge has not been independently verified.
 The published release uses the validated 1.9.1.2 package/PBIX pair and must not be changed.
 This separate fallback candidate is **1.9.1.3**, GUID `atlynProfileLens`, API metadata `5.11.0`
 from the `powerbi-visuals-api` 5.11.1 package. Its
-deterministic package is `dist/atlynProfileLens.1.9.1.3.pbiviz` (725389 bytes, SHA-256
-`1e680cbc09b5bbab7a5a00e9eab60a6688a3da7f6a65c482791caf0a2c8aff3c`), and its embedded
+deterministic package is `dist/atlynProfileLens.1.9.1.3.pbiviz` (725388 bytes, SHA-256
+`4bf4c8bdb99c6c63bc25f62aeac4395b2970e1cf9949497f0934c590263a6828`), and its embedded
 payload is 3318314 bytes with SHA-256
-`11f7911749da859998d503b865ea26d924fadf6e76afb2d0e1c786164242aa98`.
-The generated PBIP embeds that exact payload. No 1.9.1.3 PBIX or native evidence exists, and the
-validated 1.9.1.2 PBIX must not be reused or relabeled. The full native checklist, screenshots,
-and separate Power BI certification badge remain unclaimed.
+`f57f3b5608a4b5bb03076eb98aaf233915b0e37a50a9ab3f68bc3ad9d99751f5`.
+The generated PBIP embeds that exact payload. Any 1.9.1.3 PBIX created from the earlier four-segment
+package is stale after the County completion fix and is not native evidence for this package. The
+validated 1.9.1.2 PBIX must not be reused or relabeled. The full native checklist, screenshots, and
+separate Power BI certification badge remain unclaimed.
 
 Current unsubmitted fallback candidate: **1.9.1.3**, GUID `atlynProfileLens`, API metadata `5.11.0`
 (`pbiviz.json`) with API package 5.11.1 (`package.json`). The package intentionally exports
@@ -61,6 +62,13 @@ PBIVIZ into the sample report), unit tests, packaged-browser probes, `audit:cert
 `sampleReport.pbix = null` and refuses to run unlocked if a PBIX appears
 (`scripts/release-manifest.cjs:45-52`). A prior-version PBIX does not change that field and is not
 accepted as evidence.
+
+As of 2026-10-03, the production dependency audit is clean and `probe-image-size` is pinned to the
+fixed 7.4.0 release. The complete development audit is blocked by
+`GHSA-vfj7-8cjw-p6xm`: Power BI Visual Tools 7.2.1 reaches `braces` 3.0.3 through
+`webpack-dev-server`, while 3.0.3 remains the newest published `braces` version and Tools 7.2.2 is
+not available from the configured npm feed. Do not use npm's suggested downgrade to Tools 1.7.2 or
+claim the complete audit passes until Microsoft publishes an installable fixed toolchain.
 
 Gate: exit code 0 and a `dist/release-manifest.json` naming the commit, GUID, version, API version,
 and PBIVIZ SHA-256 intended for release.

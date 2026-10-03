@@ -17,8 +17,8 @@ Replace the PBIX placeholder only after a matching 1.9.1.3 PBIX has been created
 >
 > Upload the exact matching 1.9.1.3 artifacts recorded by the release validation:
 >
-> - `atlynProfileLens.1.9.1.3.pbiviz` — 725389 bytes — SHA-256
->   `1e680cbc09b5bbab7a5a00e9eab60a6688a3da7f6a65c482791caf0a2c8aff3c`
+> - `atlynProfileLens.1.9.1.3.pbiviz` — 725388 bytes — SHA-256
+>   `4bf4c8bdb99c6c63bc25f62aeac4395b2970e1cf9949497f0934c590263a6828`
 > - matching 1.9.1.3 PBIX — record validated bytes and SHA-256
 >
 > In Power BI Desktop, open `AtlynProfileLensSample.pbix`. The report contains two pages, synthetic
@@ -36,7 +36,7 @@ Replace the PBIX placeholder only after a matching 1.9.1.3 PBIX has been created
 >    profile bindings are incomplete.
 >
 > The PBIVIZ contains exactly one `atlynProfileLens` payload (3318314 bytes; SHA-256
-> `11f7911749da859998d503b865ea26d924fadf6e76afb2d0e1c786164242aa98`). The PBIX must
+> `f57f3b5608a4b5bb03076eb98aaf233915b0e37a50a9ab3f68bc3ad9d99751f5`). The PBIX must
 > embed that exact payload and have two active canonical PBIR references. The package declares empty
 > privileges and makes no external requests.
 

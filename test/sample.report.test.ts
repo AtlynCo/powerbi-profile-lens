@@ -2,6 +2,7 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { describe, expect, it } from "vitest";
+import { LIMITS } from "../src/model/contract";
 
 const root = path.resolve(__dirname, "..");
 const sample = path.join(root, "samples", "AtlynProfileLensSample");
@@ -212,6 +213,33 @@ describe("offline PBIP validation sample", () => {
         const worldKeys = new Set((world.match(/\{"[A-Z][A-Z:0-9]{2,7}", /gu) ?? [])
             .map((row) => row.slice(2, -3)));
         expect(worldKeys.size).toBeGreaterThanOrEqual(150);
+    });
+
+    it("fits the complete county hierarchy within five bounded host windows", () => {
+        const capabilities = readJson(path.join(root, "capabilities.json")) as {
+            dataViewMappings: Array<{
+                matrix: {
+                    rows: {
+                        dataReductionAlgorithm: {
+                            window: { count: number };
+                        };
+                    };
+                };
+            }>;
+        };
+        const countyRows = readTable("CountyProfiles").match(/\{"\d{5}", /gu) ?? [];
+        const countyCount = new Set(countyRows.map((row) => row.slice(2, 7))).size;
+        const hierarchyNodes = countyCount + countyRows.length;
+        const windowSize = capabilities.dataViewMappings[0]
+            .matrix.rows.dataReductionAlgorithm.window.count;
+
+        expect(countyCount).toBe(3235);
+        expect(countyRows).toHaveLength(3235 * 5);
+        expect(hierarchyNodes).toBe(19410);
+        expect(hierarchyNodes).toBeGreaterThan(windowSize * 4);
+        expect(hierarchyNodes).toBeLessThanOrEqual(windowSize * LIMITS.maxSegmentRequests);
+        expect(countyRows.length * 2).toBeLessThan(LIMITS.maxRetainedCells);
+        expect(countyCount).toBeLessThan(LIMITS.maxEntities);
     });
 
     it("declares the focused showcase as the World hero followed by complete counties", () => {
