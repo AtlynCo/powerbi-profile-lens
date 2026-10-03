@@ -202,19 +202,23 @@ describe("visual lifecycle", () => {
         expect(targets(mock.element)[0].getAttribute("aria-label")).toContain("Metric A");
     });
 
-    it("requests more data at most once per bounded segment budget", () => {
+    it("requests four appended segments and preserves the fifth-segment partial diagnostic", () => {
         const { mock, visual } = mount();
-        const segmented = buildMatrixDataView({
+        const segmented = () => buildMatrixDataView({
             entities: ["Entity A"],
             bands: ["Band 1"],
             profiles: ["Metric A"],
             segment: true
         });
-        visual.update(updateOptions(segmented));
-        expect(mock.fetchMoreData).toHaveBeenCalledTimes(1);
+        visual.update(updateOptions(segmented()));
+        for (let segment = 1; segment < 5; segment++) {
+            visual.update(updateOptions(segmented(), undefined, { operationKind: 1 }));
+        }
+        expect(mock.fetchMoreData).toHaveBeenCalledTimes(4);
         const codes = [...mock.element.querySelectorAll(".profile-lens-diagnostic")]
             .map((node) => node.getAttribute("data-code"));
         expect(codes).toContain("partialData");
+        expect(codes).toContain("segmentLimitReached");
     });
 
     it("does not request segments in eager or report-driven detail modes", () => {

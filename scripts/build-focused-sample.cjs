@@ -90,6 +90,9 @@ Atlyn Profile Lens ${manifest.visual.version} visual.
 2. **USA Counties lens** — all 3,235 packaged counties and equivalents have deterministic synthetic
    profiles, so every county reached by the center probe updates the graph.
 
+Both pages include a visible Hints & tips banner covering probe navigation, zoom, profile reading,
+and Home/Reset behavior.
+
 The project is offline-only, uses no external data source, and contains only synthetic DAX
 \`DATATABLE\` values. Open \`${sampleName}.pbip\` in Power BI Desktop. This generator does not
 produce or claim a PBIX.
@@ -104,20 +107,30 @@ if (
     throw new Error(`Focused sample page set is invalid: ${actualPages.join(", ")}`);
 }
 
-const visualDefinitions = [];
+const customVisualDefinitions = [];
+const guidanceDefinitions = [];
 for (const pageName of FOCUSED_PAGE_NAMES) {
     const visualsRoot = path.join(pagesRoot, pageName, "visuals");
     for (const visualName of fs.readdirSync(visualsRoot).sort()) {
         const visualPath = path.join(visualsRoot, visualName, "visual.json");
         const visual = readJson(visualPath);
-        if (visual.visual?.visualType !== guid) {
-            throw new Error(`Focused sample visual does not reference ${guid}: ${visualPath}`);
+        if (visual.visual?.visualType === guid) {
+            customVisualDefinitions.push(path.relative(targetRoot, visualPath));
+        } else if (
+            visual.visual?.visualType === "textbox"
+            && visual.name === `guidance${pageName}`
+        ) {
+            guidanceDefinitions.push(path.relative(targetRoot, visualPath));
+        } else {
+            throw new Error(`Focused sample contains an unexpected visual: ${visualPath}`);
         }
-        visualDefinitions.push(path.relative(targetRoot, visualPath));
     }
 }
-if (visualDefinitions.length !== 2) {
-    throw new Error(`Focused sample must contain exactly two visual definitions, found ${visualDefinitions.length}.`);
+if (customVisualDefinitions.length !== 2 || guidanceDefinitions.length !== 2) {
+    throw new Error(
+        "Focused sample must contain two Profile Lens visuals and two guidance textboxes; "
+        + `found ${customVisualDefinitions.length} and ${guidanceDefinitions.length}.`
+    );
 }
 
 (async () => {

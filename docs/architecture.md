@@ -165,7 +165,11 @@ scan on normal pointer moves.
 ## Detail loading
 
 `auto`, `eager`, `segmented`, and `external` are user-selectable. Auto chooses segmented when the
-DataView has a segment marker, otherwise eager. Segmented loading requests at most four segments.
+DataView has a segment marker, otherwise eager. Segmented loading accepts at most five segments,
+which covers the complete 3,235-county by five-band certification sample within the 4,000-row host
+window while retaining the 4,000-entity and 120,000-cell safety guards. If the host still advertises
+another segment at that bound, the visual stops and displays its partial-data and segment-limit
+diagnostics.
 External loading treats report filters as authoritative.
 
 `matrixExpand` remains an internal unavailable interface. Capabilities do not declare

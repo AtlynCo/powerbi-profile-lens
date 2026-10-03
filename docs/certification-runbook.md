@@ -9,41 +9,43 @@ about Microsoft certification, approval, submission, or listing. The submission 
 
 PR [#28](https://github.com/AtlynCo/powerbi-profile-lens/pull/28) was merged as
 `0c5caaa7abc244cc41fd484b27aa5d1157a50c18`; `main` and the public lowercase
-`certification` branch matched at that release source before this metadata follow-up. The latest
-Partner Center report flags only 100.14.1 Testing Instructions and 100.6.1 Privacy Policy. The
-required certification-notes field was empty, and the corporate privacy page did not explicitly name
-Atlyn Profile Lens. This repository makes no Microsoft certification claim.
+`certification` branch matched at that release source before this metadata follow-up. Version 1.9.1.2
+published to Marketplace on 2026-09-29 after certification passed with notes. The
+official report records a soft required fix under Policy 1180.2.3.1: include hints and tips in the
+required sample file and resubmit with the next submission. The separate Power BI certification
+badge has not been independently verified.
 
-The deterministic 1.9.1.2 package is `dist/atlynProfileLens.1.9.1.2.pbiviz` (725371 bytes,
-SHA-256 `447c985f36407fd044648605b688e0385ea37612c22cfaece4fa35242bd46c23`).
-Its embedded `atlynProfileLens` payload is 3318289 bytes with SHA-256
-`50139e119669346310e0934cd7acd59cfcdb3fb7b047110053d515922fd75c25`.
-The generated PBIP embeds that exact payload and resolves active visual references through canonical
-PBIR `Report/definition/pages/**/visuals/**/visual.json` definitions. The final owner-created PBIX is
-1191138 bytes with SHA-256
-`af5c8c588592013fe4e03ccfeb0af405bb5f9544a1064d59b09f41c424c01563`. It was
-saved and reopened with unchanged bytes and passes exact payload parity with two active canonical
-PBIR references. The full native checklist, screenshots, Microsoft certification, and successful
-Partner Center publication remain unclaimed.
+The published release uses the validated 1.9.1.2 package/PBIX pair and must not be changed.
+This separate fallback candidate is **1.9.1.3**, GUID `atlynProfileLens`, API metadata `5.11.0`
+from the `powerbi-visuals-api` 5.11.1 package. Its
+deterministic package is `dist/atlynProfileLens.1.9.1.3.pbiviz` (725388 bytes, SHA-256
+`4bf4c8bdb99c6c63bc25f62aeac4395b2970e1cf9949497f0934c590263a6828`), and its embedded
+payload is 3318314 bytes with SHA-256
+`f57f3b5608a4b5bb03076eb98aaf233915b0e37a50a9ab3f68bc3ad9d99751f5`.
+The generated PBIP embeds that exact payload. Any 1.9.1.3 PBIX created from the earlier four-segment
+package is stale after the County completion fix and is not native evidence for this package. The
+validated 1.9.1.2 PBIX must not be reused or relabeled. The full native checklist, screenshots, and
+separate Power BI certification badge remain unclaimed.
 
-Current release candidate: **1.9.1.2**, GUID `atlynProfileLens`, API `5.11.0`
-(`package.json`, `pbiviz.json`). Latest published API is 5.11.1 (BLEU cloud enum addition only);
-the audit pins `5.11.0` exactly (`scripts/certification-audit.cjs:82,165`), so do not bump the API
-without coordinated changes to `package.json`, `package-lock.json`, `src/runtimeLicenses.ts`, and
-both audit assertions.
+Current unsubmitted fallback candidate: **1.9.1.3**, GUID `atlynProfileLens`, API metadata `5.11.0`
+(`pbiviz.json`) with API package 5.11.1 (`package.json`). The package intentionally exports
+major/minor metadata as `5.11.0`. API package 5.11.1 adds the BLEU sovereign-cloud enum; Profile
+Lens does not use Authentication or licensing APIs, so it requires no cloud-specific runtime branch. The
+official tools 7.2.2 release is not available from the configured npm registry/version list; retain
+the reproducible installable 7.2.1 tool until Microsoft publishes an installable package.
 
 ## 0. Machine prerequisites
 
 | Requirement | Why | Verified 2026-08-22 |
 |---|---|---|
-| Node.js >= 20.10 on PATH | every `scripts/*.cjs`, vitest, Playwright, pbiviz, and the sealing calls inside the PowerShell harness (`scripts/native-validation/run-desktop-validation.ps1:99,111,117,144,149,270,464,…`) | **absent** |
+| Node.js >= 20.19 on PATH | required by Power BI Visual Tools 7.2.1 and used by every `scripts/*.cjs`, Vitest, Playwright, pbiviz, and the sealing calls inside the PowerShell harness | verify on the execution host |
 | npm | `npm ci`, `validate:certification` chain (`package.json:39`) | **absent** |
 | PowerShell 7 (`pwsh`) on PATH | `scripts/pbix-publication-lock.cjs:18` spawns `pwsh` by name; the harness also uses the .NET Core 3-argument `System.IO.File.Move(src, dst, $true)` overload (`run-desktop-validation.ps1:756,805`) that Windows PowerShell 5.1 (.NET Framework) does not have | **absent** |
 | Power BI Desktop at `C:\Program Files\Microsoft Power BI Desktop\bin\PBIDesktop.exe` | hardcoded owned-process path (`desktop-guard.ps1:186`) | present, `2.157.879.0 (26.08)` |
 | Exclusive interactive desktop session | guard refuses input unless the owned window is proven foreground (`desktop-guard.ps1:199-217`); no other app may steal focus mid-run | owner judgement |
 | PBIDesktop not running | startup blocker (`run-desktop-validation.ps1:72-74`) | satisfied |
 
-Install order on a fresh machine: Node LTS >= 20.10 → `npm ci` → PowerShell 7 →
+Install order on a fresh machine: Node LTS >= 20.19 → `npm ci` → PowerShell 7 →
 `npm run validate:certification`.
 
 ## 1. Automated baseline
@@ -60,6 +62,13 @@ PBIVIZ into the sample report), unit tests, packaged-browser probes, `audit:cert
 `sampleReport.pbix = null` and refuses to run unlocked if a PBIX appears
 (`scripts/release-manifest.cjs:45-52`). A prior-version PBIX does not change that field and is not
 accepted as evidence.
+
+As of 2026-10-03, the production dependency audit is clean and `probe-image-size` is pinned to the
+fixed 7.4.0 release. The complete development audit is blocked by
+`GHSA-vfj7-8cjw-p6xm`: Power BI Visual Tools 7.2.1 reaches `braces` 3.0.3 through
+`webpack-dev-server`, while 3.0.3 remains the newest published `braces` version and Tools 7.2.2 is
+not available from the configured npm feed. Do not use npm's suggested downgrade to Tools 1.7.2 or
+claim the complete audit passes until Microsoft publishes an installable fixed toolchain.
 
 Gate: exit code 0 and a `dist/release-manifest.json` naming the commit, GUID, version, API version,
 and PBIVIZ SHA-256 intended for release.
@@ -130,10 +139,11 @@ native window after the run; do not submit Chromium mockups.
 ## 6. Submission mechanics (owner-controlled)
 
 1. Confirm the exact reviewed commit and submitted `.pbiviz` in Microsoft's certification record.
-2. After review, promote the same metadata commit to both `main` and lowercase `certification`
-   without rebuilding or replacing the 1.9.1.2 artifacts.
+2. Do not promote this candidate to `main` or lowercase `certification` without an explicit
+   corrective-release decision. Promote only the exact source and matching artifacts selected for
+   the next submission.
 3. Confirm `docs/partner-center-submission.md` values: support
-   `https://www.atlynco.com/docs/faq`, product privacy
+   `https://atlynco.github.io/atlyn-powerbi-support/docs/faq/`, product privacy
    `https://github.com/AtlynCo/powerbi-profile-lens/blob/certification/PRIVACY.md`, terms
    `https://www.atlynco.com/legal/terms`, EULA.md, THIRD_PARTY_NOTICES.md, and
    `assets/partner-center-logo-300x300.png`.

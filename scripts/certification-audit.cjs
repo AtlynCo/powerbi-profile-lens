@@ -48,7 +48,7 @@ const RUNTIME_LICENSE_MARKERS = [
     "d3-array 3.2.4",
     "InternMap 2.0.3",
     "topojson-client 3.1.0",
-    "powerbi-visuals-api 5.11.0",
+    "powerbi-visuals-api 5.11.1",
     "powerbi-visuals-utils-formattingmodel 7.1.0",
     "semver 7.8.5",
     "commander 2.20.3",
@@ -76,7 +76,7 @@ function assert(condition, message) {
 }
 
 assert(
-    manifest.visual.version === `${packageJson.version}.2`,
+    manifest.visual.version === `${packageJson.version}.3`,
     "pbiviz version must match the package version and certification release increment"
 );
 assert(manifest.apiVersion === "5.11.0", "apiVersion must be exactly 5.11.0");

@@ -53,6 +53,13 @@ const WORLD_50_KEYS = WORLD_50_FEATURES.map((entry) => entry.key);
 interface PickingMetrics {
     readonly elapsed: number;
     readonly mountElapsed: number;
+    readonly documentElapsed: number;
+    readonly styleElapsed: number;
+    readonly bundleElapsed: number;
+    readonly resourcesElapsed: number;
+    readonly harnessElapsed: number;
+    readonly harnessSetupElapsed: number;
+    readonly totalMountElapsed: number;
     readonly moves: number;
     readonly sceneFeatures: number;
     readonly pickingReads: number;
@@ -80,6 +87,17 @@ interface PickingMetrics {
     readonly pickingBackingWidth: number;
     readonly pickingBackingHeight: number;
     readonly totalBackingPixels: number;
+}
+
+interface MountTiming {
+    readonly documentElapsed: number;
+    readonly styleElapsed: number;
+    readonly bundleElapsed: number;
+    readonly resourcesElapsed: number;
+    readonly harnessElapsed: number;
+    readonly harnessSetupElapsed: number;
+    readonly runtimeElapsed: number;
+    readonly totalElapsed: number;
 }
 
 function assertCoherentPickingMetrics(metrics: PickingMetrics): void {
@@ -160,7 +178,9 @@ test.beforeAll(() => {
 async function mount(
     page: Page,
     options: Record<string, unknown> = {}
-): Promise<void> {
+): Promise<MountTiming> {
+    // Keep driver/file-injection phases visible, but measure the visual's synchronous mount in-page.
+    const started = Date.now();
     page.on("request", (request) => {
         const url = request.url();
         const remoteProtocols = ["http", "https", "ws", "wss"].map((scheme) => `${scheme}:`);
@@ -172,19 +192,26 @@ async function mount(
         '<!doctype html><html><head><meta charset="utf-8"></head>'
         + '<body style="margin:0"><div id="visual-root"></div></body></html>'
     );
+    const documentLoaded = Date.now();
     await page.addStyleTag({ path: stylePath });
+    const styleLoaded = Date.now();
     await page.addScriptTag({ path: bundlePath });
+    const bundleLoaded = Date.now();
     await page.evaluate(
         (resources) => {
             (window as unknown as { profileLensResources: unknown }).profileLensResources = resources;
         },
         JSON.parse(readFileSync(resourcesPath, "utf8"))
     );
+    const resourcesLoaded = Date.now();
     await page.addScriptTag({ path: harnessPath });
-    await page.evaluate((mountOptions) => {
-        return (window as unknown as {
+    const harnessLoaded = Date.now();
+    const runtimeElapsed = await page.evaluate((mountOptions) => {
+        const runtimeStarted = performance.now();
+        (window as unknown as {
             mountProfileLens: (options: unknown) => boolean;
         }).mountProfileLens(mountOptions);
+        return performance.now() - runtimeStarted;
     }, {
         width: 1280,
         height: 620,
@@ -195,6 +222,17 @@ async function mount(
         profiles: ["Metric A", "Metric B", "Metric C"],
         ...options
     });
+    const finished = Date.now();
+    return {
+        documentElapsed: documentLoaded - started,
+        styleElapsed: styleLoaded - documentLoaded,
+        bundleElapsed: bundleLoaded - styleLoaded,
+        resourcesElapsed: resourcesLoaded - bundleLoaded,
+        harnessElapsed: harnessLoaded - resourcesLoaded,
+        harnessSetupElapsed: harnessLoaded - started,
+        runtimeElapsed,
+        totalElapsed: finished - started
+    };
 }
 
 async function renderedForegroundAt(
@@ -3885,8 +3923,7 @@ test.describe("packaged visual in a real browser", () => {
             readonly devicePixelRatio: number;
         }> = [];
         for (const value of cases) {
-            const mountStarted = Date.now();
-            await mount(page, {
+            const timing = await mount(page, {
                 contextMode: "builtInPack",
                 contextPack: "usCounties",
                 navigationEnabled: true,
@@ -3899,7 +3936,6 @@ test.describe("packaged visual in a real browser", () => {
                 height: value.height,
                 devicePixelRatio: value.devicePixelRatio
             });
-            const mountElapsed = Date.now() - mountStarted;
             const interaction = await page.locator(".profile-lens-context").evaluate((node) => {
                 type Metrics = {
                     sceneFeatures: number;
@@ -4026,7 +4062,17 @@ test.describe("packaged visual in a real browser", () => {
                     scaled: after.pickingScaleX < 1 || after.pickingScaleY < 1
                 };
             });
-            const result = { ...interaction, mountElapsed };
+            const result = {
+                ...interaction,
+                mountElapsed: timing.runtimeElapsed,
+                documentElapsed: timing.documentElapsed,
+                styleElapsed: timing.styleElapsed,
+                bundleElapsed: timing.bundleElapsed,
+                resourcesElapsed: timing.resourcesElapsed,
+                harnessElapsed: timing.harnessElapsed,
+                harnessSetupElapsed: timing.harnessSetupElapsed,
+                totalMountElapsed: timing.totalElapsed
+            };
             expect(result.sceneFeatures).toBe(3235);
             assertCoherentPickingMetrics(result);
             expect(result.targetMapLookups).toBeGreaterThan(0);

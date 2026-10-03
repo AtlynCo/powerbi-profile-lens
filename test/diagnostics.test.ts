@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { DiagnosticCollector, messageKeyFor, severityOf } from "../src/model/diagnostics";
 import { SegmentTracker, mergeDiagnostics, withSegmentState } from "../src/model/segments";
+import { LIMITS } from "../src/model/contract";
 import { parseMatrix } from "../src/model/parseMatrix";
 import { buildMatrixDataView } from "./helpers/mockDataView";
 
@@ -67,14 +68,32 @@ describe("bounded segment accumulation", () => {
     });
 
     it("marks partial data and the segment limit as visible diagnostics", () => {
-        const tracker = new SegmentTracker(2);
+        const tracker = new SegmentTracker();
         tracker.register("shape-a", 0);
-        tracker.register("shape-a", 1);
+        for (let segment = 1; segment < LIMITS.maxSegmentRequests; segment++) {
+            tracker.register("shape-a", 1);
+        }
         const withState = withSegmentState(model(), tracker.state(true));
         const codes = withState.diagnostics.map((entry) => entry.code);
+        expect(withState.segments.requests).toBe(5);
+        expect(withState.segments.maxRequests).toBe(5);
         expect(withState.segments.partial).toBe(true);
         expect(codes).toContain("partialData");
         expect(codes).toContain("segmentLimitReached");
+    });
+
+    it("accepts a complete fifth segment without partial diagnostics", () => {
+        const tracker = new SegmentTracker();
+        tracker.register("shape-a", 0);
+        for (let segment = 1; segment < LIMITS.maxSegmentRequests; segment++) {
+            tracker.register("shape-a", 1);
+        }
+        const withState = withSegmentState(model(), tracker.state(false));
+        expect(withState.segments.requests).toBe(5);
+        expect(withState.segments.partial).toBe(false);
+        expect(withState.diagnostics.map((entry) => entry.code)).not.toContain("partialData");
+        expect(withState.diagnostics.map((entry) => entry.code))
+            .not.toContain("segmentLimitReached");
     });
 
     it("reports complete data without a partial diagnostic", () => {

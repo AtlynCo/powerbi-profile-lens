@@ -36,7 +36,7 @@ export const LIMITS = {
     maxBands: 100,
     maxTooltipFields: 10,
     maxRetainedCells: 120000,
-    maxSegmentRequests: 4,
+    maxSegmentRequests: 5,
     maxGeometryCharacters: 32000,
     maxGeometryCharactersPerUpdate: 2000000,
     maxContextFeatures: 1000,
